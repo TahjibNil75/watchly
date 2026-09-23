@@ -12,6 +12,7 @@ from app.db.base import Base
 # Importing the model modules registers every table on Base.metadata so that
 # `alembic revision --autogenerate` can see them. Add new model modules here.
 import app.db.models  # noqa: F401
+import app.monitoring.notifications.models  # noqa: F401
 import app.monitoring.projects.models  # noqa: F401
 import app.monitoring.websites.models  # noqa: F401
 

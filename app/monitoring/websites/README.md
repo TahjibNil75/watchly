@@ -39,7 +39,7 @@ Deleting a project deletes its websites, which deletes their check history.
 | ------------- | ---------------------------------------------------------------- |
 | `models.py`   | `Website` (config + live state) and `WebsiteCheck` (poll history) |
 | `schemas.py`  | request/response contracts and their validation rules            |
-| `checker.py`  | the HTTP probe — turns a URL into a `CheckResult`                |
+| `checker.py`  | the HTTP probe (and, every few hours, the certificate read) — turns a URL into a `CheckResult` |
 | `service.py`  | CRUD, filtering, and "which sites are due for a check"           |
 | `routes.py`   | the HTTP endpoints below                                          |
 
@@ -47,11 +47,11 @@ The pieces they talk to live one level up:
 
 | file                            | role                                        |
 | ------------------------------- | ------------------------------------------- |
-| `../service.py`                 | the outage state machine and alert dispatch |
-| `../scheduler.py`               | the background loop that drives everything  |
+| `../service.py`                 | the outage state machine, plus slow-response and SSL-expiry tracking |
+| `../scheduler.py`               | the background loop that drives everything, and the monthly reports |
 | `../projects/`                  | projects and membership                     |
-| `../alerts/email.py`            | SMTP delivery (the wired-up channel)        |
-| `../alerts/slack.py` `webhook.py` | off unless their URL is configured        |
+| `../alerts/`                    | what each notification looks like, per channel (email, Slack, webhook) |
+| `../notifications/`             | per-project switches and editable wording, and the monthly report |
 
 ---
 
@@ -306,7 +306,7 @@ credentials.
 | `POST` | `/auth/signup` | `201 409 422` |
 | `POST` | `/auth/login` | `200 401 403 422` |
 
-Signup always creates a `viewer`; the role cannot be set from the payload.
+Signup always creates a `Viewer`; the role cannot be set from the payload.
 Login accepts a username **or** an email in the `identifier` field. A suspended
 user is refused with `403` until reactivated.
 

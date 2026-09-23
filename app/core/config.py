@@ -2,7 +2,7 @@ import json
 from functools import lru_cache
 from typing import Annotated
 
-from pydantic import EmailStr, field_validator
+from pydantic import EmailStr, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -85,6 +85,30 @@ class Settings(BaseSettings):
 
     ALERT_WEBHOOK_URL: str = ""
 
+    # --- Site problems short of "down" -------------------------------------
+    #: Read each HTTPS site's certificate and warn before it expires.
+    SSL_CHECK_ENABLED: bool = True
+    #: How often a site's certificate is re-read. Expiry moves in days, so
+    #: probing on every check would only add load.
+    SSL_CHECK_INTERVAL_SECONDS: int = 21_600
+    #: Warn when this many days (or fewer) remain, once per threshold. An
+    #: already-expired certificate always warns. NoDecode: see ALERT_DEFAULT_EMAILS.
+    SSL_EXPIRY_ALERT_DAYS: Annotated[list[int], NoDecode] = [1, 3, 7, 14]
+    #: A successful response slower than this counts as "slow". 0 turns slow
+    #: alerts off; a website can set its own threshold.
+    SLOW_RESPONSE_THRESHOLD_MS: int = 3000
+    #: Consecutive slow checks before alerting, so one bad request stays quiet.
+    SLOW_RESPONSE_CHECKS: int = 3
+    #: After a slow alert, stay quiet at least this long for the same site.
+    SLOW_ALERT_COOLDOWN_SECONDS: int = 21_600
+
+    # --- Monthly uptime report --------------------------------------------
+    MONTHLY_REPORTS_ENABLED: bool = True
+    #: Day of the month to send the previous month's report. Capped at 28 so
+    #: it exists in every month.
+    MONTHLY_REPORT_DAY: int = Field(default=1, ge=1, le=28)
+    MONTHLY_REPORT_HOUR_UTC: int = Field(default=6, ge=0, le=23)
+
     @field_validator("ALERT_DEFAULT_EMAILS", mode="before")
     @classmethod
     def _split_emails(cls, value: object) -> object:
@@ -93,6 +117,22 @@ class Settings(BaseSettings):
             if value.strip().startswith("["):
                 return json.loads(value)
             return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("SSL_EXPIRY_ALERT_DAYS", mode="before")
+    @classmethod
+    def _split_days(cls, value: object) -> object:
+        """Accept `14,7,3,1` as well as a JSON list; returned ascending."""
+        if isinstance(value, str):
+            if value.strip().startswith("["):
+                value = json.loads(value)
+            else:
+                value = [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            days = sorted({int(item) for item in value})
+            if any(day < 1 for day in days):
+                raise ValueError("SSL_EXPIRY_ALERT_DAYS entries must be 1 or more")
+            return days
         return value
 
     @property

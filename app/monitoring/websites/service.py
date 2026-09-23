@@ -161,6 +161,13 @@ class WebsiteService:
             # Optional in the payload but NOT NULL in the table.
             changes.pop("inherit_project_recipients", None)
 
+        if "url" in changes and changes["url"] != website.url:
+            # The certificate state describes the old host. Clearing it makes
+            # the next check read the new one and warn afresh.
+            website.ssl_expires_at = None
+            website.ssl_checked_at = None
+            website.ssl_alert_bucket = None
+
         for field, value in changes.items():
             setattr(website, field, value)
 

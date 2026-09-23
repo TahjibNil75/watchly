@@ -1,0 +1,39 @@
+// Mirrors app/core/permissions.py so the UI only offers actions that will
+// succeed. These are hints, not security: the API enforces every rule itself.
+
+export const ROLES = ['Viewer', 'Developer', 'Project Manager', 'DevOps', 'Admin']
+
+const ROLE_MANAGERS = ['Admin', 'DevOps']
+const USER_MANAGERS = [...ROLE_MANAGERS, 'Project Manager']
+
+const SUSPENDABLE_BY = {
+  admin: ROLES,
+  DevOps: ['Viewer', 'Developer', 'Project Manager'],
+  'Project Manager': ['DevOps', 'Developer', 'Viewer'],
+}
+
+export const canManageUsers = (user) => USER_MANAGERS.includes(user.role)
+
+// PROJECT_CREATORS is currently the same set as USER_MANAGERS.
+export const canCreateProjects = (user) => USER_MANAGERS.includes(user.role)
+
+// The defaults every project inherits. Projects are edited by whoever can
+// manage them, via canManageProject.
+export const canEditNotificationDefaults = (user) => ROLE_MANAGERS.includes(user.role)
+
+export function canManageProject(user, project) {
+  if (ROLE_MANAGERS.includes(user.role)) return true
+  return user.role === 'Project Manager' && project?.owner_id === user.id
+}
+
+export function canChangeRole(actor, target) {
+  if (actor.id === target.id) return false
+  if (actor.role === 'Admin') return true
+  if (actor.role === 'DevOps') return !ROLE_MANAGERS.includes(target.role)
+  return false
+}
+
+export function canSuspend(actor, target) {
+  if (actor.id === target.id) return false
+  return (SUSPENDABLE_BY[actor.role] ?? []).includes(target.role)
+}

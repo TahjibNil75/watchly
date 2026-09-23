@@ -10,7 +10,7 @@ from pydantic import (
 )
 
 from app.monitoring.projects.schemas import ProjectMemberRead
-from app.monitoring.websites.models import WebsiteStatus
+from app.monitoring.websites.models import WebsiteEnvironment, WebsiteStatus
 
 HTTP_METHODS = frozenset({"GET", "HEAD", "POST", "OPTIONS"})
 
@@ -29,6 +29,19 @@ class WebsiteBase(BaseModel):
         description="Alerts per outage: the immediate one plus follow-ups.",
     )
     is_enabled: bool = True
+    environment: WebsiteEnvironment | None = Field(
+        default=None,
+        description="Which deployment this is: development, testing, uat, staging or production.",
+    )
+    slow_threshold_ms: int | None = Field(
+        default=None,
+        ge=1,
+        le=120_000,
+        description=(
+            "Alert when successful responses stay slower than this. Leave null "
+            "to use the server-wide SLOW_RESPONSE_THRESHOLD_MS."
+        ),
+    )
     alert_emails: list[EmailStr] = Field(
         default_factory=list,
         description=(
@@ -93,6 +106,15 @@ class WebsiteUpdate(BaseModel):
     check_interval_seconds: int | None = Field(default=None, ge=30, le=86_400)
     max_down_alerts: int | None = Field(default=None, ge=1, le=50)
     is_enabled: bool | None = None
+    environment: WebsiteEnvironment | None = Field(
+        default=None, description="Send null to clear it."
+    )
+    slow_threshold_ms: int | None = Field(
+        default=None,
+        ge=1,
+        le=120_000,
+        description="Send null to go back to the server-wide default.",
+    )
     alert_emails: list[EmailStr] | None = Field(
         default=None, description="Replaces the whole list when supplied."
     )
@@ -139,6 +161,8 @@ class WebsiteRead(BaseModel):
     check_interval_seconds: int
     max_down_alerts: int
     is_enabled: bool
+    environment: WebsiteEnvironment | None = None
+    slow_threshold_ms: int | None = None
     recipients: list[WebsiteRecipientRead]
     alert_emails: list[str]
     inherit_project_recipients: bool
@@ -152,6 +176,10 @@ class WebsiteRead(BaseModel):
     down_since: datetime | None
     consecutive_failures: int
     down_alerts_sent: int
+    ssl_expires_at: datetime | None = Field(
+        default=None,
+        description="When the HTTPS certificate ends; null for plain HTTP or before the first read.",
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -169,5 +197,8 @@ class CheckNowResponse(BaseModel):
     website: WebsiteRead
     check: WebsiteCheckRead
     alert_sent: str | None = Field(
-        default=None, description="Which alert fired, if any: down/still_down/recovered."
+        default=None, description=(
+            "Which notification the check raised, if any: down, still_down, "
+            "recovered, ssl_expiring or slow_response."
+        )
     )

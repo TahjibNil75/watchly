@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal, engine
+from app.monitoring.notifications.reports import ReportService
 from app.monitoring.service import MonitoringService
 
 logger = logging.getLogger(__name__)
@@ -26,9 +27,19 @@ TICK_LOCK_KEY = 0x7A7C_4C59
 
 
 async def run_tick() -> int:
-    """Run one round of due checks. Returns how many websites were probed."""
+    """Run one round of due checks, then any monthly reports that are due.
+
+    Returns how many websites were probed.
+    """
     async with AsyncSessionLocal() as session:
         outcomes = await MonitoringService(session).run_due_checks()
+    try:
+        # A separate session, and its own guard: a report that fails must not
+        # take the tick's check results down with it.
+        async with AsyncSessionLocal() as session:
+            await ReportService(session).send_due_reports()
+    except Exception:
+        logger.exception("Monthly report run failed; continuing.")
     return len(outcomes)
 
 

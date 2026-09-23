@@ -30,11 +30,20 @@ app/
       service.py     # WebsiteService — CRUD, due-selection
       checker.py     # the HTTP probe
       routes.py      # website endpoints
-    alerts/
-      base.py        # AlertEvent, WebsiteSnapshot, Alerter interface
-      email.py       # SMTP — the wired-up channel
-      slack.py       # per-project bot token + channel (chat.postMessage)
+    alerts/          # what gets sent, and how each channel draws it
+      base.py        # NotificationKind, the channel-neutral Message, Alerter interface
+      events.py      # outage / SSL / slow / monthly-report events
+      email.py       # SMTP — HTML + plain-text layouts
+      slack.py       # Block Kit + per-project bot token and channel
       webhook.py     # generic JSON POST (off unless configured)
+    notifications/   # who wants what, in which words
+      catalog.py     # the kinds, their placeholders, the built-in wording
+      templating.py  # {{placeholder}} substitution, escaping per channel
+      service.py     # settings: project override > global > built-in default
+      dispatcher.py  # look up settings, render, fan out to channels
+      reports.py     # monthly uptime report: stats, schedule, send
+      models.py      # notification_settings, report_deliveries
+      routes.py      # settings, preview and report endpoints
   core/
     config.py        # pydantic-settings, DB DSNs, JWT settings
     security.py      # generate_hash_password / verify_password (bcrypt)
@@ -54,10 +63,45 @@ app/
   main.py            # FastAPI app
 alembic/             # migration environment (async)
 alembic.ini
-docker-compose.yml   # local PostgreSQL 16
+docker-compose.yml   # PostgreSQL 16 + API + web UI
+Dockerfile           # API image (migrates and seeds on start)
+docker/              # container entrypoint
 ```
 
 ## Setup
+
+New to the project? [`doc/local-setup.md`](doc/local-setup.md) walks through
+running Watchly from a fresh clone, seeing alert emails locally, developing
+with hot reload, and troubleshooting.
+
+### Everything in Docker
+
+```bash
+docker compose up -d --build
+```
+
+| service | URL | what it is |
+| ------- | --- | ---------- |
+| `web` | http://localhost:8080 | React UI; nginx also proxies `/api` to the API |
+| `api` | http://localhost:8000/docs | FastAPI + the monitoring scheduler |
+| `db`  | `localhost:5432` | PostgreSQL 16, data in the `watchly_pgdata` volume |
+
+The API container runs `alembic upgrade head` and seeds the admin every time
+it starts. Both steps are idempotent, so sign in at http://localhost:8080 as
+`admin` / `Admin@123`.
+
+A `.env` file is optional. Without one, the defaults from `app/core/config.py`
+apply (and the API warns that `SECRET_KEY` is the default). With one, every
+setting in it reaches the API, except `POSTGRES_HOST` and `POSTGRES_PORT`:
+compose points those at the `db` container. Set `WEB_PORT`, `API_PORT` or
+`POSTGRES_PORT` to move the published ports.
+
+After changing code, rebuild the affected service with
+`docker compose up -d --build api` (or `web`). `docker compose logs -f api`
+shows the scheduler and probe output. `docker compose down` stops everything,
+and `docker compose down -v` also deletes the database.
+
+### Running the API on the host
 
 ```bash
 python3 -m venv .venv
@@ -66,7 +110,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Start PostgreSQL:
+Start only PostgreSQL:
 
 ```bash
 docker compose up -d db
@@ -87,6 +131,17 @@ uvicorn app.main:app --reload
 
 Docs at http://127.0.0.1:8000/docs, health check at `/health`.
 
+Run the web UI (needs Node 20+):
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+It serves on http://localhost:5173 and proxies API calls to port 8000. See
+[`frontend/README.md`](frontend/README.md).
+
+- [`doc/local-setup.md`](doc/local-setup.md) — running it locally from scratch,
+  step by step
 - [`doc/hld.md`](doc/hld.md) — high-level design: architecture, data model,
   key flows and known limits
 - [`doc/apis.md`](doc/apis.md) — every endpoint with a one-line description
@@ -100,7 +155,7 @@ Docs at http://127.0.0.1:8000/docs, health check at `/health`.
 | username | `admin`           |
 | email    | `admin@gmail.com` |
 | password | `Admin@123`       |
-| role     | `admin`           |
+| role     | `Admin`           |
 
 Overridable via the `FIRST_ADMIN_*` variables in `.env`. `seed_admin()` is
 idempotent — it skips if the username or email already exists.
@@ -109,7 +164,7 @@ idempotent — it skips if the username or email already exists.
 
 ### `POST /api/v1/auth/signup`
 
-Registers an account. The role is **always** `viewer` — it is not accepted from
+Registers an account. The role is **always** `Viewer` — it is not accepted from
 the payload, so it cannot be escalated by the client.
 
 ```bash
@@ -123,7 +178,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/auth/signup \
 
 ```json
 {
-  "user": { "id": 2, "username": "jane", "role": "viewer", "...": "..." },
+  "user": { "id": 2, "username": "jane", "role": "Viewer", "...": "..." },
   "tokens": {
     "access_token": "eyJ...",
     "refresh_token": "eyJ...",
@@ -222,7 +277,7 @@ startup while it is still the default.
 
 ## User management
 
-Everyone who signs up is a `viewer`. **Admin and DevOps are peers** — both can
+Everyone who signs up is a `Viewer`. **Admin and DevOps are peers** — both can
 administer users; no other role can.
 
 | endpoint                             | who                           |
@@ -240,7 +295,7 @@ administer users; no other role can.
 ```bash
 curl -X PATCH http://127.0.0.1:8000/api/v1/users/7/role \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H 'Content-Type: application/json' -d '{"role":"developer"}'
+  -H 'Content-Type: application/json' -d '{"role":"Developer"}'
 
 curl -X PATCH http://127.0.0.1:8000/api/v1/users/7/suspend \
   -H "Authorization: Bearer $ACCESS_TOKEN"
@@ -251,7 +306,7 @@ Listing supports `limit` (1–100, default 50), `offset`, `role` and `is_active`
 ```bash
 curl -G http://127.0.0.1:8000/api/v1/users \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
-  --data-urlencode 'role=viewer' --data-urlencode 'limit=20'
+  --data-urlencode 'role=Viewer' --data-urlencode 'limit=20'
 ```
 
 | status | when                                              |
@@ -486,6 +541,87 @@ Verified sequence across a simulated 40-minute outage:
 down → still_down(5m) → still_down(10m) → still_down(15m) → [silence] → recovered(40m)
 ```
 
+### What else Watchly tells you about
+
+Beyond "down / still down / back up", each of these is its own notification
+kind, on by default and switchable per project:
+
+| kind | fires when | how often |
+| ---- | ---------- | --------- |
+| **SSL certificate expiring** | an HTTPS site's certificate has 14, 7, 3 or 1 days left (`SSL_EXPIRY_ALERT_DAYS`), and once more if it expires | once per threshold; renewing the certificate re-arms them |
+| **Slow response** | a *successful* response is slower than the site's threshold for `SLOW_RESPONSE_CHECKS` (3) checks in a row | then quiet for `SLOW_ALERT_COOLDOWN_SECONDS` (6 h) |
+| **Monthly uptime report** | the 1st of each month, 06:00 UTC, for the month before | once per project per month |
+
+The certificate is read every `SSL_CHECK_INTERVAL_SECONDS` (6 h) with
+verification off, so the end date is known even for an already-expired or
+untrusted certificate — the regular check is what reports those as **down**.
+A site's own slow threshold is `slow_threshold_ms`; leave it unset to use
+`SLOW_RESPONSE_THRESHOLD_MS` (3000). Set that to `0` to turn slow alerts off.
+
+### The monthly uptime report
+
+One message per project, to its members and extra emails (and to
+`ALERT_DEFAULT_EMAILS`) and to its Slack channel: average uptime, incidents and
+downtime as headline numbers, then every site worst-first with its uptime,
+downtime, incidents and average response time.
+
+The figures come from `website_checks` and are defined so they can be trusted:
+
+- **Uptime** = successful checks ÷ all checks. It is never rounded up to 100%
+  while a check failed (99.996% shows as 99.99%).
+- **Downtime** runs from a site's first failed check to the next successful one,
+  the same instant the recovery alert fires. An outage that spans the month
+  boundary counts from the 1st; one still open at month end counts to the end.
+- **Incidents** are the outages that overlapped the month.
+- Sites with no checks that month (paused, or newly added) are left out and
+  counted in a footnote.
+
+Each report is claimed in `report_deliveries` *before* it is sent, so a slow mail
+server or a second worker cannot send it twice — which also means a report that
+nobody received is not retried. If the API was down at the 1st, it is sent when
+it comes back, but only within 3 days; a project deployed on the 20th is not
+mailed last month's report. `POST /monitoring/projects/{id}/report` sends one
+on demand (this is what **Send last month's report now** does), and does not
+stop the scheduled one.
+
+> Reports read `website_checks`. If you wire up `purge_old_checks()`, keep at
+> least 35 days, or the report for the month just ended will be missing data.
+
+### Customizing notifications
+
+Every kind can be customized at two levels, and a project's own setting wins:
+
+1. **Global** — set by admin/DevOps under **Notifications** in the UI.
+2. **Per project** — on the project's page. Anything left alone follows global,
+   and global left alone follows the built-in wording.
+
+Each field resolves on its own, so a project can rewrite one subject and inherit
+everything else.
+
+| you can set | what it does |
+| ----------- | ------------ |
+| **Email on/off**, **Slack on/off** | per kind. The generic webhook has no switch — it is a global firehose. |
+| **Subject** | the email subject, and the Slack notification text |
+| **Message** | the text at the top of the email and Slack message |
+
+The layout, colours, facts table and the "what happens next" note are fixed
+per kind; the subject and message are yours. Templates use `{{placeholders}}`
+such as `{{project}}`, `{{website}}`, `{{summary}}` or `{{downtime}}` (each
+kind lists its own — the UI shows them as click-to-insert chips). It is plain
+substitution, not a template language, and unknown placeholders are refused on
+save with the list of valid ones. In Slack the message is mrkdwn, so `*bold*`
+and mentions like `<!channel>` work there.
+
+Values from the monitored site (error text, headers) are untrusted, so each
+channel escapes them for its own markup: a hostile response cannot inject HTML
+into an email or `<!channel>` into Slack. Your own template text is left alone.
+
+The **Site down** alert cannot be switched off on every channel — at the global
+level or for any project — because then nobody would hear about an outage.
+
+The editor previews the exact email and Slack message with sample data as you
+type. The same is available at `POST /monitoring/notifications/preview`.
+
 ### What an alert contains
 
 Everything a developer needs before opening a terminal — HTTP status and reason,
@@ -523,8 +659,9 @@ Any SMTP provider works — set `SMTP_HOST` and friends in `.env`:
 | Mailgun  | `smtp.mailgun.org` | 587 |
 
 Use `SMTP_USE_TLS=true` for port 587, or `SMTP_USE_SSL=true` for port 465.
-Slack and generic-webhook channels exist in `alerts/` and switch on as soon as
-`SLACK_WEBHOOK_URL` or `ALERT_WEBHOOK_URL` is set.
+Slack is set up per project; the generic-webhook channel switches on as soon as
+`ALERT_WEBHOOK_URL` is set, and `SLACK_WEBHOOK_URL` is a fallback for projects
+with no Slack of their own.
 
 ### The scheduler
 
@@ -561,11 +698,11 @@ an async engine, so `alembic.ini` intentionally leaves `sqlalchemy.url` blank.
 
 | member            | stored value      |
 | ----------------- | ----------------- |
-| `VIEWER`          | `viewer`          |
-| `ADMIN`           | `admin`           |
+| `VIEWER`          | `Viewer`          |
+| `ADMIN`           | `Admin`           |
 | `DEVOPS`          | `DevOps`          |
-| `PROJECT_MANAGER` | `project manager` |
-| `DEVELOPER`       | `developer`       |
+| `PROJECT_MANAGER` | `Project Manager` |
+| `DEVELOPER`       | `Developer`       |
 
 Adding or renaming a role means an `ALTER TYPE ... ADD VALUE` migration, not
 just an edit to the Python enum.

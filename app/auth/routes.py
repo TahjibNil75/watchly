@@ -45,7 +45,7 @@ async def signup(
     payload: SignupRequest,
     service: AuthService = Depends(get_auth_service),
 ) -> SignupResponse:
-    """Create a user with the `viewer` role and return an access/refresh pair."""
+    """Create a user with the `Viewer` role and return an access/refresh pair."""
     try:
         user = await service.signup(payload)
     except UserAlreadyExistsError as exc:

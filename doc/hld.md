@@ -33,7 +33,7 @@ deliberately, because the workload is small and bounded.
 
 | Actor / system | Role |
 | -------------- | ---- |
-| **People** | Five roles, from `admin` down to `viewer`. See §6. |
+| **People** | Five roles, from `Admin` down to `Viewer`. See §6. |
 | **Watchly** | The single deployable. Serves `/api/v1`, polls sites, sends alerts. |
 | **PostgreSQL** | The only persistent store. Also the coordination lock for multi-worker deployments. |
 | **Monitored websites** | Third-party targets. Watchly only ever sends them an HTTP request. |
@@ -133,26 +133,37 @@ workers and tests can use them.
 
 ```
 app/monitoring/
-├── routes.py       aggregates the two sub-routers
-├── service.py      MonitoringService — the outage state machine
-├── scheduler.py    the background loop + advisory lock
+├── routes.py       aggregates the sub-routers
+├── service.py      MonitoringService — the outage state machine, slow + SSL tracking
+├── scheduler.py    the background loop + advisory lock; also triggers monthly reports
 ├── projects/       Project, membership, alert-channel config
-├── websites/       Website, WebsiteCheck, the HTTP probe
-└── alerts/
-    ├── base.py     AlertEvent, WebsiteSnapshot, Alerter interface
-    ├── email.py    SMTP
-    ├── slack.py    per-project bot token + channel
-    └── webhook.py  generic JSON POST
+├── websites/       Website, WebsiteCheck, the HTTP + certificate probe
+├── alerts/         what is sent and how each channel draws it
+│   ├── base.py     NotificationKind, Message (channel-neutral), Alerter interface
+│   ├── events.py   OutageEvent, SslExpiryEvent, SlowResponseEvent, ReportEvent
+│   ├── email.py    SMTP: HTML + text layouts
+│   ├── slack.py    Block Kit; per-project bot token + channel
+│   └── webhook.py  generic JSON POST
+└── notifications/  who wants what, in which words
+    ├── catalog.py      kinds, placeholders, built-in wording
+    ├── templating.py   {{placeholder}} substitution, per-channel escaping
+    ├── service.py      settings: project > global > default
+    ├── dispatcher.py   Notifier + default_alerters()
+    ├── reports.py      monthly report: stats, schedule, send
+    └── routes.py       settings / preview / report endpoints
 ```
 
-Adding a channel means one new `Alerter` subclass and one line in
-`default_alerters()`; nothing in the state machine changes.
+An event says *what happened*; it composes itself into a channel-neutral
+`Message` (title, tone, text, facts); each channel only draws one. So adding a
+notification kind touches `events.py` and `catalog.py`, and adding a channel is
+one new `Alerter` subclass and one line in `default_alerters()` — the state
+machine changes in neither case.
 
 ---
 
 ## 4. Data model
 
-Six tables, two native Postgres enums, six Alembic migrations.
+Eight tables, three native Postgres enums, nine Alembic migrations.
 
 ```mermaid
 erDiagram
@@ -164,6 +175,8 @@ erDiagram
     users ||--o{ website_recipients : "is alerted about"
     websites ||--o{ website_recipients : "alerts its"
     websites ||--o{ website_checks : "poll history"
+    projects ||--o{ notification_settings : "overrides"
+    projects ||--o{ report_deliveries : "monthly reports sent"
 
     users {
         int id PK
@@ -201,10 +214,31 @@ erDiagram
         bool inherit_project_recipients "false = site list only"
         string slack_channel_id "overrides project"
         enum status "website_status"
+        enum environment "website_environment, null = unset"
         timestamptz last_checked_at
         timestamptz down_since
         int consecutive_failures
         int down_alerts_sent
+        int slow_threshold_ms "null = server default"
+        int slow_streak
+        timestamptz last_slow_alert_at
+        timestamptz ssl_expires_at
+        timestamptz ssl_checked_at
+        int ssl_alert_bucket "smallest days-left threshold warned"
+    }
+    notification_settings {
+        int id PK
+        int project_id FK "null = global level"
+        string kind "down, ssl_expiring, monthly_report ..."
+        bool email_enabled "null = inherit"
+        bool slack_enabled "null = inherit"
+        string subject "null = inherit"
+        text body "null = inherit"
+    }
+    report_deliveries {
+        int project_id PK
+        date period_start PK
+        text_array channels "empty = nobody received it"
     }
     website_recipients {
         int website_id PK
@@ -225,13 +259,19 @@ erDiagram
 
 **Enums** (native Postgres types, storing the declared string values):
 
-- `user_role` — `viewer`, `admin`, `DevOps`, `project manager`, `developer`
+- `user_role` — `Viewer`, `Admin`, `DevOps`, `Project Manager`, `Developer`
 - `website_status` — `unknown`, `up`, `down`
+- `website_environment` — `development`, `testing`, `uat`, `staging`, `production`
 
 **Cascades.** Deleting a project deletes its websites, which deletes their
 checks and `website_recipients` rows. Deleting a user nulls `projects.owner_id`
 and `websites.created_by_id` but removes their `project_members` and
 `website_recipients` rows.
+
+**`notification_settings` stores only what someone changed.** A row is one
+(project or global, kind) pair and every column is nullable, NULL meaning
+"inherit"; a project that customizes nothing has no rows. `kind` is a string
+rather than a Postgres enum so a new kind needs no `ALTER TYPE`.
 
 **The live outage state lives on `websites`**, not in memory: `status`,
 `down_since`, `consecutive_failures` and `down_alerts_sent`. A restart mid-outage
@@ -310,7 +350,8 @@ nothing further until the next outage.
 
 ```mermaid
 flowchart LR
-    E["AlertEvent raised"] --> R{"resolve recipients"}
+    E["notification raised"] --> T{"kind switched on<br/>for this project?<br/>(email / slack, per kind)"}
+    T --> R{"resolve recipients"}
     R -->|"unless the site sets<br/>inherit_project_recipients = false"| P["project"]
     P --> M["project members<br/>suspended users skipped"]
     P --> PE["project.extra_emails"]
@@ -437,7 +478,8 @@ Worth knowing before this carries real load:
 
 | Limit | Detail |
 | ----- | ------ |
-| **`website_checks` grows unbounded** | One row per site per interval — roughly 105k rows per site per year at 5 minutes. `WebsiteService.purge_old_checks()` exists but **nothing calls it**. Wire it to a cron before production. |
+| **`website_checks` grows unbounded** | One row per site per interval — roughly 105k rows per site per year at 5 minutes. `WebsiteService.purge_old_checks()` exists but **nothing calls it**. Wire it to a cron before production, and keep at least 35 days: the monthly uptime report is computed from these rows. |
+| **Monthly report is at-most-once** | The delivery row is written before sending, so a report nobody received is not retried (`report_deliveries.channels` is empty). Resend with `POST /monitoring/projects/{id}/report`. |
 | **Single-node loop** | One worker does all the probing. Fine for hundreds of sites; thousands would want sharding or a real scheduler. |
 | **No alert retry** | A failed delivery is logged, not queued. The next follow-up alert is the recovery mechanism. |
 | **No audit trail** | Nothing records who changed a role, suspended an account or edited a project. The main gap in the permissions story. |
@@ -454,7 +496,11 @@ Worth knowing before this carries real load:
 | Understand monitoring in depth | [`app/monitoring/websites/README.md`](../app/monitoring/websites/README.md) |
 | Change who can do what | [`app/core/permissions.py`](../app/core/permissions.py) |
 | Change when alerts fire | `record_result()` in [`app/monitoring/service.py`](../app/monitoring/service.py) |
+| Change what an email or Slack message looks like | `render_html()` in [`alerts/email.py`](../app/monitoring/alerts/email.py), `build_blocks()` in [`alerts/slack.py`](../app/monitoring/alerts/slack.py) |
+| Add a notification kind | `NotificationKind`, an event in [`alerts/events.py`](../app/monitoring/alerts/events.py), and its entry in [`notifications/catalog.py`](../app/monitoring/notifications/catalog.py) |
+| Change the default wording | [`notifications/catalog.py`](../app/monitoring/notifications/catalog.py) |
+| Change how the monthly report is computed | `compute_site_stats()` in [`notifications/reports.py`](../app/monitoring/notifications/reports.py) |
 | Change how a site is probed | [`app/monitoring/websites/checker.py`](../app/monitoring/websites/checker.py) |
-| Add an alert channel | [`app/monitoring/alerts/`](../app/monitoring/alerts/) + `default_alerters()` |
+| Add an alert channel | [`app/monitoring/alerts/`](../app/monitoring/alerts/) + `default_alerters()` in [`notifications/dispatcher.py`](../app/monitoring/notifications/dispatcher.py) |
 | Change the polling cadence | `MONITOR_TICK_SECONDS`, or per-site `check_interval_seconds` |
 | Add a table | The model module, then `alembic revision --autogenerate` |

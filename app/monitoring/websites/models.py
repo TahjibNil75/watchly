@@ -50,6 +50,27 @@ website_status_enum = SAEnum(
 )
 
 
+class WebsiteEnvironment(str, enum.Enum):
+    """Which deployment of a project a site is. Declared in the order the UI's
+    dropdown lists them, from least to most critical."""
+
+    DEVELOPMENT = "development"
+    TESTING = "testing"
+    UAT = "uat"
+    STAGING = "staging"
+    PRODUCTION = "production"
+
+
+website_environment_enum = SAEnum(
+    WebsiteEnvironment,
+    name="website_environment",
+    native_enum=True,
+    create_constraint=False,
+    validate_strings=True,
+    values_callable=lambda enum_cls: [member.value for member in enum_cls],
+)
+
+
 #: Users alerted about one site only — on top of the project's recipients, or
 #: instead of them when the site's `inherit_project_recipients` is off.
 website_recipients = Table(
@@ -117,6 +138,11 @@ class Website(Base, TimestampMixin):
     is_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
+    #: Development, staging, production... None for sites added before the
+    #: field existed; the UI asks for it on every new one.
+    environment: Mapped[WebsiteEnvironment | None] = mapped_column(
+        website_environment_enum, nullable=True
+    )
 
     #: Addresses that are not user accounts, alerted for this site only.
     alert_emails: Mapped[list[str]] = mapped_column(
@@ -153,6 +179,32 @@ class Website(Base, TimestampMixin):
     down_alerts_sent: Mapped[int] = mapped_column(
         Integer, default=0, server_default=text("0"), nullable=False
     )
+
+    # --- site problems short of down --------------------------------------
+    #: A response slower than this counts as slow. None uses the global
+    #: SLOW_RESPONSE_THRESHOLD_MS.
+    slow_threshold_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Consecutive slow (but successful) checks; reset by any fast or failed one.
+    slow_streak: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    last_slow_alert_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: The certificate's notAfter, as last read. None for plain-HTTP sites or
+    #: before the first successful read.
+    ssl_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: When the certificate was last *attempted*, so a failing handshake is
+    #: retried on the interval rather than on every tick.
+    ssl_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: The smallest days-left threshold already warned about for the current
+    #: certificate (0 = expired). None once the certificate is healthy again,
+    #: which is what re-arms the warnings after a renewal.
+    ssl_alert_bucket: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

@@ -17,5 +17,37 @@ services:
       timeout: 5s
       retries: 10
 
+  # FastAPI + the monitoring scheduler. Runs migrations and seeds the admin on
+  # every start (both idempotent).
+  api:
+    build: .
+    container_name: watchly-api
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Inside the compose network Postgres is "db" on its container port,
+      # whatever .env says for running the API on the host.
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      ALERT_DASHBOARD_URL: ${ALERT_DASHBOARD_URL:-http://localhost:${WEB_PORT:-8080}}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # The React app, served by nginx, which also proxies /api to the api service.
+  web:
+    build: ./frontend
+    container_name: watchly-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   watchly_pgdata:

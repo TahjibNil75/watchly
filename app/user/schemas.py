@@ -7,7 +7,7 @@ from app.schemas.user import UserRead
 class RoleUpdateRequest(BaseModel):
     """Body for changing a user's role."""
 
-    model_config = ConfigDict(json_schema_extra={"example": {"role": "developer"}})
+    model_config = ConfigDict(json_schema_extra={"example": {"role": "Developer"}})
 
     role: UserRole = Field(description="The role to assign.")
 

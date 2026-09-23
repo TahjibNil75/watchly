@@ -8,11 +8,11 @@ from app.db.base import Base, TimestampMixin
 
 
 class UserRole(str, enum.Enum):
-    VIEWER = "viewer"
-    ADMIN = "admin"
+    VIEWER = "Viewer"
+    ADMIN = "Admin"
     DEVOPS = "DevOps"
-    PROJECT_MANAGER = "project manager"
-    DEVELOPER = "developer"
+    PROJECT_MANAGER = "Project Manager"
+    DEVELOPER = "Developer"
 
 
 # Store the *values* above as the Postgres enum labels rather than SQLAlchemy's
