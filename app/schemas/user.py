@@ -1,0 +1,48 @@
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from app.db.models.user import UserRole
+
+
+class UserBase(BaseModel):
+    username: str = Field(min_length=3, max_length=50)
+    email: EmailStr
+    full_name: str | None = Field(default=None, max_length=255)
+    role: UserRole = UserRole.VIEWER
+    is_active: bool = True
+
+
+class UserCreate(UserBase):
+    """Payload for creating a user; the plaintext password is hashed before storage."""
+
+    password: str = Field(min_length=8, max_length=128)
+
+
+class UserUpdate(BaseModel):
+    """Partial update; every field is optional."""
+
+    username: str | None = Field(default=None, min_length=3, max_length=50)
+    email: EmailStr | None = None
+    full_name: str | None = Field(default=None, max_length=255)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+    role: UserRole | None = None
+    is_active: bool | None = None
+    last_activity: datetime | None = None
+
+
+class UserRead(UserBase):
+    """What the API returns — never includes the password hash."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    last_activity: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class UserInDB(UserRead):
+    """Internal representation, including the stored hash."""
+
+    password_hash: str
