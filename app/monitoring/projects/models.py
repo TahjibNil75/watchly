@@ -10,6 +10,7 @@ from sqlalchemy import (
     Table,
     Text,
     func,
+    or_,
     select,
     text,
 )
@@ -43,17 +44,6 @@ project_members = Table(
         nullable=False,
     ),
 )
-
-
-def member_project_ids(user_id: int) -> Select:
-    """Subquery of the project ids `user_id` belongs to.
-
-    Used to scope what viewers and developers are allowed to see, in both the
-    project and the website queries.
-    """
-    return select(project_members.c.project_id).where(
-        project_members.c.user_id == user_id
-    )
 
 
 class Project(Base, TimestampMixin):
@@ -103,6 +93,12 @@ class Project(Base, TimestampMixin):
         passive_deletes=True,
     )
 
+    def includes_user(self, user_id: int) -> bool:
+        """Whether `user_id` owns this project or is one of its members — what
+        lets someone without a global role see it. The in-memory twin of
+        `visible_project_ids`."""
+        return self.owner_id == user_id or any(m.id == user_id for m in self.members)
+
     @property
     def member_emails(self) -> list[str]:
         """Active members' addresses. A suspended user is not alerted."""
@@ -148,3 +144,20 @@ class Project(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Project {self.name!r} members={len(self.members)}>"
+
+
+def visible_project_ids(user_id: int) -> Select:
+    """Subquery of the project ids `user_id` may see without a global role:
+    the ones they are a member of, and the ones they own.
+
+    Used to scope what everyone but admin and DevOps is allowed to see, in both
+    the project and the website queries. Owners are included so a project
+    manager can see what they create without having to add themselves to it —
+    membership also means receiving its alerts.
+    """
+    member_of = select(project_members.c.project_id).where(
+        project_members.c.user_id == user_id
+    )
+    return select(Project.id).where(
+        or_(Project.owner_id == user_id, Project.id.in_(member_of))
+    )

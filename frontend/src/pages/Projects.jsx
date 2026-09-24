@@ -4,7 +4,7 @@ import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import { Empty, ErrorBanner, Loading, PageHeader } from '../components.jsx'
 import ProjectForm from '../ProjectForm.jsx'
-import { canCreateProjects } from '../roles.js'
+import { canCreateProjects, canViewAllProjects } from '../roles.js'
 import { useApi } from '../useApi.js'
 
 export default function Projects() {
@@ -58,9 +58,11 @@ export default function Projects() {
         <Loading />
       ) : items.length === 0 ? (
         <Empty>
-          {creator
+          {canViewAllProjects(user)
             ? 'No projects yet. Create one to start monitoring websites.'
-            : "You aren't a member of any project yet."}
+            : creator
+              ? "You don't own or belong to any project yet. Create one, or ask an admin to add you to one."
+              : "You aren't a member of any project yet. Ask an admin to add you to one."}
         </Empty>
       ) : (
         <div className="table-wrap">

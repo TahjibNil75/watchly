@@ -280,9 +280,9 @@ setup its sites inherit. **Every project must have at least one alert channel**
 — email, Slack, or both — configured on the project itself; there are no
 separate endpoints for setting up a channel.
 
-**Reading** is scoped: admin, DevOps and project managers see every project;
-viewers and developers see only projects they belong to, and anything else
-returns `404` rather than `403`.
+**Reading** is scoped: admin and DevOps see every project; everyone else —
+project managers included — sees only the projects they own or are a member of,
+and anything else returns `404` rather than `403`, for writes too.
 **Writing** needs admin, DevOps, or being the project's owner (the person who
 created it).
 

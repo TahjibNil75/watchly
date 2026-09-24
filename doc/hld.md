@@ -470,15 +470,17 @@ Five roles. Four distinct questions, four sets, all in
 | -------- | --- | ------- |
 | Who may change another user's role? | `ROLE_MANAGERS` | admin, DevOps |
 | Who may send invitations? | `INVITERS` (the keys of `INVITABLE_BY`) | admin, DevOps |
-| Who may read the whole estate? | `GLOBAL_VIEWERS` | admin, DevOps, project manager |
+| Who may read the whole estate? | `GLOBAL_VIEWERS` | admin, DevOps |
 | Who may create projects? | `PROJECT_CREATORS` | admin, DevOps, project manager |
 
-**Visibility.** Viewers and developers see only the projects they are a member
+**Visibility.** Only admin and DevOps see every project. Everyone else —
+project managers included — sees only the projects they own or are a member
 of and the sites under them, plus any individual site they are a recipient of
-(the site and its checks, not its project). Anything else returns **`404`, not
-`403`** — a
-project you cannot access is indistinguishable from one that does not exist, so
-ids cannot be probed. Filtering happens in SQL, not after fetching.
+(the site and its checks, not its project). People are given access by being
+added as members or site recipients, either when the project or site is created
+or afterwards. Anything else returns **`404`, not `403`**, for writes as well as
+reads — a project you cannot access is indistinguishable from one that does not
+exist, so ids cannot be probed. Filtering happens in SQL, not after fetching.
 
 **Suspension** is a table, not a hierarchy — DevOps and project managers can
 each suspend the other:

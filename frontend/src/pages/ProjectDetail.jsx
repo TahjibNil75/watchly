@@ -195,7 +195,10 @@ export default function ProjectDetail() {
       <div className="grid-2">
         <section className="card">
           <h2>Members</h2>
-          <p className="muted small">Members are emailed about every site in this project.</p>
+          <p className="muted small">
+            Members can see this project and all its websites, and are emailed about every site.
+            Only admins and DevOps see projects they aren&apos;t in.
+          </p>
           <PersonList
             people={p.members}
             onRemove={canManage ? removeMember : null}

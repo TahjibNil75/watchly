@@ -53,13 +53,12 @@ PROJECT_CREATORS: frozenset[UserRole] = frozenset(
 )
 
 #: Roles that see every project and every monitored site. Everyone else —
-#: viewers and developers — sees only the projects they are a member of, and
-#: nothing at all until someone adds them to one. Currently the same set as
-#: PROJECT_CREATORS, but kept separate: reading and creating are different
-#: questions and may well diverge.
-GLOBAL_VIEWERS: frozenset[UserRole] = frozenset(
-    {UserRole.ADMIN, UserRole.DEVOPS, UserRole.PROJECT_MANAGER}
-)
+#: project managers, developers and viewers — sees only the projects they own
+#: or are a member of, the sites under those, and any single site they are a
+#: recipient of: nothing at all until someone adds them to one. Deliberately
+#: narrower than PROJECT_CREATORS: a project manager may create projects, but
+#: sees only their own and the ones they are added to.
+GLOBAL_VIEWERS: frozenset[UserRole] = ROLE_MANAGERS
 
 
 def is_role_manager(role: UserRole) -> bool:
@@ -82,7 +81,10 @@ def can_manage_project(
 
     - Admin and DevOps may manage every project.
     - A project manager may manage the projects they created.
-    - Everyone else may only read.
+    - Everyone else may only read — and only what they can see.
+
+    Whoever may manage a project may also see it (an owner always can), so
+    this never grants access to a project that reads as missing.
 
     Scoping project managers to their own projects is the conservative choice;
     to let any project manager manage any project, return True for that branch.

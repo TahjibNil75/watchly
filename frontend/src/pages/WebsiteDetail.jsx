@@ -377,6 +377,9 @@ export default function WebsiteDetail() {
             )}
           </dl>
           <h3>Site recipients</h3>
+          <p className="muted small">
+            Recipients can see this site and its checks, even if they aren&apos;t in its project.
+          </p>
           <PersonList
             people={s.recipients}
             onRemove={canManage ? removeRecipient : null}

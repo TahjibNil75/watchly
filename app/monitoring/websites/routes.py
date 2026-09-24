@@ -79,12 +79,22 @@ def _unprocessable(exc: Exception) -> HTTPException:
 async def _get_for_write(
     service: WebsiteService, projects: ProjectService, website_id: int, actor: User
 ) -> Website:
-    """Fetch a site the actor may change — which means rights over its project."""
+    """Fetch a site the actor may change — which means rights over its project.
+
+    A site they cannot see is not found, exactly as for a read. One they can
+    see but whose project they do not manage is forbidden — including a site
+    recipient's, whose project itself would read as not found.
+    """
     try:
-        website = await service.get(website_id)
+        website = await service.get_visible(website_id, actor)
     except WebsiteNotFoundError as exc:
         raise _not_found(exc) from exc
-    await _assert_can_manage(projects, website.project_id, actor)
+    try:
+        await projects.get_for_write(website.project_id, actor)
+    except (ProjectNotFoundError, ProjectForbiddenError) as exc:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, str(ProjectForbiddenError())
+        ) from exc
     return website
 
 
@@ -98,10 +108,11 @@ async def list_websites(
     actor: User = Depends(get_current_user),
     service: WebsiteService = Depends(get_website_service),
 ) -> WebsiteListResponse:
-    """Admin, DevOps and project managers see every monitored site.
+    """Admin and DevOps see every monitored site.
 
-    Viewers and developers see only the sites belonging to projects they are a
-    member of — an empty list until someone adds them to one.
+    Everyone else — project managers included — sees only the sites of
+    projects they own or are a member of, plus any site they are a recipient
+    of: an empty list until someone adds them to one.
     """
     sites, total = await service.list(
         actor,

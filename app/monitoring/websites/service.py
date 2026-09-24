@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.crypto import encrypt_secret
 from app.core.permissions import can_view_all_projects
 from app.db.models.user import User
-from app.monitoring.projects.models import Project, member_project_ids
+from app.monitoring.projects.models import Project, visible_project_ids
 from app.monitoring.projects.service import resolve_users
 from app.monitoring.websites.models import (
     Website,
@@ -96,15 +96,14 @@ class WebsiteService:
     async def get_visible(self, website_id: int, actor: User) -> Website:
         """Fetch a site the actor is allowed to *see*.
 
-        A viewer or developer who is neither in the site's project nor one of
-        its recipients gets `WebsiteNotFoundError`, so a site they cannot
-        access is indistinguishable from one that does not exist.
+        Anyone but admin and DevOps who can neither see the site's project nor
+        is one of its recipients gets `WebsiteNotFoundError`, so a site they
+        cannot access is indistinguishable from one that does not exist.
         """
         website = await self.get(website_id)
-        if can_view_all_projects(actor.role):
+        if can_view_all_projects(actor.role) or website.project.includes_user(actor.id):
             return website
-        people = [*website.project.members, *website.recipients]
-        if any(person.id == actor.id for person in people):
+        if any(recipient.id == actor.id for recipient in website.recipients):
             return website
         raise WebsiteNotFoundError(website_id)
 
@@ -120,11 +119,11 @@ class WebsiteService:
         """One page of the sites `actor` is allowed to see."""
         filters = []
         if not can_view_all_projects(actor.role):
-            # Scoped to their projects' sites plus any site they are a
-            # recipient of; empty for everyone else.
+            # Scoped to the sites of projects they own or belong to, plus any
+            # site they are a recipient of; empty for everyone else.
             filters.append(
                 or_(
-                    Website.project_id.in_(member_project_ids(actor.id)),
+                    Website.project_id.in_(visible_project_ids(actor.id)),
                     Website.id.in_(recipient_website_ids(actor.id)),
                 )
             )

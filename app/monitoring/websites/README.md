@@ -247,14 +247,19 @@ override ownership everywhere.
 
 | role                            | sees                                      |
 | ------------------------------- | ----------------------------------------- |
-| admin, DevOps, project manager  | every project and every site              |
-| **viewer, developer**           | **only projects they are a member of**, and the sites under them, **plus any site they are a recipient of** |
+| admin, DevOps                   | every project and every site              |
+| **project manager, viewer, developer** | **only projects they own or are a member of**, and the sites under them, **plus any site they are a recipient of** |
+
+Access is granted by adding someone as a project member or a site recipient —
+in the create payload (`member_ids`, `recipient_ids`) or later through the
+`/members` and `/recipients` endpoints. Both also make them an alert recipient.
+A project manager also sees the projects they created, without being a member.
 
 A site recipient who is not in the project sees that site and its check history,
 but not the project or its other sites — enough to follow up on the alerts they
-receive. A viewer or developer who belongs to no project and receives no site
-alerts sees an empty dashboard. Asking for a project or site outside what they
-can see returns **`404`, not `403`** —
+receive. Anyone who belongs to no project and receives no site alerts sees an
+empty dashboard. Asking for a project or site outside what they
+can see returns **`404`, not `403`** — for writes as well as reads —
 a resource they cannot access is indistinguishable from one that does not
 exist, so ids cannot be probed. The `project_id` filter cannot be used to peek
 either; it narrows within what they can already see.
@@ -276,7 +281,7 @@ Viewers and developers can never write, even to their own project's sites.
 
 The rules live in `app/core/permissions.py` (`can_create_project`,
 `can_manage_project`, `can_view_all_projects`). The scoping queries are
-`member_project_ids()` in `../projects/models.py`, applied by
+`visible_project_ids()` in `../projects/models.py`, applied by
 `ProjectService.list` / `get_visible` and `WebsiteService.list` / `get_visible`,
 and `recipient_website_ids()` in `models.py`, which the website side adds.
 

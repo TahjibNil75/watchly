@@ -59,10 +59,10 @@ async def list_projects(
     actor: User = Depends(get_current_user),
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectListResponse:
-    """Admin, DevOps and project managers see every project.
+    """Admin and DevOps see every project.
 
-    Viewers and developers see only the projects they are a member of — an
-    empty list until someone adds them to one.
+    Everyone else — project managers included — sees only the projects they
+    own or are a member of: an empty list until someone adds them to one.
     """
     projects, total = await service.list(
         actor, limit=limit, offset=offset, is_active=is_active, owner_id=owner_id

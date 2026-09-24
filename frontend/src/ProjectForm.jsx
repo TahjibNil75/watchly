@@ -87,9 +87,11 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
 
       {creating && (
         <fieldset className="fieldset">
-          <legend>Email alerts</legend>
+          <legend>Members and email alerts</legend>
           <div className="field">
-            <span>Responsible members, alerted about every site in the project</span>
+            <span>
+              Members can see this project and its websites, and are alerted about every site
+            </span>
             <UserChecklist users={users} selected={memberIds} onChange={setMemberIds} />
           </div>
           <label className="field">

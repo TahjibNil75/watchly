@@ -281,7 +281,7 @@ export default function WebsiteForm({
         </label>
         {creating && users.length > 0 && (
           <div className="field">
-            <span>Also alert these users about this site</span>
+            <span>Also give these users access to this site and alert them about it</span>
             <UserChecklist users={users} selected={recipientIds} onChange={setRecipientIds} />
           </div>
         )}

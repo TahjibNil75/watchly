@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBanner, Loading, PageHeader, WebsiteTable } from '../components.jsx'
-import { canCreateProjects } from '../roles.js'
+import { canCreateProjects, canViewAllProjects } from '../roles.js'
 import { useApi } from '../useApi.js'
 
 const FILTERS = [
@@ -36,10 +36,15 @@ export default function Dashboard() {
   const creator = canCreateProjects(user)
   const emptyLabel = all.length ? (
     'No websites match this filter.'
-  ) : creator ? (
+  ) : canViewAllProjects(user) ? (
     <>
       Nothing is being monitored yet. <Link to="/projects">Create a project</Link>, then add a
       website to it.
+    </>
+  ) : creator ? (
+    <>
+      You don't have any websites yet. <Link to="/projects">Create a project</Link>, or ask an
+      admin to add you to one.
     </>
   ) : (
     "You don't have any websites yet. Ask an admin to add you to a project."

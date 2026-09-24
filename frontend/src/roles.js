@@ -23,6 +23,10 @@ export const canManageUsers = (user) => USER_MANAGERS.includes(user.role)
 // PROJECT_CREATORS is currently the same set as USER_MANAGERS.
 export const canCreateProjects = (user) => USER_MANAGERS.includes(user.role)
 
+// GLOBAL_VIEWERS: everyone else sees only the projects they own or were added
+// to, and the sites they were added to.
+export const canViewAllProjects = (user) => ROLE_MANAGERS.includes(user.role)
+
 // The defaults every project inherits. Projects are edited by whoever can
 // manage them, via canManageProject.
 export const canEditNotificationDefaults = (user) => ROLE_MANAGERS.includes(user.role)

@@ -569,10 +569,11 @@ projects and the sites under them. To let any project manager manage any
 project, change the `PROJECT_MANAGER` branch of `can_manage_project` in
 [`app/core/permissions.py`](app/core/permissions.py) to return `True`.
 
-*scoped* = admin, DevOps and project managers see everything; **viewers and
-developers see only the projects they are a member of**, and the sites under
-them, plus any single site they are a recipient of. Someone in no project and
-on no site sees an empty dashboard. A project or site outside what they can see
+*scoped* = admin and DevOps see everything; **everyone else — project managers
+included — sees only the projects they own or are a member of**, and the sites
+under them, plus any single site they are a recipient of. Add people as members
+or site recipients when creating the project or site, or later from its page.
+Someone in no project and on no site sees an empty dashboard. A project or site outside what they can see
 returns `404` rather than `403`, so ids cannot be probed for existence. Controlled by `can_view_all_projects` in
 [`app/core/permissions.py`](app/core/permissions.py).
 

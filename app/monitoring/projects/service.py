@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.crypto import encrypt_secret
 from app.core.permissions import can_manage_project, can_view_all_projects
 from app.db.models.user import User
-from app.monitoring.projects.models import Project, member_project_ids
+from app.monitoring.projects.models import Project, visible_project_ids
 from app.monitoring.projects.schemas import (
     ProjectCreate,
     ProjectUpdate,
@@ -94,20 +94,23 @@ class ProjectService:
     async def get_visible(self, project_id: int, actor: User) -> Project:
         """Fetch a project the actor is allowed to *see*.
 
-        A viewer or developer who is not a member gets `ProjectNotFoundError`
-        rather than a 403 — a project they have no access to should not be
-        distinguishable from one that does not exist.
+        Anyone but admin and DevOps who neither owns the project nor is a
+        member gets `ProjectNotFoundError` rather than a 403 — a project they
+        have no access to should not be distinguishable from one that does not
+        exist.
         """
         project = await self.get(project_id)
-        if can_view_all_projects(actor.role):
-            return project
-        if any(member.id == actor.id for member in project.members):
+        if can_view_all_projects(actor.role) or project.includes_user(actor.id):
             return project
         raise ProjectNotFoundError(project_id)
 
     async def get_for_write(self, project_id: int, actor: User) -> Project:
-        """Fetch a project the actor is allowed to modify."""
-        project = await self.get(project_id)
+        """Fetch a project the actor is allowed to modify.
+
+        One they cannot see is not found, exactly as for a read; one they can
+        see but not manage — a member's, say — is forbidden.
+        """
+        project = await self.get_visible(project_id, actor)
         if not can_manage_project(actor.role, actor.id, project.owner_id):
             raise ProjectForbiddenError
         return project
@@ -127,9 +130,9 @@ class ProjectService:
         if owner_id is not None:
             filters.append(Project.owner_id == owner_id)
         if not can_view_all_projects(actor.role):
-            # Viewers and developers see only what they belong to — an empty
-            # list until someone adds them to a project.
-            filters.append(Project.id.in_(member_project_ids(actor.id)))
+            # Everyone but admin and DevOps sees only what they own or belong
+            # to — an empty list until someone adds them to a project.
+            filters.append(Project.id.in_(visible_project_ids(actor.id)))
 
         total = await self.session.scalar(
             select(func.count()).select_from(Project).where(*filters)
