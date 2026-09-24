@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import require_inviter
+from app.auth.dependencies import get_auth_service, require_inviter
 from app.auth.routes import issue_tokens
-from app.auth.service import UserAlreadyExistsError
+from app.auth.service import AuthService, UserAlreadyExistsError
 from app.db.models.invitation import InvitationStatus
 from app.db.models.user import User
 from app.db.session import get_db
@@ -185,7 +185,9 @@ async def preview_invitation(
 )
 async def accept_invitation(
     payload: AcceptInvitationRequest,
+    response: Response,
     service: InvitationService = Depends(get_invitation_service),
+    auth: AuthService = Depends(get_auth_service),
 ) -> AcceptInvitationResponse:
     """Create the user with the email and role the invitation fixed, and sign
     them in. No sign-in needed; the link works once."""
@@ -199,5 +201,6 @@ async def accept_invitation(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
     return AcceptInvitationResponse(
-        user=UserRead.model_validate(user), tokens=issue_tokens(user)
+        user=UserRead.model_validate(user),
+        tokens=await issue_tokens(user, auth, response),
     )

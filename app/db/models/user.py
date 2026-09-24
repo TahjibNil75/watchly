@@ -52,6 +52,11 @@ class User(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
+    #: Wrong passwords at sign-in since the last successful one. Reaching
+    #: MAX_FAILED_LOGIN_ATTEMPTS suspends the account; reinstating it resets this.
+    failed_login_attempts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
 
     # --- an email change waiting for the new address to be confirmed -------
     # One at a time: asking again replaces it, and the old link stops working.

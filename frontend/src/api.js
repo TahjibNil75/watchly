@@ -2,6 +2,10 @@
 //
 // In development VITE_API_URL is left blank and Vite proxies /api to FastAPI
 // (see vite.config.js). Set it to the API's origin for a deployed build.
+//
+// The short-lived access token is kept here and sent as a bearer header. The
+// refresh token is an httpOnly cookie that this code never sees: on a 401 we
+// trade it for a new access token at /auth/refresh and retry once.
 const API_ORIGIN = import.meta.env.VITE_API_URL ?? ''
 const TOKEN_KEY = 'watchly.accessToken'
 
@@ -29,8 +33,8 @@ export function setToken(token) {
   }
 }
 
-// There is no refresh endpoint yet, so an expired access token means signing
-// in again. AuthProvider registers the handler that does that.
+// Called when the session is over and can't be refreshed. AuthProvider
+// registers the handler that signs the user out.
 let onUnauthorized = () => {}
 export function setUnauthorizedHandler(handler) {
   onUnauthorized = handler
@@ -52,6 +56,47 @@ function describeError(detail) {
   return JSON.stringify(detail)
 }
 
+async function send(url, init) {
+  try {
+    return await fetch(url, init)
+  } catch {
+    throw new ApiError(0, 'Cannot reach the Watchly API. Is the backend running?')
+  }
+}
+
+let refreshing = null
+
+// Trade the refresh cookie for a new access token. Resolves to the token, or to
+// null when the session is over.
+//
+// The server rotates the cookie on every use and treats a second use of the
+// old one as theft, ending the session. So only one refresh may be in flight:
+// requests in this tab share one, and a Web Lock queues other tabs behind it.
+function refreshAccessToken(staleToken) {
+  refreshing ??= withLock('watchly.refresh', async () => {
+    // Another tab may have refreshed while this one waited for the lock.
+    const current = getToken()
+    if (current && current !== staleToken) return current
+
+    const res = await send(new URL(API_ORIGIN + '/api/v1/auth/refresh', window.location.origin), {
+      method: 'POST',
+    })
+    if (res.status === 401 || res.status === 403) return null
+    // Anything else is the API having a bad moment, not the session ending.
+    if (!res.ok) throw new ApiError(res.status, `Could not renew your session (${res.status}).`)
+    const { access_token: accessToken } = await res.json()
+    setToken(accessToken)
+    return accessToken
+  }).finally(() => {
+    refreshing = null
+  })
+  return refreshing
+}
+
+function withLock(name, callback) {
+  return navigator.locks ? navigator.locks.request(name, callback) : callback()
+}
+
 async function request(path, { method = 'GET', body, query } = {}) {
   const url = new URL(API_ORIGIN + path, window.location.origin)
   for (const [key, value] of Object.entries(query ?? {})) {
@@ -60,20 +105,23 @@ async function request(path, { method = 'GET', body, query } = {}) {
     }
   }
 
-  const headers = {}
-  const token = getToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
-
-  let res
-  try {
-    res = await fetch(url, {
+  const call = (token) => {
+    const headers = {}
+    if (token) headers.Authorization = `Bearer ${token}`
+    if (body !== undefined) headers['Content-Type'] = 'application/json'
+    return send(url, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     })
-  } catch {
-    throw new ApiError(0, 'Cannot reach the Watchly API. Is the backend running?')
+  }
+
+  const token = getToken()
+  let res = await call(token)
+  // Most likely the access token expired: refresh it and retry, once.
+  if (res.status === 401 && token) {
+    const fresh = await refreshAccessToken(token)
+    if (fresh) res = await call(fresh)
   }
 
   if (res.status === 204) return null
@@ -93,6 +141,8 @@ export const api = {
   login: (identifier, password) =>
     v1('/auth/login', { method: 'POST', body: { identifier, password } }),
   signup: (payload) => v1('/auth/signup', { method: 'POST', body: payload }),
+  // Revokes the session in the refresh cookie, which only the API can clear.
+  logout: () => v1('/auth/logout', { method: 'POST' }),
   forgotPassword: (email) => v1('/auth/forgot-password', { method: 'POST', body: { email } }),
 
   me: () => v1('/users/me'),

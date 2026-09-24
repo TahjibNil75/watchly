@@ -60,10 +60,14 @@ file must fall back to `index.html` so client-side routing works. The
 
 ## Known limits
 
-- There is no refresh endpoint, so when the 30-minute access token expires the
-  app sends you back to the sign-in page. It returns you to the page you were on
-  once you sign in again.
-- The token is kept in `localStorage`.
+- The 30-minute access token is kept in `localStorage`, where an XSS bug could
+  read it. The refresh token is an httpOnly cookie the app never sees: on a
+  `401`, `api.js` trades it at `/auth/refresh` and retries the request once. The
+  server rotates the cookie on every use, so refreshes are serialised, within a
+  tab and across tabs (Web Locks).
+- The cookie is only sent same-origin (the Vite proxy and the nginx image). A
+  build pointed at another origin with `VITE_API_URL` would also need CORS with
+  credentials.
 - List views load up to 100 items (the API's page limit) and say so when
   there are more.
 

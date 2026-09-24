@@ -45,6 +45,13 @@ class UserRead(UserBase):
             "`POST /users/me/password`, every other endpoint answers 403."
         ),
     )
+    failed_login_attempts: int = Field(
+        default=0,
+        description=(
+            "Wrong passwords at sign-in since the last successful one. At "
+            "`MAX_FAILED_LOGIN_ATTEMPTS` the account is suspended."
+        ),
+    )
     created_at: datetime
     updated_at: datetime
 

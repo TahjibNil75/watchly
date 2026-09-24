@@ -61,8 +61,10 @@ class ForgotPasswordResponse(BaseModel):
 
 
 class TokenResponse(BaseModel):
+    """The access token. The refresh token is never in a body: it is set as an
+    httpOnly cookie, out of reach of the page's scripts."""
+
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
     expires_in: int = Field(description="Access-token lifetime in seconds.")
 

@@ -291,6 +291,17 @@ its original credentials, and the seeder skips an admin that already exists.
 Either change the admin's password in the app (**Profile** in the sidebar), or
 reset with `docker compose down -v` (this deletes all data).
 
+**"This account has been suspended" when signing in as the admin**
+
+`MAX_FAILED_LOGIN_ATTEMPTS` (default 5) wrong passwords in a row suspend an
+account, and only another admin can reactivate an admin. Unlock it from the
+server instead:
+
+```bash
+python -m app.db.reactivate admin                       # API on the host
+docker compose exec api python -m app.db.reactivate admin   # API in Docker
+```
+
 **The UI shows `502 Bad Gateway`, or "API unreachable" in the sidebar**
 
 The API container isn't running. Check `docker compose ps`, then
@@ -304,10 +315,18 @@ with `docker compose up -d api` or `uvicorn app.main:app --reload`.
 
 **I keep getting signed out**
 
-Access tokens last `ACCESS_TOKEN_EXPIRE_MINUTES` (30 by default), and there is
-no refresh endpoint yet, so you sign in again. The app returns you to the page
-you were on. Changing `SECRET_KEY` also signs everyone out, and it makes stored
-Slack bot tokens unreadable unless `SLACK_TOKEN_ENCRYPTION_KEY` is set
+The app renews its 30-minute access token with the refresh cookie, so a
+session lasts until it goes unused for `REFRESH_TOKEN_EXPIRE_DAYS` (7 by
+default). If you are signed out sooner:
+
+- The cookie is `Secure`. Browsers accept that over plain HTTP only on
+  `localhost`, so opening the app at a LAN address or another hostname loses
+  it. Use `localhost`, or set `REFRESH_COOKIE_SECURE=false` for that setup.
+- Sending the same refresh token twice ends the session on purpose, since it
+  looks like theft. Scripts that call `/auth/refresh` must not run in parallel.
+
+Changing `SECRET_KEY` invalidates access tokens but not sessions. It also makes
+stored Slack bot tokens unreadable unless `SLACK_TOKEN_ENCRYPTION_KEY` is set
 separately.
 
 **Sites go down and nobody gets an email**

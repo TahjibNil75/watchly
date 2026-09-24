@@ -32,7 +32,13 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "dev-secret-change-me"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    #: Each refresh restarts the clock, so this is how long a session survives
+    #: going unused.
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    #: Send the refresh cookie over HTTPS only. Browsers make an exception for
+    #: http://localhost; turn it off only to try the app over plain HTTP on
+    #: another host.
+    REFRESH_COOKIE_SECURE: bool = True
 
     #: How long an emailed invitation link stays usable.
     INVITATION_EXPIRE_DAYS: int = Field(default=7, ge=1)
@@ -40,6 +46,9 @@ class Settings(BaseSettings):
     EMAIL_CHANGE_EXPIRE_HOURS: int = Field(default=24, ge=1)
     #: How long a temporary password from "forgot password" can be used to sign in.
     TEMP_PASSWORD_EXPIRE_MINUTES: int = Field(default=60, ge=5)
+    #: Wrong passwords in a row at sign-in before the account is suspended. Only
+    #: a user allowed to reinstate it (see SUSPENDABLE_BY) can lift it.
+    MAX_FAILED_LOGIN_ATTEMPTS: int = Field(default=5, ge=1)
 
     # Bootstrap admin, created by app/db/seed.py
     FIRST_ADMIN_USERNAME: str = "admin"

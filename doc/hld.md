@@ -165,11 +165,12 @@ machine changes in neither case.
 
 ## 4. Data model
 
-Nine tables, three native Postgres enums, ten Alembic migrations.
+Ten tables, three native Postgres enums, fifteen Alembic migrations.
 
 ```mermaid
 erDiagram
     users ||--o{ invitations : "sends"
+    users ||--o{ refresh_tokens : "signed in as"
     users ||--o{ projects : owns
     users ||--o{ project_members : "is responsible for"
     projects ||--o{ project_members : "alerts its"
@@ -198,6 +199,15 @@ erDiagram
         int invited_by_id FK "null once the sender is deleted"
         timestamptz expires_at
         timestamptz accepted_at
+        timestamptz revoked_at
+    }
+    refresh_tokens {
+        int id PK
+        int user_id FK
+        string family_id "one per sign-in, shared by its rotations"
+        string token_hash UK "SHA-256; the token itself is never stored"
+        timestamptz expires_at
+        timestamptz used_at "exchanged; presenting it again revokes the family"
         timestamptz revoked_at
     }
     projects {
@@ -495,8 +505,15 @@ It is separate from `can_change_role` on purpose: re-roling asks what the target
 all it takes to let it invite; the endpoint guard is derived from the keys.
 
 **Nobody can change or suspend their own account.** That single rule is what
-makes lockout impossible: the actor is always an active administrator and never
-the target, so no action can leave you with zero administrators.
+makes lockout impossible through the API: the actor is always an active
+administrator and never the target, so no action can leave you with zero
+administrators.
+
+**Too many wrong passwords suspend the account.** `MAX_FAILED_LOGIN_ATTEMPTS`
+(default 5) in a row at sign-in set `is_active = false` and revoke its sessions,
+exactly like a suspension from the API, so only a role that may reinstate it can
+lift it. That can leave nobody — the only admin locked out — so
+`python -m app.db.reactivate <username>` reinstates an account from the server.
 
 **Project ownership.** Admin and DevOps manage every project; a project manager
 manages only the ones they created, and the sites under them.
@@ -510,9 +527,10 @@ manages only the ones they created, and the sites under them.
 | **Passwords** | bcrypt via the `bcrypt` package directly. `passlib` is unusable on Python 3.13+ — it imports the removed `crypt` module. |
 | **Account enumeration** | Login runs bcrypt against a dummy hash when no user matches, so timing does not reveal which accounts exist (measured 1.02 ratio). `is_active` is checked only after the password is proven. |
 | **Stored secrets** | Slack bot tokens (project and site) are Fernet-encrypted at rest and write-only in the API — reads return a masked hint. Key from `SLACK_TOKEN_ENCRYPTION_KEY`, falling back to `SECRET_KEY`. |
+| **Brute force** | `MAX_FAILED_LOGIN_ATTEMPTS` wrong passwords in a row suspend the account; the count is incremented in SQL so parallel guesses cannot race past it. The suspending attempt answers `401` like any other, so it reveals nothing. The price: anyone who knows a username can lock that account out. |
 | **Forgot password** | Always answers `202` with the same text and sends the email after responding, so it does not reveal which addresses have accounts. The temporary password sits beside the real one, which keeps working until the temporary one is used — asking cannot lock anyone out. Signing in with it confines the account to `POST /users/me/password` (`must_change_password`). |
 | **Password leakage** | FastAPI's default 422 body echoes the offending input. A custom handler redacts password fields. |
-| **Sessions** | Stateless JWT. Access 30 min, refresh 7 days. No logout endpoint and no revocation — the client discards its tokens. |
+| **Sessions** | Access token: stateless JWT, 30 min, sent as a bearer header, not revocable. Refresh token: opaque, in an `HttpOnly`, `SameSite=Strict` cookie scoped to `/api/v1/auth`, stored as a SHA-256 digest, good for 7 days from its last use. `POST /auth/refresh` rotates it on every use; presenting a used one revokes the whole session, on the assumption it was stolen. Logout and suspension revoke sessions. The frontend serialises refreshes across tabs with a Web Lock so its own tabs never trip reuse detection. |
 | **Async safety** | `Website.project` and `Project.members` use `lazy="selectin"`; a lazy load from the background task would raise `MissingGreenlet`. |
 | **Migrations** | Alembic with an async engine. `alembic.ini` leaves `sqlalchemy.url` blank — `env.py` reads it from settings. |
 
@@ -555,8 +573,8 @@ Worth knowing before this carries real load:
 | **Single-node loop** | One worker does all the probing. Fine for hundreds of sites; thousands would want sharding or a real scheduler. |
 | **No alert retry** | A failed delivery is logged, not queued. The next follow-up alert is the recovery mechanism. |
 | **No audit trail** | Nothing records who changed a role, suspended an account or edited a project. The main gap in the permissions story. |
-| **No refresh endpoint** | Refresh tokens are issued and validated, but there is nowhere to redeem one, so sessions end after 30 minutes. |
-| **Key rotation** | Changing `SECRET_KEY` invalidates every session *and* makes stored Slack tokens unreadable. `decrypt_secret` degrades quietly; the tokens must be re-entered. |
+| **Password change keeps other sessions** | Changing a password, or signing in with a temporary one, revokes no refresh tokens, so a stolen one keeps working until it goes unused for 7 days. |
+| **Key rotation** | Changing `SECRET_KEY` invalidates every access token (sessions recover through a refresh) *and* makes stored Slack tokens unreadable. `decrypt_secret` degrades quietly; the tokens must be re-entered. |
 
 ---
 

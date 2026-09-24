@@ -22,49 +22,51 @@ together, see [`hld.md`](hld.md).
 | # | method | endpoint | what it does |
 | - | ------ | -------- | ------------ |
 | 1 | `POST` | `/auth/signup` | Register a new account; always created as a `Viewer`. |
-| 2 | `POST` | `/auth/login` | Log in with a username **or** email and get an access/refresh token pair. |
-| 3 | `POST` | `/auth/forgot-password` | Email a temporary password; signing in with it leads to choosing a new one (public). |
-| 4 | `POST` | `/auth/confirm-email` | Finish an email change from the link sent to the new address (public). |
-| 5 | `GET` | `/users/me` | Return the signed-in user's own profile. |
-| 6 | `PATCH` | `/users/me` | Change your own full name. |
-| 7 | `POST` | `/users/me/password` | Change your own password, given the current one. |
-| 8 | `POST` | `/users/me/email` | Ask to change your email; a link is sent to the new address to confirm it. |
-| 9 | `DELETE` | `/users/me/email` | Cancel a pending email change. |
-| 10 | `GET` | `/users` | List users, with role and active-state filters. |
-| 11 | `GET` | `/users/{user_id}` | Return one user by id. |
-| 12 | `PATCH` | `/users/{user_id}/role` | Assign a different role to a user. |
-| 13 | `PATCH` | `/users/{user_id}/suspend` | Block a user from logging in and kill their current session. |
-| 14 | `PATCH` | `/users/{user_id}/reactivate` | Lift a suspension and restore access. |
-| 15 | `POST` | `/invitations` | Email someone a one-time link that creates their account with a chosen role. |
-| 16 | `GET` | `/invitations` | List invitations, newest first, filterable by status. |
-| 17 | `PATCH` | `/invitations/{invitation_id}/revoke` | Kill an invitation's link. |
-| 18 | `POST` | `/invitations/preview` | Show an invitee which address and role a token is for (public). |
-| 19 | `POST` | `/invitations/accept` | Accept an invitation: create the account and sign in (public). |
-| 20 | `GET` | `/monitoring/projects` | List projects the caller is allowed to see. |
-| 21 | `POST` | `/monitoring/projects` | Create a project and name the members responsible for it. |
-| 22 | `GET` | `/monitoring/projects/{project_id}` | Return one project with its members. |
-| 23 | `PATCH` | `/monitoring/projects/{project_id}` | Update a project's name, description, active flag or extra alert emails. |
-| 24 | `DELETE` | `/monitoring/projects/{project_id}` | Delete a project and stop monitoring every site under it. |
-| 25 | `POST` | `/monitoring/projects/{project_id}/members` | Add one or more users as responsible members (they start receiving alerts). |
-| 26 | `DELETE` | `/monitoring/projects/{project_id}/members/{user_id}` | Remove a member so they stop receiving that project's alerts. |
-| 27 | `GET` | `/monitoring/websites` | List monitored sites and their current up/down status. |
-| 28 | `POST` | `/monitoring/websites` | Start monitoring a URL under a project, optionally with its own recipients. |
-| 29 | `GET` | `/monitoring/websites/{website_id}` | Return one monitored site with its live outage state. |
-| 30 | `PATCH` | `/monitoring/websites/{website_id}` | Update a site's URL, interval, timeout, alert budget, alert emails or enabled flag. |
-| 31 | `DELETE` | `/monitoring/websites/{website_id}` | Stop monitoring a site and delete its check history. |
-| 32 | `POST` | `/monitoring/websites/{website_id}/recipients` | Add one or more users alerted about this site only. |
-| 33 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | Stop alerting a user about this site. |
-| 34 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
-| 35 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
-| 36 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack switches per kind. |
-| 37 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
-| 38 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
-| 39 | `POST` | `/monitoring/notifications/preview` | Render a notification with sample data, exactly as it would be sent. |
-| 40 | `GET` | `/monitoring/projects/{project_id}/notifications` | A project's settings after inheriting from global. |
-| 41 | `PUT` | `/monitoring/projects/{project_id}/notifications/{kind}` | Override one kind for a project. |
-| 42 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
-| 43 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
-| 44 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
+| 2 | `POST` | `/auth/login` | Log in with a username **or** email; get an access token and a refresh cookie. |
+| 3 | `POST` | `/auth/refresh` | Trade the refresh cookie for a new access token; the cookie is replaced every time. |
+| 4 | `POST` | `/auth/logout` | Revoke the session in the refresh cookie and clear it. |
+| 5 | `POST` | `/auth/forgot-password` | Email a temporary password; signing in with it leads to choosing a new one (public). |
+| 6 | `POST` | `/auth/confirm-email` | Finish an email change from the link sent to the new address (public). |
+| 7 | `GET` | `/users/me` | Return the signed-in user's own profile. |
+| 8 | `PATCH` | `/users/me` | Change your own full name. |
+| 9 | `POST` | `/users/me/password` | Change your own password, given the current one. |
+| 10 | `POST` | `/users/me/email` | Ask to change your email; a link is sent to the new address to confirm it. |
+| 11 | `DELETE` | `/users/me/email` | Cancel a pending email change. |
+| 12 | `GET` | `/users` | List users, with role and active-state filters. |
+| 13 | `GET` | `/users/{user_id}` | Return one user by id. |
+| 14 | `PATCH` | `/users/{user_id}/role` | Assign a different role to a user. |
+| 15 | `PATCH` | `/users/{user_id}/suspend` | Block a user from logging in and kill their current session. |
+| 16 | `PATCH` | `/users/{user_id}/reactivate` | Lift a suspension and restore access. |
+| 17 | `POST` | `/invitations` | Email someone a one-time link that creates their account with a chosen role. |
+| 18 | `GET` | `/invitations` | List invitations, newest first, filterable by status. |
+| 19 | `PATCH` | `/invitations/{invitation_id}/revoke` | Kill an invitation's link. |
+| 20 | `POST` | `/invitations/preview` | Show an invitee which address and role a token is for (public). |
+| 21 | `POST` | `/invitations/accept` | Accept an invitation: create the account and sign in (public). |
+| 22 | `GET` | `/monitoring/projects` | List projects the caller is allowed to see. |
+| 23 | `POST` | `/monitoring/projects` | Create a project and name the members responsible for it. |
+| 24 | `GET` | `/monitoring/projects/{project_id}` | Return one project with its members. |
+| 25 | `PATCH` | `/monitoring/projects/{project_id}` | Update a project's name, description, active flag or extra alert emails. |
+| 26 | `DELETE` | `/monitoring/projects/{project_id}` | Delete a project and stop monitoring every site under it. |
+| 27 | `POST` | `/monitoring/projects/{project_id}/members` | Add one or more users as responsible members (they start receiving alerts). |
+| 28 | `DELETE` | `/monitoring/projects/{project_id}/members/{user_id}` | Remove a member so they stop receiving that project's alerts. |
+| 29 | `GET` | `/monitoring/websites` | List monitored sites and their current up/down status. |
+| 30 | `POST` | `/monitoring/websites` | Start monitoring a URL under a project, optionally with its own recipients. |
+| 31 | `GET` | `/monitoring/websites/{website_id}` | Return one monitored site with its live outage state. |
+| 32 | `PATCH` | `/monitoring/websites/{website_id}` | Update a site's URL, interval, timeout, alert budget, alert emails or enabled flag. |
+| 33 | `DELETE` | `/monitoring/websites/{website_id}` | Stop monitoring a site and delete its check history. |
+| 34 | `POST` | `/monitoring/websites/{website_id}/recipients` | Add one or more users alerted about this site only. |
+| 35 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | Stop alerting a user about this site. |
+| 36 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
+| 37 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
+| 38 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack switches per kind. |
+| 39 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
+| 40 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
+| 41 | `POST` | `/monitoring/notifications/preview` | Render a notification with sample data, exactly as it would be sent. |
+| 42 | `GET` | `/monitoring/projects/{project_id}/notifications` | A project's settings after inheriting from global. |
+| 43 | `PUT` | `/monitoring/projects/{project_id}/notifications/{kind}` | Override one kind for a project. |
+| 44 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
+| 45 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
+| 46 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
 
 ---
 
@@ -79,9 +81,15 @@ is always `Viewer` and cannot be set from the payload.
 
 ### `POST /api/v1/auth/login`
 Authenticate with `identifier` (username **or** email) plus `password`, and
-receive the user plus an access/refresh token pair. A temporary password from
+receive the user plus an access token; the refresh token is set as a cookie
+(see [the refresh cookie](#the-refresh-cookie)). A temporary password from
 forgot password works too, while it lasts: it becomes the password, and the
 user comes back with `must_change_password: true`.
+`MAX_FAILED_LOGIN_ATTEMPTS` (default 5) wrong passwords in a row suspend the
+account, and signing in resets the count. The attempt that suspends it still
+answers `401`, like any wrong password; only the right password gets the `403`.
+Someone allowed to reinstate the account has to
+[reactivate](#patch-apiv1usersuser_idreactivate) it.
 `200` · `401` wrong credentials or unknown user · `403` suspended · `422` invalid
 
 ### `POST /api/v1/auth/forgot-password`
@@ -103,7 +111,29 @@ new address, so holding it proves the address is yours. The link works once.
 cancelled or replaced) · `409` another account took the address meanwhile ·
 `410` expired
 
-> There is no logout endpoint — the client discards its tokens.
+### `POST /api/v1/auth/refresh`
+No body. Trades the refresh cookie for `{access_token, token_type, expires_in}`
+and sets a replacement cookie. Each refresh token works once: presenting one
+that was already used means someone else holds a copy, so the whole session is
+revoked and everyone on it has to sign in again. A client must therefore never
+send two refreshes at once. A session lasts `REFRESH_TOKEN_EXPIRE_DAYS`
+(default 7) from its last refresh. Any failure clears the cookie.
+`200` · `401` no cookie, or the session expired, was revoked or was reused ·
+`403` suspended
+
+### `POST /api/v1/auth/logout`
+Revokes the session in the refresh cookie and clears the cookie. No sign-in
+needed; always `204`. The access token cannot be revoked and works until it
+expires, so the client should discard it.
+`204`
+
+#### The refresh cookie
+Login, signup and accepting an invitation set `watchly_refresh`. It is
+`HttpOnly`, so page scripts cannot read it; `SameSite=Strict`, so it is never
+sent on a request another site starts; `Path=/api/v1/auth`, so it goes only to
+refresh and logout; and `Secure` unless `REFRESH_COOKIE_SECURE=false`. The
+token never appears in a response body, and only its SHA-256 digest is stored.
+Suspending a user revokes all their sessions.
 
 ---
 
@@ -171,7 +201,8 @@ already hold stops working on the next request.
 `200` · `403` insufficient rank or self · `404`
 
 ### `PATCH /api/v1/users/{user_id}/reactivate`
-Lift a suspension and restore login.
+Lift a suspension and restore login. Also clears `failed_login_attempts`, so
+this is how an account suspended for too many wrong passwords is unlocked.
 `200` · `403` · `404`
 
 **Who may suspend whom**
@@ -456,8 +487,8 @@ Public liveness check. Returns `{"status": "ok", "monitoring": "on"|"off"}`.
 ## Conventions
 
 **Status codes.** Beyond the ones listed, any authenticated endpoint may return
-`401` (missing, malformed or expired token, or a refresh token used as an
-access token) and `403` (the account has been suspended).
+`401` (missing, malformed or expired access token; the frontend then tries
+`POST /auth/refresh` once) and `403` (the account has been suspended).
 
 **Roles.** `Viewer` · `Admin` · `DevOps` · `Project Manager` · `Developer`.
 Everyone who signs up on their own starts as `Viewer`; an invited user starts with
@@ -481,10 +512,10 @@ masked `slack_token_hint` such as `xoxb-…9f2a` instead (and, for a project,
 
 ## Not built yet
 
-- `POST /auth/refresh` — the JWT utils support it (`decode_refresh_token`), but
-  no endpoint exists, so refresh tokens currently have nowhere to be redeemed.
-- Logout / server-side token revocation — deliberately left out; tokens stay
-  valid until they expire.
+- Revoking access tokens. They are stateless and work until they expire;
+  logout and suspension revoke the refresh side only.
+- Revoking other sessions when a password changes or a temporary password is
+  used. Until then a stolen refresh cookie survives a password reset.
 - Audit trail for role changes, suspensions, invitations and project edits.
 - Automatic pruning of `website_checks`; `WebsiteService.purge_old_checks()`
   exists but nothing calls it. When you add it, keep at least 35 days: the

@@ -143,7 +143,15 @@ export default function Users() {
                       {u.is_active ? (
                         <span className="badge badge-up">active</span>
                       ) : (
-                        <span className="badge badge-down">suspended</span>
+                        <>
+                          <span className="badge badge-down">suspended</span>
+                          {u.failed_login_attempts > 0 && (
+                            <div className="muted small">
+                              {u.failed_login_attempts} failed sign-in
+                              {u.failed_login_attempts === 1 ? '' : 's'}
+                            </div>
+                          )}
+                        </>
                       )}
                     </td>
                     <td className="nowrap">{timeAgo(u.last_activity)}</td>

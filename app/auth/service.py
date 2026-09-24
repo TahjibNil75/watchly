@@ -4,9 +4,11 @@ Knows nothing about HTTP: it raises the domain errors below and
 `app/auth/routes.py` maps them onto status codes.
 """
 
+import logging
+import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,9 +17,14 @@ from app.core.config import settings
 from app.core.security import (
     generate_hash_password,
     generate_temporary_password,
+    hash_token,
+    new_link_token,
     verify_password,
 )
+from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 # Verified against when no user matches, so a login attempt for an unknown
 # account costs the same bcrypt work as one for a real account. Without it,
@@ -54,6 +61,13 @@ class InactiveUserError(AuthError):
         super().__init__("This account has been suspended.")
 
 
+class InvalidRefreshTokenError(AuthError):
+    """Missing, unknown, expired, revoked or already used — the session is over."""
+
+    def __init__(self) -> None:
+        super().__init__("Your session has ended. Sign in again.")
+
+
 class AuthService:
     """Auth operations for a single request's session."""
 
@@ -88,6 +102,9 @@ class AuthService:
         `must_change_password`, which confines the session to choosing a new
         one. Signing in either way uses up a pending temporary password.
 
+        A wrong password counts against the account, and MAX_FAILED_LOGIN_ATTEMPTS
+        in a row suspend it; signing in resets the count.
+
         Raises:
             InvalidCredentialsError: no such user, or the password is wrong.
             InactiveUserError: credentials are valid but the account is suspended.
@@ -104,13 +121,17 @@ class AuthService:
             and _temporary_password_live(user)
             and verify_password(password, user.temp_password_hash)
         )
-        if user is None or not (password_ok or used_temporary):
+        if user is None:
+            raise InvalidCredentialsError
+        if not (password_ok or used_temporary):
+            await self._record_failed_login(user)
             raise InvalidCredentialsError
 
         # A suspended user (is_active=False) is refused a token here, and
         # `last_activity` below is deliberately left untouched for them.
         # Checked only after the password is proven, so a wrong password never
-        # reveals whether the account exists or is suspended.
+        # reveals whether the account exists or is suspended — including on the
+        # attempt that suspends it, which is answered like any other.
         if not user.is_active:
             raise InactiveUserError
 
@@ -120,10 +141,45 @@ class AuthService:
             user.password_hash = user.temp_password_hash
             user.must_change_password = True
         user.clear_temporary_password()
+        user.failed_login_attempts = 0
         user.last_activity = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(user)
         return user
+
+    async def _record_failed_login(self, user: User) -> None:
+        """Count a wrong password against `user`, suspending the account once
+        MAX_FAILED_LOGIN_ATTEMPTS are in a row. Commits.
+
+        Suspending works as it does from the API: sessions are revoked, and
+        only a user whose role may reinstate this one's can lift it.
+        """
+        # Incremented in SQL, so simultaneous attempts cannot each read the
+        # same count and let a burst of guesses slip past the limit.
+        attempts = await self.session.scalar(
+            update(User)
+            .where(User.id == user.id)
+            .values(failed_login_attempts=User.failed_login_attempts + 1)
+            .returning(User.failed_login_attempts)
+        )
+        # Conditional on is_active in SQL too: of simultaneous attempts past the
+        # limit, only the one that actually flips it revokes and logs.
+        suspended = attempts >= settings.MAX_FAILED_LOGIN_ATTEMPTS and (
+            await self.session.scalar(
+                update(User)
+                .where(User.id == user.id, User.is_active.is_(True))
+                .values(is_active=False)
+                .returning(User.id)
+            )
+        )
+        if suspended:
+            await self.end_all_sessions(user.id)
+            logger.warning(
+                "Suspended user %s after %d failed sign-ins in a row.",
+                user.id,
+                attempts,
+            )
+        await self.session.commit()
 
     async def issue_temporary_password(self, email: str) -> tuple[User, str] | None:
         """Give the account at `email` a temporary password, for "forgot password".
@@ -197,6 +253,104 @@ class AuthService:
         await self.session.refresh(user)
         return user
 
+    # -- sessions (refresh tokens) ------------------------------------------
+
+    async def start_session(self, user: User) -> str:
+        """Begin a new session for `user` and return its first refresh token.
+
+        Also sweeps out every user's expired tokens: they can no longer be
+        redeemed, so there is nothing left to catch them being reused for.
+        """
+        now = datetime.now(UTC)
+        await self.session.execute(
+            delete(RefreshToken).where(RefreshToken.expires_at <= now)
+        )
+        token = self._add_refresh_token(user.id, uuid.uuid4().hex, now)
+        await self.session.commit()
+        return token
+
+    async def rotate_refresh_token(self, token: str) -> tuple[User, str]:
+        """Redeem `token`: use it up, and return its user and its successor.
+
+        Also stamps `last_activity`, which would otherwise only move at sign-in.
+
+        Raises:
+            InvalidRefreshTokenError: unknown, expired, revoked or already used.
+                An already-used token also revokes the rest of its family.
+            InactiveUserError: the account has been suspended.
+        """
+        now = datetime.now(UTC)
+        # FOR UPDATE: two requests redeeming the same token queue up here, and
+        # the second sees the `used_at` the first one set.
+        current = await self.session.scalar(
+            select(RefreshToken)
+            .where(RefreshToken.token_hash == hash_token(token))
+            .with_for_update()
+        )
+        if current is None or current.revoked_at is not None or current.expires_at <= now:
+            raise InvalidRefreshTokenError
+
+        if current.used_at is not None:
+            # Someone else holds a copy of this token, and there is no telling
+            # whether they or the caller are the rightful owner. End the
+            # session for both.
+            logger.warning(
+                "Refresh token reused for user %s; revoking session %s.",
+                current.user_id,
+                current.family_id,
+            )
+            await self._revoke(RefreshToken.family_id == current.family_id, now)
+            await self.session.commit()
+            raise InvalidRefreshTokenError
+
+        user = await self.session.get(User, current.user_id)
+        if user is None:
+            raise InvalidRefreshTokenError
+        if not user.is_active:
+            # Suspending revokes the user's sessions; this catches one started
+            # while the suspension was being saved.
+            raise InactiveUserError
+
+        current.used_at = now
+        successor = self._add_refresh_token(user.id, current.family_id, now)
+        user.last_activity = now
+        await self.session.commit()
+        await self.session.refresh(user)
+        return user, successor
+
+    async def end_session(self, token: str) -> None:
+        """Revoke the session `token` belongs to. Unknown tokens are ignored."""
+        family_id = await self.session.scalar(
+            select(RefreshToken.family_id).where(
+                RefreshToken.token_hash == hash_token(token)
+            )
+        )
+        if family_id is not None:
+            await self._revoke(RefreshToken.family_id == family_id, datetime.now(UTC))
+            await self.session.commit()
+
+    async def end_all_sessions(self, user_id: int) -> None:
+        """Revoke every session `user_id` has. The caller commits."""
+        await self._revoke(RefreshToken.user_id == user_id, datetime.now(UTC))
+
+    def _add_refresh_token(self, user_id: int, family_id: str, now: datetime) -> str:
+        token = new_link_token()
+        self.session.add(
+            RefreshToken(
+                user_id=user_id,
+                family_id=family_id,
+                token_hash=hash_token(token),
+                expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            )
+        )
+        return token
+
+    async def _revoke(self, condition: ColumnElement[bool], now: datetime) -> None:
+        await self.session.execute(
+            update(RefreshToken)
+            .where(condition, RefreshToken.revoked_at.is_(None))
+            .values(revoked_at=now)
+        )
 
 
 def _temporary_password_live(user: User) -> bool:

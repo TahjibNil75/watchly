@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.service import InactiveUserError, UserAlreadyExistsError
+from app.auth.service import AuthService, InactiveUserError, UserAlreadyExistsError
 from app.core.config import settings
 from app.core.permissions import can_change_role, can_suspend_user
 from app.core.security import (
@@ -161,6 +161,10 @@ class UserService:
 
         Suspension is `is_active = False`: login refuses to issue tokens, and
         any token the user already holds stops working on its next request.
+        Their sessions are revoked too, so reinstating them does not bring a
+        stolen refresh token back to life. Reinstating also clears the failed
+        sign-in count, so this is how an account locked by
+        MAX_FAILED_LOGIN_ATTEMPTS is unlocked.
 
         Raises:
             UserNotFoundError: no such user.
@@ -184,6 +188,12 @@ class UserService:
             return target
 
         target.is_active = should_be_active
+        if suspended:
+            await AuthService(self.session).end_all_sessions(target.id)
+        else:
+            # A fresh start: otherwise one more wrong password would suspend an
+            # account locked by failed sign-ins all over again.
+            target.failed_login_attempts = 0
         await self.session.commit()
         await self.session.refresh(target)
         return target
@@ -209,9 +219,9 @@ class UserService:
     ) -> User:
         """Replace `user`'s password, given the one they have now.
 
-        Sessions already signed in stay signed in until their token expires;
-        tokens are not revocable. Also lifts `must_change_password` and drops
-        any pending temporary password.
+        Other sessions stay signed in: their refresh tokens are not revoked.
+        Also lifts `must_change_password` and drops any pending temporary
+        password.
 
         Raises:
             IncorrectPasswordError: `current_password` is wrong.

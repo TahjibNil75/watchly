@@ -8,21 +8,28 @@ export function AuthProvider({ children }) {
   // With a stored token we don't know who is signed in until /users/me answers.
   const [checking, setChecking] = useState(() => Boolean(getToken()))
 
-  // There is no logout endpoint: the client just forgets its token.
-  const logout = useCallback(() => {
+  // Forget the session on this side, for when the API says it is over.
+  const forget = useCallback(() => {
     setToken(null)
     setUser(null)
   }, [])
 
+  // Signing out also revokes the session in the refresh cookie, which only
+  // the API can clear. The access token can't be revoked; it just lapses.
+  const logout = useCallback(() => {
+    api.logout().catch(() => {})
+    forget()
+  }, [forget])
+
   useEffect(() => {
-    setUnauthorizedHandler(logout)
+    setUnauthorizedHandler(forget)
     if (!getToken()) return
     api
       .me()
       .then(setUser)
-      .catch(logout)
+      .catch(forget)
       .finally(() => setChecking(false))
-  }, [logout])
+  }, [forget])
 
   const value = useMemo(() => {
     const accept = ({ user, tokens }) => {

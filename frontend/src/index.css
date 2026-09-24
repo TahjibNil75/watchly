@@ -313,8 +313,35 @@ a:hover {
   gap: 14px;
   margin: 0;
 }
+.auth-card .brand-lg {
+  align-self: center;
+}
 .auth-card h1 {
   font-size: 1.3rem;
+}
+.password-input {
+  position: relative;
+}
+.password-input input {
+  padding-right: 64px;
+}
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--primary);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.password-toggle:hover {
+  background: var(--surface-2);
 }
 .auth-card p {
   margin: 0;

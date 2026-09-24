@@ -59,7 +59,7 @@ app/
     crypto.py        # Fernet encryption for stored Slack tokens
     permissions.py   # who may manage, see, suspend and invite whom
   utils/
-    jwt.py           # reusable access/refresh token helpers
+    jwt.py           # access-token helpers (refresh tokens live in the DB)
   db/
     base.py          # DeclarativeBase + TimestampMixin
     session.py       # async engine, session factory, get_db dependency
@@ -67,6 +67,7 @@ app/
     models/
       user.py        # User model + UserRole enum
       invitation.py  # Invitation model + status
+      refresh_token.py # RefreshToken: one row per issued refresh token
   schemas/
     user.py          # UserCreate / UserRead / UserUpdate / UserInDB
   main.py            # FastAPI app
@@ -183,14 +184,14 @@ curl -X POST http://127.0.0.1:8000/api/v1/auth/signup \
        "password":"Str0ng@Pass","confirm_password":"Str0ng@Pass"}'
 ```
 
-`201` returns the created user plus a token pair:
+`201` returns the created user plus an access token, and sets the refresh
+token as an httpOnly cookie (see [Staying signed in](#staying-signed-in-and-logging-out)):
 
 ```json
 {
   "user": { "id": 2, "username": "jane", "role": "Viewer", "...": "..." },
   "tokens": {
     "access_token": "eyJ...",
-    "refresh_token": "eyJ...",
     "token_type": "bearer",
     "expires_in": 1800
   }
@@ -231,15 +232,26 @@ Two deliberate choices here, both to stop account enumeration:
 - `is_active` is only checked *after* the password is proven, so a wrong
   password returns `401` whether or not the account exists or is disabled.
 
-### Logging out
+### Staying signed in and logging out
 
-There is no logout endpoint — the client discards its tokens. Because JWTs are
-stateless and validated by signature alone, a token stays usable until its `exp`
-even after the frontend forgets it. Keep `ACCESS_TOKEN_EXPIRE_MINUTES` short so
-that window stays small.
+Login, signup and accepting an invitation set a `watchly_refresh` cookie:
+`HttpOnly`, `SameSite=Strict`, `Path=/api/v1/auth`, and `Secure` unless
+`REFRESH_COOKIE_SECURE=false`. `POST /auth/refresh` trades it for a new access
+token and replaces it. Each refresh token works once. Presenting a used one
+revokes the whole session, since someone else must hold a copy.
 
-Server-side invalidation would need a `jti` denylist table checked on every
-authenticated request; that is deliberately not in this codebase.
+```bash
+curl -c jar -b jar -X POST http://127.0.0.1:8000/api/v1/auth/login \
+  -H 'Content-Type: application/json' -d '{"identifier":"admin","password":"Admin@123"}'
+curl -c jar -b jar -X POST http://127.0.0.1:8000/api/v1/auth/refresh
+```
+
+(curl only sends a `Secure` cookie over HTTPS, or to `localhost`.)
+
+`POST /auth/logout` revokes the session and clears the cookie. The access token
+is a stateless JWT and stays usable until its `exp` even after that, so keep
+`ACCESS_TOKEN_EXPIRE_MINUTES` short. Revoking it would need a `jti` denylist
+checked on every request; that is deliberately not in this codebase.
 
 ### Protecting your own routes
 
@@ -255,9 +267,8 @@ async def me(user: User = Depends(get_current_user)) -> UserRead:
     return UserRead.model_validate(user)
 ```
 
-`get_current_user` rejects missing, malformed and expired tokens, refuses
-refresh tokens used as access tokens, and returns `403` for a deactivated
-account. Use `get_current_claims` when you only need the claims and want to skip
+`get_current_user` rejects missing, malformed and expired access tokens and
+returns `403` for a deactivated account. Use `get_current_claims` when you only need the claims and want to skip
 the user lookup.
 
 ### JWT utils
@@ -266,20 +277,20 @@ the user lookup.
 reuse it. It raises `TokenError`; the caller decides the HTTP status.
 
 ```python
-from app.utils.jwt import create_token_pair, decode_access_token, TokenError
+from app.utils.jwt import create_access_token, decode_access_token, TokenError
 
-pair = create_token_pair(subject=str(user.id),
-                         extra_claims={"username": user.username, "role": user.role.value})
+token = create_access_token(subject=str(user.id),
+                            extra_claims={"username": user.username, "role": user.role.value})
 
 try:
-    claims = decode_access_token(token)   # rejects refresh tokens
+    claims = decode_access_token(token)
 except TokenError:
     ...
 ```
 
 Claims carried: `sub`, `type`, `iat`, `nbf`, `exp`, `jti`, plus anything in
-`extra_claims`. `decode_access_token` / `decode_refresh_token` enforce `type`,
-so a refresh token cannot be used as an access token.
+`extra_claims`. `decode_access_token` enforces `type: access`. Refresh tokens
+are not JWTs; `AuthService` issues, rotates and revokes them.
 
 Set `SECRET_KEY` in `.env` (`openssl rand -hex 32`) — the app logs a warning at
 startup while it is still the default.
@@ -346,6 +357,11 @@ Suspension and role changes have different rules, so they are two tables.
 | **DevOps**          | ❌    | ❌     | ✅              | ✅        | ✅     | ❌   |
 | **project manager** | ❌    | ✅     | ❌              | ✅        | ✅     | ❌   |
 | developer, viewer   | ❌    | ❌     | ❌              | ❌        | ❌     | ❌   |
+
+The same table decides who may unlock an account suspended for
+`MAX_FAILED_LOGIN_ATTEMPTS` (default 5) wrong passwords in a row: reactivating
+it clears the count. If nobody may — the only admin locked themselves out —
+reinstate it from the server with `python -m app.db.reactivate <username>`.
 
 This is a table, not a hierarchy — DevOps and project managers can each suspend
 the other. Note a project manager cannot suspend a fellow project manager.
