@@ -21,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.crypto import decrypt_secret, mask_secret
 from app.db.base import Base, TimestampMixin
 
 # `websites.created_by_id` targets `users.id`, so that table must be registered
@@ -154,8 +155,12 @@ class Website(Base, TimestampMixin):
         Boolean, default=True, server_default=text("true"), nullable=False
     )
     #: Send this site's alerts to its own channel instead of the project's.
-    #: Uses the project's bot token either way.
+    #: Uses the project's bot token unless the site has one of its own.
     slack_channel_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    #: The site's own bot token (`xoxb-…`), encrypted at rest. Always paired
+    #: with the site's own channel; lets a site post to Slack when its project
+    #: has none, or to another workspace.
+    slack_bot_token: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # --- live state -------------------------------------------------------
     status: Mapped[WebsiteStatus] = mapped_column(
@@ -249,13 +254,26 @@ class Website(Base, TimestampMixin):
         return self.inherit_project_recipients and self.project.has_email_alerting
 
     @property
+    def has_slack_alerting(self) -> bool:
+        """A token and a channel resolve, from the site or else its project.
+        Like the project's check, the mute switch does not count here."""
+        if self.slack_bot_token:
+            return bool(self.slack_channel_id)
+        channel = self.slack_channel_id or self.project.slack_channel_id
+        return bool(self.project.slack_bot_token and channel)
+
+    @property
+    def slack_token_hint(self) -> str | None:
+        """Masked tail of the site's own token; None when it uses the project's."""
+        return mask_secret(decrypt_secret(self.slack_bot_token))
+
+    @property
     def alert_channels(self) -> list[str]:
-        """Which channels reach this site's alerts. Slack always comes from the
-        project, since the bot token lives there."""
+        """Which channels reach this site's alerts."""
         channels = []
         if self.has_email_alerting:
             channels.append("email")
-        if self.project.has_slack_alerting:
+        if self.has_slack_alerting:
             channels.append("slack")
         return channels
 

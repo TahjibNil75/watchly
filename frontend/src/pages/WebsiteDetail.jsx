@@ -263,6 +263,7 @@ export default function WebsiteDetail() {
           <h2>Edit website</h2>
           <WebsiteForm
             initial={s}
+            project={project.data}
             onCancel={() => setEditing(false)}
             onSubmit={async (payload) => {
               site.setData(await api.updateWebsite(s.id, payload))
@@ -352,10 +353,13 @@ export default function WebsiteDetail() {
               <dt>Extra emails</dt>
               <dd>{s.alert_emails.length ? s.alert_emails.join(', ') : '—'}</dd>
             </div>
-            {s.slack_channel_id && (
+            {(s.slack_channel_id || s.alert_channels.includes('slack')) && (
               <div>
-                <dt>Slack channel</dt>
-                <dd>{s.slack_channel_id}</dd>
+                <dt>Slack</dt>
+                <dd>
+                  {s.slack_channel_id ?? "project's channel"} ·{' '}
+                  {s.slack_token_hint ? `own bot (${s.slack_token_hint})` : "project's bot"}
+                </dd>
               </div>
             )}
           </dl>

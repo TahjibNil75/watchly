@@ -185,7 +185,8 @@ With Mailpit running, everything Watchly can send is one click away:
   shown on its page once it has been read.
 
 Slack works the same way, per project: give a project a bot token and channel
-and the same messages appear there. Switch any kind off for a project, on
+and the same messages appear there. A single site can also get Slack of its
+own from the **Slack alerts (optional)** section of its form. Switch any kind off for a project, on
 either channel, from the project's **Notifications** section.
 
 ---

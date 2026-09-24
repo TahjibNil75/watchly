@@ -144,7 +144,7 @@ app/monitoring/
 │   ├── base.py     NotificationKind, Message (channel-neutral), Alerter interface
 │   ├── events.py   OutageEvent, SslExpiryEvent, SlowResponseEvent, ReportEvent
 │   ├── email.py    SMTP: HTML + text layouts
-│   ├── slack.py    Block Kit; per-project bot token + channel
+│   ├── slack.py    Block Kit; per-project (or per-site) bot token + channel
 │   └── webhook.py  generic JSON POST
 └── notifications/  who wants what, in which words
     ├── catalog.py      kinds, placeholders, built-in wording
@@ -226,6 +226,7 @@ erDiagram
         text_array alert_emails
         bool inherit_project_recipients "false = site list only"
         string slack_channel_id "overrides project"
+        text slack_bot_token "Fernet ciphertext, null = project's"
         enum status "website_status"
         enum environment "website_environment, null = unset"
         timestamptz last_checked_at
@@ -382,7 +383,7 @@ flowchart LR
     D --> EM["EmailAlerter → SMTP"]
 
     E --> S{"slack target?"}
-    S -->|"site channel, else project channel<br/>+ decrypted project token"| SL["SlackAlerter → chat.postMessage"]
+    S -->|"site token + site channel, else<br/>site or project channel + project token"| SL["SlackAlerter → chat.postMessage"]
     S -->|"none configured"| FB["SLACK_WEBHOOK_URL fallback, if set"]
 
     E --> WH["WebhookAlerter → ALERT_WEBHOOK_URL"]
@@ -392,7 +393,7 @@ flowchart LR
 Enforced at create *and* on every later change, so a project cannot be quietly
 silenced by clearing its last recipient or removing its last member. **Every
 site must too**: a site that stops inheriting its project's recipients needs
-recipients of its own (or project Slack), and cannot drop its last one.
+recipients of its own (or Slack), and cannot drop its last one.
 
 Channels fail independently: an alerter that throws is logged and the others
 still run.
@@ -501,7 +502,7 @@ manages only the ones they created, and the sites under them.
 | ------- | -------- |
 | **Passwords** | bcrypt via the `bcrypt` package directly. `passlib` is unusable on Python 3.13+ — it imports the removed `crypt` module. |
 | **Account enumeration** | Login runs bcrypt against a dummy hash when no user matches, so timing does not reveal which accounts exist (measured 1.02 ratio). `is_active` is checked only after the password is proven. |
-| **Stored secrets** | Slack bot tokens are Fernet-encrypted at rest and write-only in the API — reads return `slack_configured` and a masked hint. Key from `SLACK_TOKEN_ENCRYPTION_KEY`, falling back to `SECRET_KEY`. |
+| **Stored secrets** | Slack bot tokens (project and site) are Fernet-encrypted at rest and write-only in the API — reads return a masked hint. Key from `SLACK_TOKEN_ENCRYPTION_KEY`, falling back to `SECRET_KEY`. |
 | **Password leakage** | FastAPI's default 422 body echoes the offending input. A custom handler redacts password fields. |
 | **Sessions** | Stateless JWT. Access 30 min, refresh 7 days. No logout endpoint and no revocation — the client discards its tokens. |
 | **Async safety** | `Website.project` and `Project.members` use `lazy="selectin"`; a lazy load from the background task would raise `MissingGreenlet`. |

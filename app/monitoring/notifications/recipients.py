@@ -26,21 +26,31 @@ def project_recipients(project: Project) -> tuple[str, ...]:
     return dedupe_emails(project.recipient_emails, settings.ALERT_DEFAULT_EMAILS)
 
 
-def slack_target(project: Project | None, channel_id: str | None = None) -> SlackTarget | None:
+def slack_target(
+    project: Project | None,
+    channel_id: str | None = None,
+    bot_token: str | None = None,
+) -> SlackTarget | None:
     """The channel to post to, with the token decrypted.
 
-    The bot token always comes from the project; `channel_id` (a website's own
-    channel) overrides the project's default. Returns None when the project has
-    no Slack set up, or the stored token cannot be decrypted.
+    `channel_id` and `bot_token` are a website's own settings. A site with its
+    own (encrypted) `bot_token` posts with it to its own channel, and the
+    project's mute switch does not apply — it is not the project's Slack.
+    Otherwise the token comes from the project, and `channel_id` overrides the
+    project's default channel. Returns None when nothing is set up, Slack is
+    muted, or the stored token cannot be decrypted.
     """
-    if project is None or not project.slack_enabled:
+    if bot_token:
+        channel, ciphertext = channel_id, bot_token
+    elif project is None or not project.slack_enabled:
         return None
-
-    channel = channel_id or project.slack_channel_id
+    else:
+        channel = channel_id or project.slack_channel_id
+        ciphertext = project.slack_bot_token
     if not channel:
         return None
 
-    token = decrypt_secret(project.slack_bot_token)
+    token = decrypt_secret(ciphertext)
     if not token:
         return None
     return SlackTarget(bot_token=token, channel_id=channel)

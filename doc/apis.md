@@ -260,23 +260,28 @@ does not, so existing scripts keep working), `method`, `expected_status`,
 `timeout_seconds`, `check_interval_seconds` (≥30), `max_down_alerts`,
 `is_enabled`, `recipient_ids` (users alerted about this site only),
 `alert_emails` (addresses alerted about this site only),
-`inherit_project_recipients` (default `true`), `slack_channel_id`
+`inherit_project_recipients` (default `true`), `slack_channel_id` (post to
+this channel instead of the project's), `slack_bot_token` (the site's own bot,
+for when the project has no Slack; needs `slack_channel_id`)
 `201` · `403` not your project · `404` no such project · `409` URL already
-monitored · `422` invalid field, unknown recipient id, or the site would have
-no alert channel
+monitored · `422` invalid field, unknown recipient id, the site would have
+no alert channel, or its Slack settings post nowhere
 
 ### `GET /api/v1/monitoring/websites/{website_id}`
 Return one site with its live state: `status`, `last_checked_at`, `down_since`,
 `consecutive_failures`, `down_alerts_sent` — and its alerting setup:
-`recipients`, `alert_emails`, `inherit_project_recipients`, `alert_channels`.
+`recipients`, `alert_emails`, `inherit_project_recipients`, `alert_channels`,
+`slack_channel_id`, and `slack_token_hint` when the site has its own bot.
 `200` · `404` missing **or** not visible
 
 ### `PATCH /api/v1/monitoring/websites/{website_id}`
 Update any of the check settings, `alert_emails` (replaces the whole list),
-`inherit_project_recipients`, or disable the site without deleting it. A
-change that would leave the site with no alert channel is refused.
+`inherit_project_recipients`, the site's Slack (`slack_channel_id: null`
+removes it, token included; `slack_bot_token: null` goes back to the project's
+token), or disable the site without deleting it. A change that would leave the
+site with no alert channel is refused.
 `200` · `403` · `404` · `409` URL already monitored · `422` would leave no
-alert channel
+alert channel, or Slack settings that post nowhere
 
 ### `DELETE /api/v1/monitoring/websites/{website_id}`
 Stop monitoring and delete the site's check history.
@@ -400,9 +405,10 @@ what exists.
 
 **Timestamps.** ISO 8601, UTC.
 
-**Secrets.** A project's `slack_bot_token` is write-only: it is encrypted before
-storage and never appears in a response. Reads return `slack_configured` and a
-masked `slack_token_hint` such as `xoxb-…9f2a` instead.
+**Secrets.** A project's or site's `slack_bot_token` is write-only: it is
+encrypted before storage and never appears in a response. Reads return a
+masked `slack_token_hint` such as `xoxb-…9f2a` instead (and, for a project,
+`slack_configured`).
 
 ---
 

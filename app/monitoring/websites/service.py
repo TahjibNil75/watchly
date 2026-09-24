@@ -6,6 +6,7 @@ from sqlalchemy import func, literal_column, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.crypto import encrypt_secret
 from app.core.permissions import can_view_all_projects
 from app.db.models.user import User
 from app.monitoring.projects.models import Project, member_project_ids
@@ -42,19 +43,46 @@ class WebsiteNotAlertableError(WebsiteError):
         super().__init__(
             f"{website.name!r} would have no alert channel. Add recipient_ids or "
             "alert_emails, set inherit_project_recipients back to true, or "
-            f"configure Slack on project {website.project.name!r}."
+            f"set up Slack on this site or on project {website.project.name!r}."
         )
+
+
+class WebsiteSlackError(WebsiteError):
+    """The site's own Slack settings could not deliver anything."""
+
+
+def slack_problem(website: Website) -> WebsiteSlackError | None:
+    """Why the site's own Slack settings would post nowhere, if they would."""
+    if website.slack_bot_token and not website.slack_channel_id:
+        return WebsiteSlackError(
+            "slack_bot_token needs slack_channel_id: a site's own token posts to "
+            "the site's own channel."
+        )
+    if website.slack_channel_id and not (
+        website.slack_bot_token or website.project.slack_bot_token
+    ):
+        return WebsiteSlackError(
+            "slack_channel_id needs a bot token: add slack_bot_token to this "
+            f"site, or configure Slack on project {website.project.name!r}."
+        )
+    return None
 
 
 class WebsiteService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def _commit_if_alertable(self, website: Website) -> None:
-        """Commit a change unless it leaves the site unable to alert anyone."""
-        if not website.alert_channels:
-            # Discard the half-applied change so the session is not left dirty.
+    async def _commit_if_alertable(
+        self, website: Website, *, check_slack: bool = False
+    ) -> None:
+        """Commit a change unless it leaves the site unable to alert anyone,
+        or — with `check_slack` — with Slack settings that post nowhere."""
+        # Build the error before rolling back, which expires `website`.
+        error = slack_problem(website) if check_slack else None
+        if error is None and not website.alert_channels:
             error = WebsiteNotAlertableError(website)
+        if error is not None:
+            # Discard the half-applied change so the session is not left dirty.
             await self.session.rollback()
             raise error
         await self.session.commit()
@@ -132,17 +160,28 @@ class WebsiteService:
         recipients = await resolve_users(self.session, payload.recipient_ids)
         website = Website(
             **payload.model_dump(
-                exclude={"url", "alert_emails", "recipient_ids", "project_id"}
+                exclude={
+                    "url",
+                    "alert_emails",
+                    "recipient_ids",
+                    "project_id",
+                    "slack_bot_token",
+                }
             ),
             url=url,
             alert_emails=[str(email) for email in payload.alert_emails],
+            slack_bot_token=(
+                encrypt_secret(payload.slack_bot_token)
+                if payload.slack_bot_token
+                else None
+            ),
             project=project,
             created_by_id=created_by_id,
         )
         website.recipients = recipients
         self.session.add(website)
         try:
-            await self._commit_if_alertable(website)
+            await self._commit_if_alertable(website, check_slack=True)
         except IntegrityError as exc:
             await self.session.rollback()
             raise DuplicateWebsiteError(url) from exc
@@ -160,6 +199,20 @@ class WebsiteService:
         if changes.get("inherit_project_recipients") is None:
             # Optional in the payload but NOT NULL in the table.
             changes.pop("inherit_project_recipients", None)
+        if "slack_channel_id" in changes and not changes["slack_channel_id"]:
+            changes["slack_channel_id"] = None
+            # The site's own token only ever posts to the site's own channel,
+            # so removing the channel removes the token with it.
+            if not changes.get("slack_bot_token"):
+                changes["slack_bot_token"] = None
+        if changes.get("slack_bot_token"):
+            changes["slack_bot_token"] = encrypt_secret(changes["slack_bot_token"])
+        # Only re-validate Slack when it changes, so a site saved before the
+        # check existed can still be edited.
+        slack_changed = "slack_bot_token" in changes or (
+            "slack_channel_id" in changes
+            and changes["slack_channel_id"] != website.slack_channel_id
+        )
 
         if "url" in changes and changes["url"] != website.url:
             # The certificate state describes the old host. Clearing it makes
@@ -172,7 +225,7 @@ class WebsiteService:
             setattr(website, field, value)
 
         try:
-            await self._commit_if_alertable(website)
+            await self._commit_if_alertable(website, check_slack=slack_changed)
         except IntegrityError as exc:
             await self.session.rollback()
             raise DuplicateWebsiteError(str(changes.get("url", website.url))) from exc

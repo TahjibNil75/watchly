@@ -29,6 +29,7 @@ from app.monitoring.websites.service import (
     WebsiteNotAlertableError,
     WebsiteNotFoundError,
     WebsiteService,
+    WebsiteSlackError,
 )
 
 router = APIRouter(prefix="/monitoring/websites", tags=["monitoring: websites"])
@@ -127,7 +128,12 @@ async def list_websites(
         **NEEDS_MANAGER,
         404: {"description": "No such project"},
         409: {"description": "URL already monitored"},
-        422: {"description": "Unknown recipient id, or no alert channel"},
+        422: {
+            "description": (
+                "Unknown recipient id, no alert channel, or Slack settings "
+                "that post nowhere"
+            )
+        },
     },
 )
 async def create_website(
@@ -139,13 +145,15 @@ async def create_website(
     """The site emails its project's members and extra_emails, plus its own
     `recipient_ids` (users) and `alert_emails` (addresses). Set
     `inherit_project_recipients: false` to email only the site's own list.
-    Slack comes from the project, optionally on the site's own channel."""
+    Slack comes from the project, optionally on the site's own
+    `slack_channel_id`; add `slack_bot_token` too for Slack of the site's own,
+    which works even when the project has none."""
     project = await _assert_can_manage(projects, payload.project_id, actor)
     try:
         website = await service.create(payload, project, created_by_id=actor.id)
     except DuplicateWebsiteError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    except (UnknownMembersError, WebsiteNotAlertableError) as exc:
+    except (UnknownMembersError, WebsiteNotAlertableError, WebsiteSlackError) as exc:
         raise _unprocessable(exc) from exc
     return WebsiteRead.model_validate(website)
 
@@ -177,7 +185,12 @@ async def read_website(
         **NOT_FOUND,
         **NEEDS_MANAGER,
         409: {"description": "URL already monitored"},
-        422: {"description": "The change would leave no alert channel"},
+        422: {
+            "description": (
+                "The change would leave no alert channel, or Slack settings "
+                "that post nowhere"
+            )
+        },
     },
 )
 async def update_website(
@@ -188,13 +201,14 @@ async def update_website(
     projects: ProjectService = Depends(get_project_service),
 ) -> WebsiteRead:
     """`alert_emails` replaces the whole list; site users are managed through
-    `/recipients`."""
+    `/recipients`. `slack_channel_id: null` removes the site's own Slack,
+    token included; `slack_bot_token: null` goes back to the project's token."""
     await _get_for_write(service, projects, website_id, actor)
     try:
         return WebsiteRead.model_validate(await service.update(website_id, payload))
     except DuplicateWebsiteError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    except WebsiteNotAlertableError as exc:
+    except (WebsiteNotAlertableError, WebsiteSlackError) as exc:
         raise _unprocessable(exc) from exc
 
 

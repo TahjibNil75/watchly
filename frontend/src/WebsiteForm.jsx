@@ -20,6 +20,7 @@ const BLANK = {
   alert_emails: '',
   inherit_project_recipients: true,
   slack_channel_id: '',
+  slack_bot_token: '',
 }
 
 function fromSite(site) {
@@ -28,6 +29,8 @@ function fromSite(site) {
     ...site,
     alert_emails: site.alert_emails.join(', '),
     slack_channel_id: site.slack_channel_id ?? '',
+    // The stored token is never sent back to us; blank means "keep it".
+    slack_bot_token: '',
     slow_threshold_ms: site.slow_threshold_ms ?? '',
     environment: site.environment ?? '',
   }
@@ -39,13 +42,36 @@ function withScheme(url) {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
 }
 
+// What the Slack fields will do, given the project's own Slack setup.
+function slackHint(project, site) {
+  if (site?.slack_token_hint) {
+    return (
+      'This site posts with its own bot. Leave the token blank to keep it; ' +
+      "clear the channel id to remove this site's Slack."
+    )
+  }
+  if (!project) {
+    return "Leave blank to use the project's Slack, if it has one. A bot token needs a channel id."
+  }
+  if (project.slack_channel_id) {
+    const muted = project.slack_enabled ? '' : ' (currently muted)'
+    return (
+      `Leave blank to post to ${project.name}'s channel ${project.slack_channel_id}${muted}. ` +
+      "Add a channel id to post elsewhere with the project's bot, or a bot token too to use another bot."
+    )
+  }
+  return null
+}
+
 /**
  * Create mode when `projects` is passed (adds the project picker and
- * recipients); edit mode when `initial` is a website.
+ * recipients); edit mode when `initial` is a website, with `project` its
+ * project when known.
  */
 export default function WebsiteForm({
   initial,
   projects,
+  project: siteProject,
   users = [],
   defaultProjectId,
   onSubmit,
@@ -64,6 +90,19 @@ export default function WebsiteForm({
 
   const set = (key) => (e) =>
     setForm({ ...form, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
+
+  const project = creating
+    ? projects.find((p) => String(p.id) === String(form.project_id))
+    : siteProject
+  const hint = slackHint(project, initial)
+  const slackChannel = form.slack_channel_id.trim()
+  const slackToken = form.slack_bot_token.trim()
+  // A channel needs a bot from somewhere; don't insist while the project is unknown.
+  const needsToken =
+    Boolean(slackChannel) &&
+    Boolean(project) &&
+    !project.slack_channel_id &&
+    !initial?.slack_token_hint
 
   const intervals = INTERVALS.includes(Number(form.check_interval_seconds))
     ? INTERVALS
@@ -84,8 +123,10 @@ export default function WebsiteForm({
       slow_threshold_ms: form.slow_threshold_ms === '' ? null : Number(form.slow_threshold_ms),
       alert_emails: parseEmails(form.alert_emails),
       inherit_project_recipients: form.inherit_project_recipients,
-      slack_channel_id: form.slack_channel_id.trim() || null,
+      // Clearing the channel removes the site's own Slack, token included.
+      slack_channel_id: slackChannel || null,
     }
+    if (slackToken) payload.slack_bot_token = slackToken
     if (creating) {
       payload.project_id = Number(form.project_id)
       payload.recipient_ids = recipientIds
@@ -212,17 +253,6 @@ export default function WebsiteForm({
             />
           </label>
           <label className="field">
-            <span>Slack channel id</span>
-            <input
-              value={form.slack_channel_id}
-              onChange={set('slack_channel_id')}
-              placeholder="Project default"
-              maxLength={32}
-            />
-          </label>
-        </div>
-        <div className="row-3">
-          <label className="field">
             <span>Slow after (ms)</span>
             <input
               type="number"
@@ -240,7 +270,7 @@ export default function WebsiteForm({
       </details>
 
       <fieldset className="fieldset">
-        <legend>Who gets alerted</legend>
+        <legend>Email alerts</legend>
         <label className="check">
           <input
             type="checkbox"
@@ -264,6 +294,40 @@ export default function WebsiteForm({
             placeholder="client@example.com, oncall@example.com"
           />
         </label>
+      </fieldset>
+
+      <fieldset className="fieldset">
+        <legend>Slack alerts (optional)</legend>
+        {hint && <p className="muted small">{hint}</p>}
+        <div className="row-2">
+          <label className="field">
+            <span>Channel id</span>
+            <input
+              value={form.slack_channel_id}
+              onChange={set('slack_channel_id')}
+              placeholder={project?.slack_channel_id ?? 'C0123456789'}
+              maxLength={32}
+              required={Boolean(slackToken)}
+            />
+          </label>
+          <label className="field">
+            <span>Bot token</span>
+            <input
+              type="password"
+              value={form.slack_bot_token}
+              onChange={set('slack_bot_token')}
+              placeholder={
+                initial?.slack_token_hint
+                  ? `Stored: ${initial.slack_token_hint}`
+                  : project?.slack_channel_id
+                    ? "Project's bot"
+                    : 'xoxb-…'
+              }
+              autoComplete="off"
+              required={needsToken}
+            />
+          </label>
+        </div>
       </fieldset>
 
       <div className="form-actions">

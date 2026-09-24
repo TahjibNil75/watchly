@@ -9,7 +9,7 @@ from pydantic import (
     field_validator,
 )
 
-from app.monitoring.projects.schemas import ProjectMemberRead
+from app.monitoring.projects.schemas import ProjectMemberRead, SlackSettings
 from app.monitoring.websites.models import WebsiteEnvironment, WebsiteStatus
 
 HTTP_METHODS = frozenset({"GET", "HEAD", "POST", "OPTIONS"})
@@ -61,7 +61,18 @@ class WebsiteBase(BaseModel):
         max_length=32,
         description=(
             "Post this site's alerts to its own channel instead of the "
-            "project's. Uses the project's bot token either way."
+            "project's. Uses the project's bot token unless slack_bot_token "
+            "is also given."
+        ),
+    )
+    slack_bot_token: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=255,
+        description=(
+            "The site's own Slack bot token (`xoxb-…`), for a site whose "
+            "project has no Slack or that posts to another workspace. Needs "
+            "slack_channel_id. Stored encrypted and never returned."
         ),
     )
 
@@ -72,6 +83,13 @@ class WebsiteBase(BaseModel):
         if upper not in HTTP_METHODS:
             raise ValueError(f"method must be one of {sorted(HTTP_METHODS)}")
         return upper
+
+    _bot_token = field_validator("slack_bot_token")(
+        SlackSettings.looks_like_a_bot_token.__func__
+    )
+    _channel_id = field_validator("slack_channel_id")(
+        SlackSettings.looks_like_a_channel_id.__func__
+    )
 
 
 class WebsiteCreate(WebsiteBase):
@@ -119,9 +137,25 @@ class WebsiteUpdate(BaseModel):
         default=None, description="Replaces the whole list when supplied."
     )
     inherit_project_recipients: bool | None = None
-    slack_channel_id: str | None = Field(default=None, max_length=32)
+    slack_channel_id: str | None = Field(
+        default=None,
+        max_length=32,
+        description="Send null to remove the site's own Slack, token included.",
+    )
+    slack_bot_token: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=255,
+        description="Send null to go back to the project's token.",
+    )
 
     _known_method = field_validator("method")(WebsiteBase.known_method.__func__)
+    _bot_token = field_validator("slack_bot_token")(
+        SlackSettings.looks_like_a_bot_token.__func__
+    )
+    _channel_id = field_validator("slack_channel_id")(
+        SlackSettings.looks_like_a_channel_id.__func__
+    )
 
 
 class WebsiteRecipientsUpdate(BaseModel):
@@ -171,6 +205,13 @@ class WebsiteRead(BaseModel):
         description="Channels this site's alerts reach, e.g. `[\"email\"]`.",
     )
     slack_channel_id: str | None = None
+    slack_token_hint: str | None = Field(
+        default=None,
+        description=(
+            "Masked tail of the site's own bot token, e.g. `xoxb-…9f2a`; null "
+            "when the site uses its project's."
+        ),
+    )
     status: WebsiteStatus
     last_checked_at: datetime | None
     down_since: datetime | None

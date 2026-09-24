@@ -119,7 +119,7 @@ endpoints for configuring a channel; it is all part of the project payload.
 Sites inherit their project's channels and need nothing of their own — but
 each can have its own recipients, and **a site must keep at least one
 channel too**: one that stops inheriting the project's recipients needs a
-recipient or address of its own (or project Slack), and its last one cannot be
+recipient or address of its own (or Slack), and its last one cannot be
 removed. `GET /monitoring/websites/{id}` reports the site's `alert_channels`.
 
 ### Email
@@ -149,7 +149,7 @@ curl -X PATCH $BASE/monitoring/websites/$SID -H "Authorization: Bearer $TOKEN" \
 ```
 
 Recipients go in first: opting out while the site has none of its own is
-refused with `422` (unless project Slack is set up), since nobody would be
+refused with `422` (unless Slack is set up), since nobody would be
 emailed. Slack is unaffected by the flag.
 
 Subjects are project-qualified:
@@ -162,14 +162,20 @@ Subjects are project-qualified:
 
 Each project carries **its own bot token and channel id**, so every client gets
 a separate private channel. A site may override the channel while reusing the
-project's token.
+project's token, or bring **a token of its own** — which works even when the
+project has no Slack, and is how Slack is set up from the "Add website" form.
 
 | level | field | effect |
 | ----- | ----- | ------ |
 | project | `slack_bot_token` | the workspace to post as; encrypted at rest |
 | project | `slack_channel_id` | default channel for all the project's sites |
-| project | `slack_enabled` | mute without discarding the settings |
+| project | `slack_enabled` | mute the project's Slack without discarding the settings |
 | site | `slack_channel_id` | that one site posts here instead |
+| site | `slack_bot_token` | that one site posts as this bot; needs the site's `slack_channel_id`, and ignores the project's mute |
+
+A site's channel needs a token from somewhere — its own or its project's — and
+its own token needs its own channel; anything else is refused with `422`.
+`PATCH` with `slack_channel_id: null` removes the site's Slack, token included.
 
 Setting it up:
 
@@ -180,12 +186,14 @@ Setting it up:
 3. Copy the channel id (channel → About → bottom of the panel). Not the
    `#name`; the API rejects that.
 4. `PATCH /monitoring/projects/{id}` with `slack_bot_token` and
-   `slack_channel_id`.
+   `slack_channel_id` — or the same two fields on
+   `POST`/`PATCH /monitoring/websites` for one site.
 5. Watch the channel on the next outage, or force one with
    `POST /monitoring/websites/{id}/check` against a URL you expect to fail.
 
 **The token is write-only.** It is encrypted with Fernet before storage and
-never returned; reads give `slack_configured` and a masked `slack_token_hint`.
+never returned; reads give a masked `slack_token_hint` (plus `slack_configured`
+on a project).
 The key comes from `SLACK_TOKEN_ENCRYPTION_KEY`, or `SECRET_KEY` when that is
 blank — **rotating either makes stored tokens unreadable** and they have to be
 re-entered.

@@ -105,7 +105,9 @@ class MonitoringService:
 
     def slack_target_for(self, website: Website) -> SlackTarget | None:
         """The channel this site's alerts go to, with the token decrypted."""
-        return slack_target(website.project, website.slack_channel_id)
+        return slack_target(
+            website.project, website.slack_channel_id, website.slack_bot_token
+        )
 
     # -- alert dispatch ----------------------------------------------------
 
