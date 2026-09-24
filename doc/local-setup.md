@@ -177,6 +177,10 @@ With Mailpit running, everything Watchly can send is one click away:
 - **Trigger a slow-response alert.** Set a low **Slow after (ms)** on a site
   (under *Request options*), then click **Check now** a few times
   (`SLOW_RESPONSE_CHECKS` slow checks in a row, three by default).
+- **Invite someone.** Sign in as admin, open **Users → Invite user**, pick an
+  address and a role, and the invitation lands in Mailpit. Open the link in a
+  private window to accept it. The link is built from `ALERT_DASHBOARD_URL`,
+  which Compose already points at the web UI.
 - **SSL expiry** warns at 14, 7, 3 and 1 days. A site's certificate date is
   shown on its page once it has been read.
 

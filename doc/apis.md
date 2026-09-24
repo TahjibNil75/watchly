@@ -4,7 +4,8 @@ Every endpoint in Watchly, with a one-line description.
 
 **Base URL:** `/api/v1` (health check is at the root)
 **Auth:** `Authorization: Bearer <access token>` on everything except signup,
-login and `/health`.
+login, the two invitee endpoints (`/invitations/preview`, `/invitations/accept`)
+and `/health`.
 
 Interactive docs run at `/docs` when the app is up. For how the pieces fit
 together, see [`hld.md`](hld.md).
@@ -23,31 +24,36 @@ together, see [`hld.md`](hld.md).
 | 6 | `PATCH` | `/users/{user_id}/role` | Assign a different role to a user. |
 | 7 | `PATCH` | `/users/{user_id}/suspend` | Block a user from logging in and kill their current session. |
 | 8 | `PATCH` | `/users/{user_id}/reactivate` | Lift a suspension and restore access. |
-| 9 | `GET` | `/monitoring/projects` | List projects the caller is allowed to see. |
-| 10 | `POST` | `/monitoring/projects` | Create a project and name the members responsible for it. |
-| 11 | `GET` | `/monitoring/projects/{project_id}` | Return one project with its members. |
-| 12 | `PATCH` | `/monitoring/projects/{project_id}` | Update a project's name, description, active flag or extra alert emails. |
-| 13 | `DELETE` | `/monitoring/projects/{project_id}` | Delete a project and stop monitoring every site under it. |
-| 14 | `POST` | `/monitoring/projects/{project_id}/members` | Add one or more users as responsible members (they start receiving alerts). |
-| 15 | `DELETE` | `/monitoring/projects/{project_id}/members/{user_id}` | Remove a member so they stop receiving that project's alerts. |
-| 16 | `GET` | `/monitoring/websites` | List monitored sites and their current up/down status. |
-| 17 | `POST` | `/monitoring/websites` | Start monitoring a URL under a project, optionally with its own recipients. |
-| 18 | `GET` | `/monitoring/websites/{website_id}` | Return one monitored site with its live outage state. |
-| 19 | `PATCH` | `/monitoring/websites/{website_id}` | Update a site's URL, interval, timeout, alert budget, alert emails or enabled flag. |
-| 20 | `DELETE` | `/monitoring/websites/{website_id}` | Stop monitoring a site and delete its check history. |
-| 21 | `POST` | `/monitoring/websites/{website_id}/recipients` | Add one or more users alerted about this site only. |
-| 22 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | Stop alerting a user about this site. |
-| 23 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
-| 24 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
-| 25 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack switches per kind. |
-| 26 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
-| 27 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
-| 28 | `POST` | `/monitoring/notifications/preview` | Render a notification with sample data, exactly as it would be sent. |
-| 29 | `GET` | `/monitoring/projects/{project_id}/notifications` | A project's settings after inheriting from global. |
-| 30 | `PUT` | `/monitoring/projects/{project_id}/notifications/{kind}` | Override one kind for a project. |
-| 31 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
-| 32 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
-| 33 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
+| 9 | `POST` | `/invitations` | Email someone a one-time link that creates their account with a chosen role. |
+| 10 | `GET` | `/invitations` | List invitations, newest first, filterable by status. |
+| 11 | `PATCH` | `/invitations/{invitation_id}/revoke` | Kill an invitation's link. |
+| 12 | `POST` | `/invitations/preview` | Show an invitee which address and role a token is for (public). |
+| 13 | `POST` | `/invitations/accept` | Accept an invitation: create the account and sign in (public). |
+| 14 | `GET` | `/monitoring/projects` | List projects the caller is allowed to see. |
+| 15 | `POST` | `/monitoring/projects` | Create a project and name the members responsible for it. |
+| 16 | `GET` | `/monitoring/projects/{project_id}` | Return one project with its members. |
+| 17 | `PATCH` | `/monitoring/projects/{project_id}` | Update a project's name, description, active flag or extra alert emails. |
+| 18 | `DELETE` | `/monitoring/projects/{project_id}` | Delete a project and stop monitoring every site under it. |
+| 19 | `POST` | `/monitoring/projects/{project_id}/members` | Add one or more users as responsible members (they start receiving alerts). |
+| 20 | `DELETE` | `/monitoring/projects/{project_id}/members/{user_id}` | Remove a member so they stop receiving that project's alerts. |
+| 21 | `GET` | `/monitoring/websites` | List monitored sites and their current up/down status. |
+| 22 | `POST` | `/monitoring/websites` | Start monitoring a URL under a project, optionally with its own recipients. |
+| 23 | `GET` | `/monitoring/websites/{website_id}` | Return one monitored site with its live outage state. |
+| 24 | `PATCH` | `/monitoring/websites/{website_id}` | Update a site's URL, interval, timeout, alert budget, alert emails or enabled flag. |
+| 25 | `DELETE` | `/monitoring/websites/{website_id}` | Stop monitoring a site and delete its check history. |
+| 26 | `POST` | `/monitoring/websites/{website_id}/recipients` | Add one or more users alerted about this site only. |
+| 27 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | Stop alerting a user about this site. |
+| 28 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
+| 29 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
+| 30 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack switches per kind. |
+| 31 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
+| 32 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
+| 33 | `POST` | `/monitoring/notifications/preview` | Render a notification with sample data, exactly as it would be sent. |
+| 34 | `GET` | `/monitoring/projects/{project_id}/notifications` | A project's settings after inheriting from global. |
+| 35 | `PUT` | `/monitoring/projects/{project_id}/notifications/{kind}` | Override one kind for a project. |
+| 36 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
+| 37 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
+| 38 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
 
 ---
 
@@ -112,6 +118,63 @@ Lift a suspension and restore login.
 | DevOps | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ |
 | project manager | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
 | developer, viewer | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+---
+
+## Invitations
+
+Invite someone by email and choose their role up front. Sending and managing
+invitations is **admin and DevOps** only, and which roles each may hand out is a
+table (`INVITABLE_BY` in `app/core/permissions.py`):
+
+| actor ╲ role handed out | admin | DevOps | project manager | developer | viewer |
+| ----------------------- | ----- | ------ | --------------- | --------- | ------ |
+| admin | ✅ | ✅ | ✅ | ✅ | ✅ |
+| DevOps | ❌ | ✅ | ✅ | ✅ | ✅ |
+| everyone else | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+Every invitation comes back as `id`, `email` (lower-cased), `role`, `status`
+(`pending`, `accepted`, `revoked` or `expired`), `invited_by_id`,
+`invited_by_name`, `expires_at`, `accepted_at`, `revoked_at` and `created_at`.
+The token is never part of it.
+
+### `POST /api/v1/invitations`
+Body: `{"email": "jane@example.com", "role": "Developer"}`. The role is required.
+Saves the invitation and emails the link (valid for `INVITATION_EXPIRE_DAYS`,
+default 7, and usable once). The response adds `email_sent`: `false` means the
+invitation exists but the email did not go out (SMTP or `ALERT_DASHBOARD_URL` not
+set up, or the mail server failed) — send it again to replace it.
+Inviting an address that already has a live invitation **replaces** it: the old
+link stops working. DevOps cannot replace an invitation for a role it could not
+have sent.
+`201` · `403` not admin/DevOps, or may not grant that role · `409` the address
+already has an account · `422` bad email or unknown/missing role
+
+### `GET /api/v1/invitations`
+Paginated, newest first.
+Query: `limit` (1–100), `offset`, `status`
+`200` · `403`
+
+### `PATCH /api/v1/invitations/{invitation_id}/revoke`
+Kill the link. Idempotent. Needs the right to have sent it, so DevOps cannot
+revoke an invitation to Admin.
+`200` · `403` · `404` · `409` already accepted
+
+### `POST /api/v1/invitations/preview`
+Public. Body: `{"token": "…"}` (from the email). Returns the `email`, `role`,
+`invited_by_name` and `expires_at` it is for, without using it up. A POST so the
+token stays out of access logs.
+`200` · `404` no such invitation · `410` already used, revoked or expired, or its
+sender is suspended, demoted below the role they offered, or deleted
+
+### `POST /api/v1/invitations/accept`
+Public. Body: `token`, `username`, `password`, `confirm_password`, and optionally
+`full_name`. The email and role come from the invitation and cannot be sent.
+Creates the user and returns `{user, tokens}` like signup, so the invitee is
+signed in.
+`201` · `404` · `409` username taken (the invitation is not used up) or the
+address registered meanwhile · `410` as above · `422` passwords differ or invalid
+field
 
 ---
 
@@ -325,7 +388,8 @@ Public liveness check. Returns `{"status": "ok", "monitoring": "on"|"off"}`.
 access token) and `403` (the account has been suspended).
 
 **Roles.** `Viewer` · `Admin` · `DevOps` · `Project Manager` · `Developer`.
-Everyone starts as `Viewer`.
+Everyone who signs up on their own starts as `Viewer`; an invited user starts with
+the role their invitation named.
 
 **Errors.** `{"detail": "..."}` for single errors; `422` returns FastAPI's
 validation list. Password fields are redacted from `422` bodies.
@@ -348,7 +412,7 @@ masked `slack_token_hint` such as `xoxb-…9f2a` instead.
   no endpoint exists, so refresh tokens currently have nowhere to be redeemed.
 - Logout / server-side token revocation — deliberately left out; tokens stay
   valid until they expire.
-- Audit trail for role changes, suspensions and project edits.
+- Audit trail for role changes, suspensions, invitations and project edits.
 - Automatic pruning of `website_checks`; `WebsiteService.purge_old_checks()`
   exists but nothing calls it. When you add it, keep at least 35 days: the
   monthly uptime report is computed from these rows.

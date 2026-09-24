@@ -27,6 +27,25 @@ SUSPENDABLE_BY: dict[UserRole, frozenset[UserRole]] = {
     ),
 }
 
+#: Which roles each actor may hand out when inviting someone. Absent actor =>
+#: may not invite at all. A table like SUSPENDABLE_BY, so adding a row is all it
+#: takes to let another role invite — including the invitation endpoints' guard,
+#: which is built from these keys.
+INVITABLE_BY: dict[UserRole, frozenset[UserRole]] = {
+    UserRole.ADMIN: frozenset(UserRole),
+    UserRole.DEVOPS: frozenset(
+        {
+            UserRole.VIEWER,
+            UserRole.DEVELOPER,
+            UserRole.PROJECT_MANAGER,
+            UserRole.DEVOPS,
+        }
+    ),
+}
+
+#: Roles that may send and manage invitations.
+INVITERS: frozenset[UserRole] = frozenset(INVITABLE_BY)
+
 
 #: Roles that may create monitoring projects and register sites under them.
 PROJECT_CREATORS: frozenset[UserRole] = frozenset(
@@ -96,3 +115,18 @@ def can_change_role(actor_role: UserRole, target_role: UserRole) -> bool:
 def can_suspend_user(actor_role: UserRole, target_role: UserRole) -> bool:
     """May a user with `actor_role` suspend or reinstate `target_role`?"""
     return target_role in SUSPENDABLE_BY.get(actor_role, frozenset())
+
+
+def can_invite_role(actor_role: UserRole, role: UserRole) -> bool:
+    """May a user with `actor_role` invite someone *as* `role`?
+
+    - Admin may grant any role.
+    - DevOps may grant any role except Admin. Unlike `can_change_role`, this
+      includes DevOps itself: the question is what an invitation hands out, not
+      what the recipient already is — they have no account yet.
+    - Everyone else may invite nobody.
+
+    The same test decides who may withdraw an invitation, so an actor can never
+    undo one they could not have sent.
+    """
+    return role in INVITABLE_BY.get(actor_role, frozenset())

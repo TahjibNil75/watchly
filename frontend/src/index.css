@@ -289,6 +289,10 @@ a:hover {
 .section {
   margin-bottom: 24px;
 }
+/* For a section that follows something without a bottom margin of its own. */
+.section-spaced {
+  margin-top: 32px;
+}
 .grid-2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

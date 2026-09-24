@@ -35,6 +35,7 @@ export function AuthProvider({ children }) {
       logout,
       login: async (identifier, password) => accept(await api.login(identifier, password)),
       signup: async (payload) => accept(await api.signup(payload)),
+      acceptInvitation: async (payload) => accept(await api.acceptInvitation(payload)),
     }
   }, [user, checking, logout])
 

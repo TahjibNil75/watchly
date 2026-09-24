@@ -7,6 +7,7 @@ from app.auth.routes import router as auth_router
 from app.core.config import settings
 from app.core.handlers import register_exception_handlers
 from app.db.session import engine
+from app.invitations.routes import router as invitations_router
 from app.monitoring.routes import router as monitoring_router
 from app.monitoring.scheduler import scheduler
 from app.user.routes import router as user_router
@@ -44,6 +45,7 @@ register_exception_handlers(app)
 
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 app.include_router(user_router, prefix=settings.API_V1_PREFIX)
+app.include_router(invitations_router, prefix=settings.API_V1_PREFIX)
 app.include_router(monitoring_router, prefix=settings.API_V1_PREFIX)
 
 

@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.service import AuthService
-from app.core.permissions import ROLE_MANAGERS, USER_MANAGERS
+from app.core.permissions import INVITERS, ROLE_MANAGERS, USER_MANAGERS
 from app.db.models.user import User, UserRole
 from app.db.session import get_db
 from app.utils.jwt import TokenError, decode_access_token
@@ -91,3 +91,7 @@ require_role_manager = require_roles(*ROLE_MANAGERS)
 #: it admits every role with *some* management power, and the service layer
 #: decides whether this actor may act on this particular target.
 require_user_manager = require_roles(*USER_MANAGERS)
+
+#: Guard for the invitation endpoints. Coarse like the two above: which roles
+#: this actor may actually hand out is decided in the service layer.
+require_inviter = require_roles(*INVITERS)

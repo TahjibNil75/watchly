@@ -2,6 +2,7 @@ import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth.jsx'
 import { Empty, Loading } from './components.jsx'
 import Layout from './Layout.jsx'
+import AcceptInvite from './pages/AcceptInvite.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Login from './pages/Login.jsx'
 import NewWebsite from './pages/NewWebsite.jsx'
@@ -37,6 +38,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/accept-invite" element={<AcceptInvite />} />
         <Route path="*" element={<Navigate to="/login" replace state={{ from: location }} />} />
       </Routes>
     )
@@ -44,6 +46,9 @@ export default function App() {
 
   return (
     <Routes>
+      {/* Outside the layout: whoever opens the link may be someone else's browser
+          session, and accepting replaces it with the new account. */}
+      <Route path="accept-invite" element={<AcceptInvite />} />
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="websites/new" element={<NewWebsite />} />

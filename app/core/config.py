@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    #: How long an emailed invitation link stays usable.
+    INVITATION_EXPIRE_DAYS: int = Field(default=7, ge=1)
+
     # Bootstrap admin, created by app/db/seed.py
     FIRST_ADMIN_USERNAME: str = "admin"
     FIRST_ADMIN_EMAIL: EmailStr = "admin@gmail.com"

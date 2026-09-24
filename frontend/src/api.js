@@ -100,6 +100,14 @@ export const api = {
   suspendUser: (id) => v1(`/users/${id}/suspend`, { method: 'PATCH' }),
   reactivateUser: (id) => v1(`/users/${id}/reactivate`, { method: 'PATCH' }),
 
+  // Inviting: admin/DevOps send and manage; the invitee's two calls are public
+  // and authenticated by the token from the email.
+  invite: (email, role) => v1('/invitations', { method: 'POST', body: { email, role } }),
+  listInvitations: (query) => v1('/invitations', { query: { limit: 100, ...query } }),
+  revokeInvitation: (id) => v1(`/invitations/${id}/revoke`, { method: 'PATCH' }),
+  previewInvitation: (token) => v1('/invitations/preview', { method: 'POST', body: { token } }),
+  acceptInvitation: (payload) => v1('/invitations/accept', { method: 'POST', body: payload }),
+
   listProjects: (query) => v1('/monitoring/projects', { query: { limit: 100, ...query } }),
   getProject: (id) => v1(`/monitoring/projects/${id}`),
   createProject: (payload) => v1('/monitoring/projects', { method: 'POST', body: payload }),

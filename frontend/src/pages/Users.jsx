@@ -3,7 +3,8 @@ import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import { Empty, ErrorBanner, Loading, PageHeader } from '../components.jsx'
 import { timeAgo } from '../format.js'
-import { ROLES, canChangeRole, canManageUsers, canSuspend } from '../roles.js'
+import { InvitationList, InviteForm } from '../Invitations.jsx'
+import { ROLES, canChangeRole, canInvite, canManageUsers, canSuspend } from '../roles.js'
 import { useApi } from '../useApi.js'
 
 export default function Users() {
@@ -13,6 +14,10 @@ export default function Users() {
   const [active, setActive] = useState('')
   const [actionError, setActionError] = useState(null)
   const [pending, setPending] = useState(null)
+  const [inviting, setInviting] = useState(false)
+  const [notice, setNotice] = useState(null)
+  // Bumped after an invitation is sent, so the invitation list reloads.
+  const [invitesVersion, setInvitesVersion] = useState(0)
 
   const users = useApi(
     () => (allowed ? api.listUsers({ role, is_active: active }) : null),
@@ -43,7 +48,31 @@ export default function Users() {
 
   return (
     <>
-      <PageHeader title="Users" subtitle="Change roles and suspend or reactivate accounts." />
+      <PageHeader
+        title="Users"
+        subtitle="Invite people, change roles, and suspend or reactivate accounts."
+      >
+        {canInvite(me) && !inviting && (
+          <button type="button" className="btn btn-primary" onClick={() => setInviting(true)}>
+            Invite user
+          </button>
+        )}
+      </PageHeader>
+
+      {notice && (
+        <div className={`banner ${notice.ok ? 'banner-info' : 'banner-error'}`} role="status">
+          {notice.message}
+        </div>
+      )}
+
+      {inviting && (
+        <InviteForm
+          me={me}
+          onNotice={setNotice}
+          onSent={() => setInvitesVersion((v) => v + 1)}
+          onCancel={() => setInviting(false)}
+        />
+      )}
 
       <div className="toolbar">
         <label className="inline-field">
@@ -155,6 +184,10 @@ export default function Users() {
             </p>
           )}
         </div>
+      )}
+
+      {canInvite(me) && (
+        <InvitationList me={me} version={invitesVersion} onNotice={setNotice} />
       )}
     </>
   )

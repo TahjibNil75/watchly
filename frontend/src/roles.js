@@ -12,6 +12,12 @@ const SUSPENDABLE_BY = {
   'Project Manager': ['DevOps', 'Developer', 'Viewer'],
 }
 
+// Which roles each actor may hand out when inviting.
+const INVITABLE_BY = {
+  Admin: ROLES,
+  DevOps: ['Viewer', 'Developer', 'Project Manager', 'DevOps'],
+}
+
 export const canManageUsers = (user) => USER_MANAGERS.includes(user.role)
 
 // PROJECT_CREATORS is currently the same set as USER_MANAGERS.
@@ -37,3 +43,12 @@ export function canSuspend(actor, target) {
   if (actor.id === target.id) return false
   return (SUSPENDABLE_BY[actor.role] ?? []).includes(target.role)
 }
+
+// In ROLES order, least privileged first, so a form can default to the first.
+export const invitableRoles = (user) => INVITABLE_BY[user.role] ?? []
+
+export const canInvite = (user) => invitableRoles(user).length > 0
+
+// Replacing or withdrawing an invitation takes the right to have sent it.
+export const canManageInvitation = (user, invitation) =>
+  invitableRoles(user).includes(invitation.role)

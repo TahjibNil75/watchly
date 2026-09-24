@@ -21,7 +21,7 @@ from app.utils.jwt import create_token_pair
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _issue_tokens(user: User) -> TokenResponse:
+def issue_tokens(user: User) -> TokenResponse:
     pair = create_token_pair(
         subject=str(user.id),
         extra_claims={"username": user.username, "role": user.role.value},
@@ -53,7 +53,7 @@ async def signup(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
 
-    return SignupResponse(user=UserRead.model_validate(user), tokens=_issue_tokens(user))
+    return SignupResponse(user=UserRead.model_validate(user), tokens=issue_tokens(user))
 
 
 @router.post(
@@ -84,4 +84,4 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
         ) from exc
 
-    return LoginResponse(user=UserRead.model_validate(user), tokens=_issue_tokens(user))
+    return LoginResponse(user=UserRead.model_validate(user), tokens=issue_tokens(user))

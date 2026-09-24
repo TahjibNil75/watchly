@@ -92,6 +92,7 @@ flowchart TD
     subgraph feat["Feature packages"]
         AUTH["auth/<br/>signup · login · JWT deps"]
         USER["user/<br/>directory · roles · suspension"]
+        INV["invitations/<br/>invite by email · accept"]
         MON["monitoring/<br/>projects · websites · alerts"]
     end
 
@@ -109,11 +110,12 @@ flowchart TD
         JWT["utils/jwt.py<br/>token encode/decode"]
     end
 
-    MAIN --> AUTH & USER & MON
+    MAIN --> AUTH & USER & INV & MON
     AUTH --> JWT & SEC
     USER --> PERM
+    INV --> AUTH & PERM & SEC
     MON --> PERM & CRY
-    AUTH & USER & MON --> SESS & CFG
+    AUTH & USER & INV & MON --> SESS & CFG
     SESS --> BASE
 ```
 
@@ -163,10 +165,11 @@ machine changes in neither case.
 
 ## 4. Data model
 
-Eight tables, three native Postgres enums, nine Alembic migrations.
+Nine tables, three native Postgres enums, ten Alembic migrations.
 
 ```mermaid
 erDiagram
+    users ||--o{ invitations : "sends"
     users ||--o{ projects : owns
     users ||--o{ project_members : "is responsible for"
     projects ||--o{ project_members : "alerts its"
@@ -186,6 +189,16 @@ erDiagram
         enum role "user_role"
         bool is_active "false means suspended"
         timestamptz last_activity
+    }
+    invitations {
+        int id PK
+        string email "lower-cased; one live row per address"
+        enum role "user_role, what the account starts with"
+        string token_hash UK "SHA-256; the token itself is never stored"
+        int invited_by_id FK "null once the sender is deleted"
+        timestamptz expires_at
+        timestamptz accepted_at
+        timestamptz revoked_at
     }
     projects {
         int id PK
@@ -262,6 +275,13 @@ erDiagram
 - `user_role` — `Viewer`, `Admin`, `DevOps`, `Project Manager`, `Developer`
 - `website_status` — `unknown`, `up`, `down`
 - `website_environment` — `development`, `testing`, `uat`, `staging`, `production`
+
+**`invitations` keeps history.** Nothing is deleted: an invitation is closed by
+stamping `accepted_at` or `revoked_at`, and `status` is derived (a row past
+`expires_at` that was never acted on reads as `expired`). A partial unique index
+on `email WHERE accepted_at IS NULL AND revoked_at IS NULL` allows one *live*
+invitation per address while letting closed ones accumulate. Deleting the sender
+sets `invited_by_id` to NULL, and the invitation can then no longer be accepted.
 
 **Cascades.** Deleting a project deletes its websites, which deletes their
 checks and `website_recipients` rows. Deleting a user nulls `projects.owner_id`
@@ -393,16 +413,45 @@ from the token.** The `role` claim is a convenience for the frontend only. This
 is what makes a demotion or suspension take effect on the very next request
 instead of lingering until the 30-minute access token expires.
 
+### 5.5 Invitation
+
+```
+admin/DevOps  POST /invitations {email, role}
+   → guard: an inviting role                        → 403
+   → can_invite_role(actor, role)                   → 403
+   → address already a user (any case)              → 409
+   → any live invitation for it: actor must be able to grant *its* role
+     (→ 403), then revoke it
+   → store SHA-256(token), send the token by email, return email_sent
+
+invitee       POST /invitations/preview {token}     (no sign-in)
+              POST /invitations/accept  {token, username, password, ...}
+   → look up by digest, row locked                  → 404
+   → accepted / revoked / expired                   → 410
+   → sender deleted, suspended, or no longer able
+     to grant that role                             → 410
+   → create the user with the invitation's email and role, stamp accepted_at
+     in one commit; return user + tokens
+```
+
+The emailed token is the only proof that the invitee owns the address, so it
+goes to the email and nowhere else — not the API response, not a log line, and
+only its digest is stored. The row lock plus the users table's unique indexes
+make a double click, or two simultaneous accepts, produce exactly one account.
+The sender is re-checked at accept time because otherwise suspending or demoting
+a compromised account would leave every invitation it already sent working.
+
 ---
 
 ## 6. Permissions
 
-Five roles. Three distinct questions, three sets, all in
+Five roles. Four distinct questions, four sets, all in
 [`app/core/permissions.py`](../app/core/permissions.py):
 
 | Question | Set | Members |
 | -------- | --- | ------- |
 | Who may change another user's role? | `ROLE_MANAGERS` | admin, DevOps |
+| Who may send invitations? | `INVITERS` (the keys of `INVITABLE_BY`) | admin, DevOps |
 | Who may read the whole estate? | `GLOBAL_VIEWERS` | admin, DevOps, project manager |
 | Who may create projects? | `PROJECT_CREATORS` | admin, DevOps, project manager |
 
@@ -422,6 +471,20 @@ each suspend the other:
 | DevOps | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ |
 | project manager | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
 | developer, viewer | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+**Invitation** is a table too, keyed by the role an invitation *hands out*:
+
+| actor ╲ role handed out | admin | DevOps | project mgr | developer | viewer |
+| ----------------------- | ----- | ------ | ----------- | --------- | ------ |
+| admin | ✅ | ✅ | ✅ | ✅ | ✅ |
+| DevOps | ❌ | ✅ | ✅ | ✅ | ✅ |
+| everyone else | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+The same test governs replacing or revoking an invitation, so an actor can never
+undo one they could not have sent — DevOps cannot cancel an invitation to Admin.
+It is separate from `can_change_role` on purpose: re-roling asks what the target
+*is*, inviting asks what is being *granted*. Adding a role to `INVITABLE_BY` is
+all it takes to let it invite; the endpoint guard is derived from the keys.
 
 **Nobody can change or suspend their own account.** That single rule is what
 makes lockout impossible: the actor is always an active administrator and never

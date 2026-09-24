@@ -39,7 +39,8 @@ The API has no CORS middleware, so in development Vite proxies `/api` and
 | `/websites/new` | Add a site under a project you manage. |
 | `/projects` | Projects with site counts, and a form to create one. |
 | `/projects/:id` | A project's sites, members and alert settings (email and Slack). |
-| `/users` | User directory: change roles, suspend or reactivate (admin, DevOps, project manager). |
+| `/users` | User directory: change roles, suspend or reactivate (admin, DevOps, project manager). Admin and DevOps can also invite users and manage invitations here. |
+| `/accept-invite?token=…` | Public. Where the link in an invitation email lands: shows the address and role, and creates the account. |
 
 Buttons only show up when your role allows the action. That logic in
 `src/roles.js` mirrors `app/core/permissions.py`, but it only hides buttons. The

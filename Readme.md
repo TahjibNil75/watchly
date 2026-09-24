@@ -15,6 +15,11 @@ app/
     routes.py        # /users/me, list, read, change role, suspend/reactivate
     service.py       # UserService — directory, role changes, suspension
     schemas.py       # RoleUpdateRequest / UserListResponse
+  invitations/
+    routes.py        # invite, list, revoke (admin/DevOps); preview + accept (public)
+    service.py       # InvitationService — who may grant which role, token lifecycle
+    schemas.py       # InvitationCreate / InvitationRead / AcceptInvitationRequest
+    mail.py          # the invitation email, over the same SMTP settings as alerts
   monitoring/
     routes.py        # aggregates the sub-routers below
     service.py       # MonitoringService — the outage state machine
@@ -49,7 +54,7 @@ app/
     security.py      # generate_hash_password / verify_password (bcrypt)
     handlers.py      # 422 handler that redacts passwords from echoed input
     crypto.py        # Fernet encryption for stored Slack tokens
-    permissions.py   # who may manage, and who may see, whom
+    permissions.py   # who may manage, see, suspend and invite whom
   utils/
     jwt.py           # reusable access/refresh token helpers
   db/
@@ -58,6 +63,7 @@ app/
     seed.py          # idempotent admin seeder
     models/
       user.py        # User model + UserRole enum
+      invitation.py  # Invitation model + status
   schemas/
     user.py          # UserCreate / UserRead / UserUpdate / UserInDB
   main.py            # FastAPI app
@@ -277,8 +283,9 @@ startup while it is still the default.
 
 ## User management
 
-Everyone who signs up is a `Viewer`. **Admin and DevOps are peers** — both can
-administer users; no other role can.
+Everyone who signs up on their own is a `Viewer`; anyone who is
+[invited](#inviting-users) gets the role the invitation names. **Admin and
+DevOps are peers** — both can administer users; no other role can.
 
 | endpoint                             | who                           |
 | ------------------------------------ | ----------------------------- |
@@ -288,6 +295,9 @@ administer users; no other role can.
 | `PATCH /api/v1/users/{id}/role`      | admin, DevOps\*               |
 | `PATCH /api/v1/users/{id}/suspend`   | admin, DevOps, project mgr\*  |
 | `PATCH /api/v1/users/{id}/reactivate`| admin, DevOps, project mgr\*  |
+| `POST /api/v1/invitations`           | admin, DevOps\*               |
+| `GET /api/v1/invitations`            | admin, DevOps                 |
+| `PATCH /api/v1/invitations/{id}/revoke` | admin, DevOps\*            |
 
 \* Which *targets* each may act on depends on the target's role — see
 **Who may manage whom** below.
@@ -348,6 +358,19 @@ suspension restriction would make the restriction meaningless — demote the
 target first, then suspend. DevOps is barred from re-rolling admins and DevOps
 peers for exactly this reason.
 
+**Invite** — `INVITABLE_BY` / `can_invite_role()`:
+
+| actor ╲ role handed out | admin | DevOps | project manager | developer | viewer |
+| ----------------------- | ----- | ------ | --------------- | --------- | ------ |
+| **admin**               | ✅    | ✅     | ✅              | ✅        | ✅     |
+| **DevOps**              | ❌    | ✅     | ✅              | ✅        | ✅     |
+| everyone else           | ❌    | ❌     | ❌              | ❌        | ❌     |
+
+Unlike re-roling, this is about the role an invitation *hands out*, not what the
+recipient already is — they have no account yet — so DevOps may invite another
+DevOps. To let another role invite, add a row to `INVITABLE_BY`; the endpoints'
+guard is built from its keys.
+
 Reading the directory (`GET /users`, `GET /users/{id}`) is open to all three
 management roles, since you cannot pick someone to suspend without finding them
 first.
@@ -400,6 +423,57 @@ approver = require_roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
 The route dependency is the coarse gate — "does this role have any business
 here at all". The per-target rules (`can_change_role`, `can_suspend_user`) are
 enforced in the service layer, where the target is known.
+
+## Inviting users
+
+An admin or DevOps user invites someone by email and picks their role up front.
+The invitee opens the link, chooses a username and password, and lands signed in
+with that role. Who may hand out which role is the `INVITABLE_BY` table above.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/invitations \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"jane@example.com","role":"Developer"}'
+```
+
+`201` returns the invitation (never the token) plus `email_sent`. The invitation
+is saved even if the email cannot be delivered — SMTP or `ALERT_DASHBOARD_URL`
+not set up, or the mail server failed — and `email_sent: false` says so.
+
+| status | when                                                                  |
+| ------ | --------------------------------------------------------------------- |
+| `201`  | saved (check `email_sent`)                                            |
+| `403`  | not admin/DevOps, or you may not hand out that role                   |
+| `409`  | the address already has an account                                    |
+| `422`  | bad email, unknown role, or no role (there is no default)             |
+
+- **One live invitation per address.** Inviting an address again replaces the
+  old invitation: its link stops working and a fresh one is emailed. That is how
+  you resend one. DevOps cannot replace or revoke an invitation for a role it
+  could not have sent (an Admin invitation, say).
+- **The link works once** and expires after `INVITATION_EXPIRE_DAYS` (default 7).
+- **The token is the proof of owning the address.** It is emailed and never
+  returned by the API; only its SHA-256 digest is stored. Accepting takes the
+  email and role from the invitation, not from the request.
+- **The sender must still qualify.** If the person who sent an invitation is
+  suspended, demoted below the role they offered, or deleted before it is
+  accepted, the link stops working. Otherwise suspending a compromised account
+  would leave the invitations it already sent live.
+- Invitations use the alert SMTP settings (`SMTP_*`) and build the link from
+  `ALERT_DASHBOARD_URL`, but are not alerts: `ALERT_EMAIL_ENABLED` does not
+  affect them.
+
+`GET /invitations` lists them (newest first; filter with `status=pending`,
+`accepted`, `revoked` or `expired`), and `PATCH /invitations/{id}/revoke` kills
+a link. The invitee's two calls need no sign-in — `POST /invitations/preview`
+shows which address and role a token is for, and `POST /invitations/accept`
+creates the account and returns the same user-plus-tokens body as signup. The
+token goes in the body, not the URL, to keep it out of access logs. A dead link
+answers `410` with the reason; an unknown token, `404`.
+
+In the web UI: **Users → Invite user** (the role list offers only roles you may
+grant), and the invitee's page is `/accept-invite?token=…`.
 
 ## Uptime monitoring
 
