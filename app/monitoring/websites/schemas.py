@@ -177,9 +177,31 @@ class WebsiteCheckRead(BaseModel):
     checked_at: datetime
     is_up: bool
     status_code: int | None
+    reason: str | None = None
     response_time_ms: int | None
     error: str | None
+    error_type: str | None = Field(
+        default=None,
+        description=(
+            "Why the check failed, e.g. `dns_error`, `connect_timeout`, `tls_error`, "
+            "`unexpected_status`; null when it succeeded."
+        ),
+    )
     final_url: str | None
+    headers: dict[str, str] | None = Field(
+        default=None, description="Diagnostic response headers, e.g. `server`, `cf-ray`."
+    )
+    dns_ms: int | None = None
+    connect_ms: int | None = None
+    tls_ms: int | None = None
+    first_byte_ms: int | None = Field(
+        default=None,
+        description=(
+            "From the request being sent to the response headers arriving. This and "
+            "the three step times before it are summed over redirects, and null when "
+            "the step did not finish (or a reused connection skipped it)."
+        ),
+    )
 
 
 class WebsiteRead(BaseModel):

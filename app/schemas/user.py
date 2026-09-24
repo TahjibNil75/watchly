@@ -38,6 +38,13 @@ class UserRead(UserBase):
 
     id: int
     last_activity: datetime | None = None
+    must_change_password: bool = Field(
+        default=False,
+        description=(
+            "Signed in with a temporary password: until a new one is set with "
+            "`POST /users/me/password`, every other endpoint answers 403."
+        ),
+    )
     created_at: datetime
     updated_at: datetime
 

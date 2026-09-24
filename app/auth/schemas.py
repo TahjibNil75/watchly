@@ -48,6 +48,18 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class ForgotPasswordRequest(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"example": {"email": "jane@example.com"}})
+
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    """The same answer whether or not the address has an account."""
+
+    detail: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

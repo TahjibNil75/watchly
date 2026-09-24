@@ -23,6 +23,12 @@ const ICONS = {
       <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5" />
     </>
   ),
+  profile: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21a8 8 0 0 1 16 0" />
+    </>
+  ),
   signout: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   close: <path d="M6 6l12 12M18 6L6 18" />,
@@ -95,6 +101,7 @@ export default function Layout() {
       icon: 'notifications',
     },
     canManageUsers(user) && { to: '/users', label: 'Users', icon: 'users' },
+    { to: '/profile', label: 'Profile', icon: 'profile' },
   ].filter(Boolean)
 
   return (
@@ -131,10 +138,6 @@ export default function Layout() {
 
         <div className="side-footer">
           <MonitoringIndicator />
-          <div className="who">
-            <span className="who-name">{user.full_name || user.username}</span>
-            <span className="role">{user.role}</span>
-          </div>
           <button type="button" className="btn btn-block" onClick={logout}>
             <Icon name="signout" />
             Sign out

@@ -46,11 +46,13 @@ async def get_current_claims(
         raise _unauthorized(str(exc)) from exc
 
 
-async def get_current_user(
+async def get_authenticated_user(
     claims: dict[str, Any] = Depends(get_current_claims),
     service: AuthService = Depends(get_auth_service),
 ) -> User:
-    """The authenticated, active user behind the request."""
+    """The authenticated, active user behind the request, even one who still
+    has to replace a temporary password. Only the endpoints that let them do
+    that should use this; everything else uses :func:`get_current_user`."""
     user = await service.get_user_by_id(int(claims["sub"]))
     if user is None:
         # Token is validly signed but the account is gone.
@@ -61,6 +63,24 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account has been suspended.",
+        )
+    return user
+
+
+async def get_current_user(user: User = Depends(get_authenticated_user)) -> User:
+    """The authenticated, active user behind the request.
+
+    Someone who signed in with a temporary password is refused until they
+    choose a new one: the temporary password travelled by email, so it only
+    buys the right to replace it.
+    """
+    if user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You signed in with a temporary password. Choose a new password "
+                "before doing anything else."
+            ),
         )
     return user
 

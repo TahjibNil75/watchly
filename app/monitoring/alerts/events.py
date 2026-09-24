@@ -30,6 +30,17 @@ from app.monitoring.websites.checker import CheckResult
 #: Sites listed in one report message; the rest are counted, not drawn.
 REPORT_SITE_LIMIT = 100
 
+#: A check's timed steps in the order they happen, as alerts name them.
+_STEPS = (
+    ("dns_ms", "DNS lookup"),
+    ("connect_ms", "TCP connect"),
+    ("tls_ms", "TLS handshake"),
+    ("first_byte_ms", "Waiting for first byte"),
+)
+#: What the timed steps leave out of the total: sending the request, reading
+#: the body, following redirects.
+_REST = "Download & other"
+
 
 def _utc(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -44,6 +55,36 @@ def dashboard_url(path: str = "") -> str:
 def _link(label: str, path: str) -> tuple[str, str] | None:
     url = dashboard_url(path)
     return (label, url) if url else None
+
+
+def _time_split(result: CheckResult) -> list[tuple[str, int]]:
+    """How a check's time divides up: each step that finished, in order, then
+    whatever they leave out of the total. Empty when nothing was timed.
+
+    The remainder is only counted when a response came back; for a failed
+    check it would be the time spent failing, not downloading.
+    """
+    t = result.timings
+    split = [
+        (label, ms) for field, label in _STEPS if (ms := getattr(t, field)) is not None
+    ]
+    if split and result.status_code is not None and result.response_time_ms is not None:
+        rest = result.response_time_ms - sum(ms for _, ms in split)
+        if rest > 0:
+            split.append((_REST, rest))
+    return split
+
+
+def _slowest_step(result: CheckResult) -> str | None:
+    """The step that took longest, e.g. `Waiting for first byte (3920 ms, 93%)`."""
+    split = _time_split(result)
+    if not split:
+        return None
+    label, ms = max(split, key=lambda step: step[1])
+    total = result.response_time_ms
+    if total:
+        return f"{label} ({ms} ms, {round(ms * 100 / total)}%)"
+    return f"{label} ({ms} ms)"
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +168,12 @@ class SiteEvent(Notification):
             "redirected": r.redirected,
             "content_length": r.content_length,
             "headers": r.headers,
+            "timings": {
+                "dns_ms": r.timings.dns_ms,
+                "connect_ms": r.timings.connect_ms,
+                "tls_ms": r.timings.tls_ms,
+                "first_byte_ms": r.timings.first_byte_ms,
+            },
         }
 
 
@@ -177,6 +224,8 @@ class OutageEvent(SiteEvent):
             rows.append(("Error type", r.error_type))
         if r.response_time_ms is not None:
             rows.append(("Response time", f"{r.response_time_ms} ms"))
+        if split := _time_split(r):
+            rows.append(("Timing", " · ".join(f"{label} {ms} ms" for label, ms in split)))
         rows.append(("Timeout", f"{self.website.timeout_seconds}s"))
         if r.final_url and r.redirected:
             rows.append(("Redirected to", r.final_url))
@@ -380,11 +429,15 @@ class SlowResponseEvent(SiteEvent):
             **super().context(),
             "threshold": f"{self.threshold_ms} ms",
             "slow_checks": str(self.slow_checks),
+            "slowest_step": _slowest_step(self.result) or "—",
         }
 
     def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
         rows = self._identity_facts()
         rows.extend(self._response_facts()[::-1])  # response time first
+        if slowest := _slowest_step(self.result):
+            rows.append(("Slowest step", slowest))
+            rows.extend((label, f"{ms} ms") for label, ms in _time_split(self.result))
         rows.append(("Threshold", f"{self.threshold_ms} ms"))
         rows.append(("Slow checks in a row", str(self.slow_checks)))
         rows.append(("Checked at", _utc(self.result.checked_at)))

@@ -10,7 +10,7 @@ import {
   UserChecklist,
   WebsiteTable,
 } from '../components.jsx'
-import { dateTime } from '../format.js'
+import { dateTime, parseEmails } from '../format.js'
 import NotificationSettings from '../NotificationSettings.jsx'
 import ProjectForm from '../ProjectForm.jsx'
 import { canManageProject } from '../roles.js'
@@ -22,6 +22,7 @@ export default function ProjectDetail() {
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [adding, setAdding] = useState([])
+  const [newEmails, setNewEmails] = useState('')
   const [actionError, setActionError] = useState(null)
   const [reportResult, setReportResult] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -73,6 +74,33 @@ export default function ProjectDetail() {
       project.setData(await api.addMembers(p.id, adding))
       setAdding([])
     })
+
+  // The API replaces extra_emails wholesale, so both of these send the full list.
+  const addEmails = (event) => {
+    event.preventDefault()
+    const seen = new Set(p.extra_emails.map((e) => e.toLowerCase()))
+    const fresh = parseEmails(newEmails).filter((e) => {
+      const key = e.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    if (!fresh.length) {
+      setNewEmails('')
+      return
+    }
+    run(async () => {
+      project.setData(await api.updateProject(p.id, { extra_emails: [...p.extra_emails, ...fresh] }))
+      setNewEmails('')
+    })
+  }
+
+  const removeEmail = (email) =>
+    run(async () =>
+      project.setData(
+        await api.updateProject(p.id, { extra_emails: p.extra_emails.filter((e) => e !== email) }),
+      ),
+    )
 
   const sendReport = () =>
     run(async () => {
@@ -187,6 +215,46 @@ export default function ProjectDetail() {
               </button>
             </details>
           )}
+
+          <h3>Extra addresses</h3>
+          <p className="muted small">
+            Also emailed about every site, without needing an account — a client contact or a
+            shared inbox.
+          </p>
+          {p.extra_emails.length ? (
+            <ul className="people">
+              {p.extra_emails.map((email) => (
+                <li key={email}>
+                  <span>{email}</span>
+                  {canManage && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => removeEmail(email)}
+                      disabled={busy}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted small">No extra addresses.</p>
+          )}
+          {canManage && (
+            <form className="add-row" onSubmit={addEmails}>
+              <input
+                value={newEmails}
+                onChange={(e) => setNewEmails(e.target.value)}
+                placeholder="name@example.com"
+                aria-label="Email addresses to add, separated by commas"
+              />
+              <button className="btn btn-sm" disabled={busy || !newEmails.trim()}>
+                Add
+              </button>
+            </form>
+          )}
         </section>
 
         <section className="card">
@@ -201,10 +269,6 @@ export default function ProjectDetail() {
                   </span>
                 ))}
               </dd>
-            </div>
-            <div>
-              <dt>Extra emails</dt>
-              <dd>{p.extra_emails.length ? p.extra_emails.join(', ') : '—'}</dd>
             </div>
             <div>
               <dt>Slack</dt>

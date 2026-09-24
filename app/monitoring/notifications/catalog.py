@@ -42,6 +42,8 @@ _SLOW = {
     **_SITE,
     "threshold": "The slow-response threshold, e.g. “3000 ms”",
     "slow_checks": "Consecutive slow checks that triggered this alert",
+    "slowest_step": "Which step of the latest check took longest, e.g. “Waiting for "
+    "first byte (3920 ms, 93%)”, or “—” if it was not timed",
 }
 
 _REPORT = {
@@ -124,7 +126,7 @@ CATALOG: dict[NotificationKind, KindInfo] = {
             default_body=(
                 "{{website}} has taken longer than {{threshold}} to respond for "
                 "{{slow_checks}} checks in a row; the latest took {{response_time}}. "
-                "It is still up."
+                "Slowest step: {{slowest_step}}. It is still up."
             ),
             placeholders=_SLOW,
         ),

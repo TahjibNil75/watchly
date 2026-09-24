@@ -7,19 +7,21 @@ FastAPI backend with async SQLAlchemy 2.0, PostgreSQL, Pydantic v2 and Alembic.
 ```
 app/
   auth/
-    routes.py        # signup / login
+    routes.py        # signup / login / forgot password / confirm new email
     service.py       # AuthService — lookups, registration, authentication
     schemas.py       # SignupRequest / LoginRequest / TokenResponse / *Response
     dependencies.py  # get_current_user, require_roles (Bearer + RBAC)
+    mail.py          # the temporary-password email
   user/
-    routes.py        # /users/me, list, read, change role, suspend/reactivate
-    service.py       # UserService — directory, role changes, suspension
-    schemas.py       # RoleUpdateRequest / UserListResponse
+    routes.py        # /users/me (profile, password, email change), list, read, change role, suspend/reactivate
+    service.py       # UserService — own account, directory, role changes, suspension
+    schemas.py       # Profile* / PasswordChangeRequest / EmailChange* / RoleUpdateRequest / UserListResponse
+    mail.py          # the email confirming a new address
   invitations/
     routes.py        # invite, list, revoke (admin/DevOps); preview + accept (public)
     service.py       # InvitationService — who may grant which role, token lifecycle
     schemas.py       # InvitationCreate / InvitationRead / AcceptInvitationRequest
-    mail.py          # the invitation email, over the same SMTP settings as alerts
+    mail.py          # the invitation email's wording (sent by core/mail.py)
   monitoring/
     routes.py        # aggregates the sub-routers below
     service.py       # MonitoringService — the outage state machine
@@ -51,7 +53,8 @@ app/
       routes.py      # settings, preview and report endpoints
   core/
     config.py        # pydantic-settings, DB DSNs, JWT settings
-    security.py      # generate_hash_password / verify_password (bcrypt)
+    security.py      # generate_hash_password / verify_password (bcrypt), emailed-link tokens
+    mail.py          # one-link account emails (invitations, email confirmation) over SMTP
     handlers.py      # 422 handler that redacts passwords from echoed input
     crypto.py        # Fernet encryption for stored Slack tokens
     permissions.py   # who may manage, see, suspend and invite whom
@@ -290,6 +293,9 @@ DevOps are peers** — both can administer users; no other role can.
 | endpoint                             | who                           |
 | ------------------------------------ | ----------------------------- |
 | `GET /api/v1/users/me`               | any signed-in user            |
+| `PATCH /api/v1/users/me`, `POST /api/v1/users/me/password`, `POST`/`DELETE /api/v1/users/me/email` | any signed-in user, about themselves |
+| `POST /api/v1/auth/confirm-email`    | anyone holding the emailed link |
+| `POST /api/v1/auth/forgot-password`  | anyone (same answer whether or not the address has an account) |
 | `GET /api/v1/users`                  | admin, DevOps, project mgr    |
 | `GET /api/v1/users/{id}`             | admin, DevOps, project mgr    |
 | `PATCH /api/v1/users/{id}/role`      | admin, DevOps\*               |

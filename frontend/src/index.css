@@ -168,7 +168,7 @@ a:hover {
   flex: none;
 }
 
-/* Status, who is signed in, and Sign out stay pinned to the bottom. */
+/* Status and Sign out stay pinned to the bottom. */
 .side-footer {
   margin-top: auto;
   display: flex;
@@ -176,25 +176,6 @@ a:hover {
   gap: 12px;
   padding: 14px 4px 0;
   border-top: 1px solid var(--border);
-}
-.who {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.25;
-  padding: 0 8px;
-  min-width: 0;
-}
-.who-name {
-  font-size: 0.92rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.role {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 400;
 }
 .side-footer .health {
   padding: 0 8px;
@@ -665,6 +646,14 @@ tbody tr:hover td {
 }
 .people li:last-child {
   border-bottom: none;
+}
+.add-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.add-row .btn {
+  flex-shrink: 0;
 }
 
 /* ---------- Forms ---------- */

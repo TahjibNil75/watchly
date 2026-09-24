@@ -39,7 +39,7 @@ from app.monitoring.alerts.base import (
 from app.monitoring.alerts.events import OutageEvent, SlowResponseEvent, SslExpiryEvent
 from app.monitoring.notifications.dispatcher import Notifier, default_alerters
 from app.monitoring.notifications.recipients import dedupe_emails, slack_target
-from app.monitoring.websites.checker import CheckResult, check_website
+from app.monitoring.websites.checker import CheckResult, check_website, new_client
 from app.monitoring.websites.models import Website, WebsiteCheck, WebsiteStatus
 from app.monitoring.websites.service import WebsiteService
 
@@ -127,9 +127,16 @@ class MonitoringService:
             checked_at=result.checked_at,
             is_up=result.is_up,
             status_code=result.status_code,
+            reason=result.reason,
             response_time_ms=result.response_time_ms,
             error=result.error,
+            error_type=result.error_type,
             final_url=result.final_url,
+            headers=result.headers or None,
+            dns_ms=result.timings.dns_ms,
+            connect_ms=result.timings.connect_ms,
+            tls_ms=result.timings.tls_ms,
+            first_byte_ms=result.timings.first_byte_ms,
         )
         self.session.add(check)
 
@@ -335,7 +342,7 @@ class MonitoringService:
 
         logger.info("Checking %d due website(s).", len(due))
         outcomes: list[CheckOutcome] = []
-        async with httpx.AsyncClient(follow_redirects=True) as client:
+        async with new_client() as client:
             # Probe concurrently, then fold results in one at a time — the
             # session is not safe for concurrent use.
             results = await asyncio.gather(

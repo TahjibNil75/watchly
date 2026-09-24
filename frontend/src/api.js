@@ -93,8 +93,20 @@ export const api = {
   login: (identifier, password) =>
     v1('/auth/login', { method: 'POST', body: { identifier, password } }),
   signup: (payload) => v1('/auth/signup', { method: 'POST', body: payload }),
+  forgotPassword: (email) => v1('/auth/forgot-password', { method: 'POST', body: { email } }),
 
   me: () => v1('/users/me'),
+  updateMe: (payload) => v1('/users/me', { method: 'PATCH', body: payload }),
+  changePassword: (payload) => v1('/users/me/password', { method: 'POST', body: payload }),
+  // A new address only takes over once the link emailed to it is opened;
+  // confirmEmail is that link's call, and needs no sign-in.
+  requestEmailChange: (newEmail, currentPassword) =>
+    v1('/users/me/email', {
+      method: 'POST',
+      body: { new_email: newEmail, current_password: currentPassword },
+    }),
+  cancelEmailChange: () => v1('/users/me/email', { method: 'DELETE' }),
+  confirmEmail: (token) => v1('/auth/confirm-email', { method: 'POST', body: { token } }),
   listUsers: (query) => v1('/users', { query: { limit: 100, ...query } }),
   setRole: (id, role) => v1(`/users/${id}/role`, { method: 'PATCH', body: { role } }),
   suspendUser: (id) => v1(`/users/${id}/suspend`, { method: 'PATCH' }),

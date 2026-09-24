@@ -5,8 +5,6 @@ them onto status codes. Sending the email is not done here either — the caller
 gets the raw token back from `invite()` and hands it to `mail.py`.
 """
 
-import hashlib
-import secrets
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import ColumnElement, and_, func, select
@@ -16,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.service import UserAlreadyExistsError
 from app.core.config import settings
 from app.core.permissions import can_invite_role
-from app.core.security import generate_hash_password
+from app.core.security import generate_hash_password, hash_token, new_link_token
 from app.db.models.invitation import Invitation, InvitationStatus
 from app.db.models.user import User, UserRole
 from app.invitations.schemas import AcceptInvitationRequest
@@ -61,12 +59,6 @@ class RoleNotGrantableError(InvitationError):
         super().__init__(
             f"A {actor_role.value!r} user cannot {action} for the {role.value!r} role."
         )
-
-
-def hash_token(token: str) -> str:
-    """The digest stored in place of the token. The token is 256 random bits, so
-    a fast hash is enough — there is nothing to brute-force."""
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _status_filter(status: InvitationStatus) -> ColumnElement[bool]:
@@ -169,7 +161,7 @@ class InvitationService:
         # row has to leave it before the new one goes in.
         await self.session.flush()
 
-        token = secrets.token_urlsafe(32)
+        token = new_link_token()
         invitation = Invitation(
             email=email,
             role=role,

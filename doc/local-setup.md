@@ -288,8 +288,8 @@ follows it automatically, because it reads the same variable.
 
 Both only apply when the database volume is first created. PostgreSQL keeps
 its original credentials, and the seeder skips an admin that already exists.
-Either change the password in the app, or reset with `docker compose down -v`
-(this deletes all data).
+Either change the admin's password in the app (**Profile** in the sidebar), or
+reset with `docker compose down -v` (this deletes all data).
 
 **The UI shows `502 Bad Gateway`, or "API unreachable" in the sidebar**
 

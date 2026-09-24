@@ -23,6 +23,19 @@ const CHECKS_SHOWN = 60
 // A failed connection has no response, so its recorded time (often 0) means nothing.
 const responseTime = (c) => (c.status_code != null ? c.response_time_ms : null)
 
+const STEPS = [
+  ['dns_ms', 'DNS'],
+  ['connect_ms', 'connect'],
+  ['tls_ms', 'TLS'],
+  ['first_byte_ms', 'first byte'],
+]
+
+// Where a check's time went, e.g. "DNS 12 ms · connect 40 ms · …"; empty when untimed.
+const timeSplit = (c) =>
+  STEPS.filter(([key]) => c[key] != null)
+    .map(([key, label]) => `${label} ${c[key]} ms`)
+    .join(' · ')
+
 function CheckStrip({ checks }) {
   // Oldest on the left, like a status page. Empty slots on the left keep bar
   // widths steady while history builds up.
@@ -97,7 +110,7 @@ function Checks({ checks }) {
                   <StatusBadge status={c.is_up ? 'up' : 'down'} />
                 </td>
                 <td>{c.status_code ?? '—'}</td>
-                <td className="nowrap">
+                <td className="nowrap" title={timeSplit(c) || undefined}>
                   {responseTime(c) != null ? `${responseTime(c)} ms` : '—'}
                 </td>
                 <td className="muted small">

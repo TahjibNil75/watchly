@@ -15,7 +15,7 @@ from app.monitoring.alerts.events import (
     SlowResponseEvent,
     SslExpiryEvent,
 )
-from app.monitoring.websites.checker import CheckResult
+from app.monitoring.websites.checker import CheckResult, Timings
 
 _PROJECT = "Acme Corp"
 
@@ -49,6 +49,7 @@ def sample_event(kind: NotificationKind) -> Notification:
         final_url=site.url,
         content_length=1520,
         headers={"server": "nginx", "retry-after": "120"},
+        timings=Timings(dns_ms=21, connect_ms=38, tls_ms=88, first_byte_ms=1650),
     )
     up = CheckResult(
         is_up=True,
@@ -59,6 +60,7 @@ def sample_event(kind: NotificationKind) -> Notification:
         final_url=site.url,
         content_length=48213,
         headers={"server": "nginx"},
+        timings=Timings(dns_ms=9, connect_ms=31, tls_ms=64, first_byte_ms=96),
     )
     recipients = ("you@example.com",)
 
@@ -109,6 +111,7 @@ def sample_event(kind: NotificationKind) -> Notification:
                 reason="OK",
                 response_time_ms=4210,
                 final_url=site.url,
+                timings=Timings(dns_ms=18, connect_ms=42, tls_ms=96, first_byte_ms=3920),
             )
             return SlowResponseEvent(
                 website=site,

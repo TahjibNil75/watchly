@@ -265,9 +265,16 @@ erDiagram
         timestamptz checked_at
         bool is_up
         int status_code
+        text reason
         int response_time_ms
         text error
+        string error_type
         string final_url
+        jsonb headers
+        int dns_ms
+        int connect_ms
+        int tls_ms
+        int first_byte_ms
     }
 ```
 
@@ -503,6 +510,7 @@ manages only the ones they created, and the sites under them.
 | **Passwords** | bcrypt via the `bcrypt` package directly. `passlib` is unusable on Python 3.13+ — it imports the removed `crypt` module. |
 | **Account enumeration** | Login runs bcrypt against a dummy hash when no user matches, so timing does not reveal which accounts exist (measured 1.02 ratio). `is_active` is checked only after the password is proven. |
 | **Stored secrets** | Slack bot tokens (project and site) are Fernet-encrypted at rest and write-only in the API — reads return a masked hint. Key from `SLACK_TOKEN_ENCRYPTION_KEY`, falling back to `SECRET_KEY`. |
+| **Forgot password** | Always answers `202` with the same text and sends the email after responding, so it does not reveal which addresses have accounts. The temporary password sits beside the real one, which keeps working until the temporary one is used — asking cannot lock anyone out. Signing in with it confines the account to `POST /users/me/password` (`must_change_password`). |
 | **Password leakage** | FastAPI's default 422 body echoes the offending input. A custom handler redacts password fields. |
 | **Sessions** | Stateless JWT. Access 30 min, refresh 7 days. No logout endpoint and no revocation — the client discards its tokens. |
 | **Async safety** | `Website.project` and `Project.members` use `lazy="selectin"`; a lazy load from the background task would raise `MissingGreenlet`. |

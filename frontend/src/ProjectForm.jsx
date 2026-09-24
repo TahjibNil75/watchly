@@ -3,17 +3,18 @@ import { ErrorBanner, UserChecklist } from './components.jsx'
 import { parseEmails } from './format.js'
 
 /**
- * Create mode when `initial` is absent (adds the member picker); edit mode
- * otherwise. Every project needs at least one alert channel — members or
- * extra emails for email, and/or a Slack bot token plus channel — and the API
- * explains what's missing if the form is submitted without one.
+ * Create mode when `initial` is absent (adds the member picker and extra
+ * addresses); edit mode otherwise, where members and addresses are managed on
+ * the project page instead. Every project needs at least one alert channel —
+ * members or extra emails for email, and/or a Slack bot token plus channel —
+ * and the API explains what's missing if the form is submitted without one.
  */
 export default function ProjectForm({ initial, users = [], onSubmit, onCancel, submitLabel }) {
   const creating = !initial
   const [form, setForm] = useState({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
-    extra_emails: (initial?.extra_emails ?? []).join(', '),
+    extra_emails: '',
     is_active: initial?.is_active ?? true,
     slack_bot_token: '',
     slack_channel_id: initial?.slack_channel_id ?? '',
@@ -32,9 +33,9 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
     const payload = {
       name: form.name.trim(),
       description: form.description.trim() || null,
-      extra_emails: parseEmails(form.extra_emails),
     }
     if (creating) {
+      payload.extra_emails = parseEmails(form.extra_emails)
       payload.member_ids = memberIds
       if (token || channel) {
         payload.slack_bot_token = token || null
@@ -84,24 +85,25 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
         <input value={form.description} onChange={set('description')} />
       </label>
 
-      <fieldset className="fieldset">
-        <legend>Email alerts</legend>
-        {creating && (
+      {creating && (
+        <fieldset className="fieldset">
+          <legend>Email alerts</legend>
           <div className="field">
             <span>Responsible members, alerted about every site in the project</span>
             <UserChecklist users={users} selected={memberIds} onChange={setMemberIds} />
           </div>
-        )}
-        <label className="field">
-          <span>Extra addresses (client contacts, shared inboxes)</span>
-          <textarea
-            rows={2}
-            value={form.extra_emails}
-            onChange={set('extra_emails')}
-            placeholder="oncall@example.com"
-          />
-        </label>
-      </fieldset>
+          <label className="field">
+            <span>Extra addresses (client contacts, shared inboxes)</span>
+            <textarea
+              rows={2}
+              value={form.extra_emails}
+              onChange={set('extra_emails')}
+              placeholder="oncall@example.com"
+            />
+          </label>
+          <p className="muted small">Both can be added later from the project page.</p>
+        </fieldset>
+      )}
 
       <fieldset className="fieldset">
         <legend>Slack alerts (optional)</legend>

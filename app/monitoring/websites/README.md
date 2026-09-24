@@ -27,7 +27,7 @@ Project ──┬── members (users)  ─┐  inherited unless the site sets
 | `project_members`    | which users are responsible for which project              |
 | `websites`           | one URL, how to check it, and its live outage state        |
 | `website_recipients` | which users are alerted about one particular site          |
-| `website_checks`     | the result of every poll — the evidence behind each alert  |
+| `website_checks`     | the result of every poll — the evidence behind each alert, including why it failed and where its time went |
 
 Deleting a project deletes its websites, which deletes their check history.
 
@@ -80,6 +80,30 @@ Two properties worth preserving if you change this:
 
 A site counts as up when its status code equals `expected_status` (default
 `200`) after following redirects.
+
+Each `website_checks` row keeps what the probe learned, not just the verdict:
+the status and reason phrase, the `error_type` (see below), the diagnostic
+headers, and how long each step took — `dns_ms`, `connect_ms`, `tls_ms` and
+`first_byte_ms` (request sent → response headers back), summed over any
+redirects. A step that did not finish, or that a reused connection skipped, is
+`null`.
+
+`error_type` is the key to group incidents by:
+
+| error_type           | meaning                                            |
+| -------------------- | -------------------------------------------------- |
+| `dns_error`          | the hostname did not resolve                       |
+| `connect_error`      | connection refused, reset, or no route to the host |
+| `connect_timeout`    | no TCP connection within the timeout               |
+| `tls_error`          | the TLS handshake failed — e.g. an expired or untrusted certificate |
+| `read_timeout`       | connected, but no response within the timeout      |
+| `unexpected_status`  | answered, but not with `expected_status`           |
+| `too_many_redirects`, `protocol_error`, `invalid_url`, `timeout` | as named |
+
+To time DNS apart from the TCP connect, probes resolve the hostname
+themselves (`_TimedBackend` in `checker.py`) rather than leaving it to
+httpcore, which does both in one step. The connect then tries the addresses the
+way anyio would have, Happy Eyeballs included.
 
 ---
 
@@ -206,10 +230,11 @@ what decides success. Common refusals are translated: `not_in_channel` becomes
 of their own.
 
 Each alert carries HTTP status and reason, expected vs actual, error class
-(`connect_timeout`, `connect_error`, `unexpected_status`, …), response time,
-timeout, redirect target, response size, downtime so far, `down_since`,
-consecutive failures, and diagnostic headers (`server`, `retry-after`,
-`cf-ray`). Sent as both plain text and HTML.
+(`dns_error`, `connect_timeout`, `tls_error`, `unexpected_status`, …), response
+time and how it split across DNS, connect, TLS and first byte, timeout,
+redirect target, response size, downtime so far, `down_since`, consecutive
+failures, and diagnostic headers (`server`, `retry-after`, `cf-ray`). A
+slow-response alert names the slowest step. Sent as both plain text and HTML.
 
 ---
 
@@ -313,6 +338,8 @@ credentials.
 | ------ | ---- | ------------ |
 | `POST` | `/auth/signup` | `201 409 422` |
 | `POST` | `/auth/login` | `200 401 403 422` |
+| `POST` | `/auth/forgot-password` | `202 422` |
+| `POST` | `/auth/confirm-email` | `200 403 404 409 410 422` |
 
 Signup always creates a `Viewer`; the role cannot be set from the payload.
 Login accepts a username **or** an email in the `identifier` field. A suspended
@@ -323,6 +350,10 @@ user is refused with `403` until reactivated.
 | method | path | status codes |
 | ------ | ---- | ------------ |
 | `GET` | `/users/me` | `200` |
+| `PATCH` | `/users/me` | `200 422` |
+| `POST` | `/users/me/password` | `200 400 422` |
+| `POST` | `/users/me/email` | `202 400 409 422` |
+| `DELETE` | `/users/me/email` | `200` |
 | `GET` | `/users` | `200 403 422` |
 | `GET` | `/users/{user_id}` | `200 403 404 422` |
 | `PATCH` | `/users/{user_id}/role` | `200 403 404 422` |

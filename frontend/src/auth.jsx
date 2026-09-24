@@ -33,6 +33,8 @@ export function AuthProvider({ children }) {
       user,
       checking,
       logout,
+      // For pages that change the signed-in user, e.g. the profile.
+      updateUser: setUser,
       login: async (identifier, password) => accept(await api.login(identifier, password)),
       signup: async (payload) => accept(await api.signup(payload)),
       acceptInvitation: async (payload) => accept(await api.acceptInvitation(payload)),

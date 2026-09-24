@@ -2,18 +2,32 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import (
+    get_authenticated_user,
     get_current_user,
     require_role_manager,
     require_user_manager,
 )
 from app.db.models.user import User, UserRole
 from app.db.session import get_db
+from app.auth.service import UserAlreadyExistsError
 from app.schemas.user import UserRead
-from app.user.schemas import RoleUpdateRequest, UserListResponse
+from app.user.mail import send_email_confirmation
+from app.user.schemas import (
+    EmailChangeRequest,
+    EmailChangeRequested,
+    PasswordChangeRequest,
+    ProfileRead,
+    ProfileUpdate,
+    RoleUpdateRequest,
+    UserListResponse,
+)
 from app.user.service import (
     CannotChangeOwnRoleError,
     CannotSuspendSelfError,
+    EmailUnchangedError,
+    IncorrectPasswordError,
     InsufficientRankError,
+    SamePasswordError,
     UserNotFoundError,
     UserService,
 )
@@ -22,6 +36,9 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 FORBIDDEN = {403: {"description": "Requires a user-management role"}}
 NOT_FOUND = {404: {"description": "No such user"}}
+# 400 rather than 401: the session is fine, only the password typed was wrong,
+# and a 401 would sign the web UI out.
+WRONG_PASSWORD = {400: {"description": "The current password is incorrect"}}
 
 
 def get_user_service(session: AsyncSession = Depends(get_db)) -> UserService:
@@ -30,12 +47,113 @@ def get_user_service(session: AsyncSession = Depends(get_db)) -> UserService:
 
 @router.get(
     "/me",
-    response_model=UserRead,
+    response_model=ProfileRead,
     summary="Get the authenticated user",
 )
-async def read_me(current_user: User = Depends(get_current_user)) -> UserRead:
-    """Any signed-in user can read their own profile, whatever their role."""
-    return UserRead.model_validate(current_user)
+async def read_me(current_user: User = Depends(get_authenticated_user)) -> ProfileRead:
+    """Any signed-in user can read their own profile, whatever their role —
+    including one who still has to replace a temporary password."""
+    return ProfileRead.model_validate(current_user)
+
+
+@router.patch(
+    "/me",
+    response_model=ProfileRead,
+    summary="Update your own profile",
+)
+async def update_me(
+    payload: ProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    service: UserService = Depends(get_user_service),
+) -> ProfileRead:
+    """Change your full name. Any other field is refused with `422`: the email
+    has its own endpoint, and the role and username are not yours to change."""
+    if "full_name" in payload.model_fields_set:
+        current_user = await service.update_profile(current_user, payload.full_name)
+    return ProfileRead.model_validate(current_user)
+
+
+@router.post(
+    "/me/password",
+    response_model=ProfileRead,
+    summary="Change your own password",
+    responses={
+        400: {
+            "description": "The current password is incorrect, or the new one is "
+            "the same"
+        }
+    },
+)
+async def change_my_password(
+    payload: PasswordChangeRequest,
+    current_user: User = Depends(get_authenticated_user),
+    service: UserService = Depends(get_user_service),
+) -> ProfileRead:
+    """Set a new password, given the current one. Takes effect at the next sign
+    in; sessions already signed in are not signed out.
+
+    After signing in with a temporary password this is the only thing the
+    account may do, with the temporary password as `current_password`.
+    Changing it lifts `must_change_password`."""
+    try:
+        user = await service.change_password(
+            current_user, payload.current_password, payload.new_password
+        )
+    except (IncorrectPasswordError, SamePasswordError) as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return ProfileRead.model_validate(user)
+
+
+@router.post(
+    "/me/email",
+    response_model=EmailChangeRequested,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Ask to change your email address",
+    responses={
+        400: {"description": "The current password is incorrect, or the address is already yours"},
+        409: {"description": "Another account uses that address"},
+    },
+)
+async def request_email_change(
+    payload: EmailChangeRequest,
+    current_user: User = Depends(get_current_user),
+    service: UserService = Depends(get_user_service),
+) -> EmailChangeRequested:
+    """Email a confirmation link to the new address. The account keeps its
+    current address until the link is opened (`POST /auth/confirm-email`); until
+    then the new one shows as `pending_email`.
+
+    Asking again replaces the pending change and its link. The link expires
+    after `EMAIL_CHANGE_EXPIRE_HOURS`. The change is saved even if the email
+    cannot be sent; `email_sent` says which happened.
+    """
+    try:
+        token = await service.request_email_change(
+            current_user, payload.new_email, payload.current_password
+        )
+    except (IncorrectPasswordError, EmailUnchangedError) as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except UserAlreadyExistsError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    email_sent = await send_email_confirmation(current_user, token)
+    return EmailChangeRequested(
+        **ProfileRead.model_validate(current_user).model_dump(), email_sent=email_sent
+    )
+
+
+@router.delete(
+    "/me/email",
+    response_model=ProfileRead,
+    summary="Cancel a pending email change",
+)
+async def cancel_email_change(
+    current_user: User = Depends(get_current_user),
+    service: UserService = Depends(get_user_service),
+) -> ProfileRead:
+    """Drop the pending change; its link stops working. Nothing happens if
+    there is none."""
+    return ProfileRead.model_validate(await service.cancel_email_change(current_user))
 
 
 @router.get(

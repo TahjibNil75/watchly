@@ -18,7 +18,7 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.crypto import decrypt_secret, mask_secret
@@ -300,10 +300,29 @@ class WebsiteCheck(Base):
     is_up: Mapped[bool] = mapped_column(Boolean, nullable=False)
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     response_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: The HTTP reason phrase that came with status_code, e.g. "Service Unavailable".
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Populated when the request never produced a response (DNS, TLS, timeout).
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Why the check failed, as a stable key to group incidents by:
+    #: `dns_error`, `connect_timeout`, `tls_error`, `unexpected_status`, …
+    #: None when the check succeeded.
+    error_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     #: URL actually reached, after redirects.
     final_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    #: The response headers kept for diagnosis (checker.DIAGNOSTIC_HEADERS).
+    #: None when there was no response, or it sent none of them.
+    headers: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
+
+    # --- where the time went, in ms, summed over any redirects -------------
+    # None when the step did not finish on this check: it failed first, or a
+    # reused connection left nothing to look up, connect or negotiate. Rows
+    # from before these were recorded have None throughout.
+    dns_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    connect_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tls_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: From the request being sent to the response headers arriving.
+    first_byte_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     website: Mapped[Website] = relationship(back_populates="checks")
 

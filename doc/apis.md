@@ -4,8 +4,13 @@ Every endpoint in Watchly, with a one-line description.
 
 **Base URL:** `/api/v1` (health check is at the root)
 **Auth:** `Authorization: Bearer <access token>` on everything except signup,
-login, the two invitee endpoints (`/invitations/preview`, `/invitations/accept`)
-and `/health`.
+login, forgot password, confirming a new email address (`/auth/confirm-email`),
+the two invitee endpoints (`/invitations/preview`, `/invitations/accept`) and
+`/health`.
+
+A user who signed in with a temporary password (`must_change_password: true`)
+gets `403` from everything except `GET /users/me` and `POST /users/me/password`
+until they choose a new one.
 
 Interactive docs run at `/docs` when the app is up. For how the pieces fit
 together, see [`hld.md`](hld.md).
@@ -18,42 +23,48 @@ together, see [`hld.md`](hld.md).
 | - | ------ | -------- | ------------ |
 | 1 | `POST` | `/auth/signup` | Register a new account; always created as a `Viewer`. |
 | 2 | `POST` | `/auth/login` | Log in with a username **or** email and get an access/refresh token pair. |
-| 3 | `GET` | `/users/me` | Return the signed-in user's own profile. |
-| 4 | `GET` | `/users` | List users, with role and active-state filters. |
-| 5 | `GET` | `/users/{user_id}` | Return one user by id. |
-| 6 | `PATCH` | `/users/{user_id}/role` | Assign a different role to a user. |
-| 7 | `PATCH` | `/users/{user_id}/suspend` | Block a user from logging in and kill their current session. |
-| 8 | `PATCH` | `/users/{user_id}/reactivate` | Lift a suspension and restore access. |
-| 9 | `POST` | `/invitations` | Email someone a one-time link that creates their account with a chosen role. |
-| 10 | `GET` | `/invitations` | List invitations, newest first, filterable by status. |
-| 11 | `PATCH` | `/invitations/{invitation_id}/revoke` | Kill an invitation's link. |
-| 12 | `POST` | `/invitations/preview` | Show an invitee which address and role a token is for (public). |
-| 13 | `POST` | `/invitations/accept` | Accept an invitation: create the account and sign in (public). |
-| 14 | `GET` | `/monitoring/projects` | List projects the caller is allowed to see. |
-| 15 | `POST` | `/monitoring/projects` | Create a project and name the members responsible for it. |
-| 16 | `GET` | `/monitoring/projects/{project_id}` | Return one project with its members. |
-| 17 | `PATCH` | `/monitoring/projects/{project_id}` | Update a project's name, description, active flag or extra alert emails. |
-| 18 | `DELETE` | `/monitoring/projects/{project_id}` | Delete a project and stop monitoring every site under it. |
-| 19 | `POST` | `/monitoring/projects/{project_id}/members` | Add one or more users as responsible members (they start receiving alerts). |
-| 20 | `DELETE` | `/monitoring/projects/{project_id}/members/{user_id}` | Remove a member so they stop receiving that project's alerts. |
-| 21 | `GET` | `/monitoring/websites` | List monitored sites and their current up/down status. |
-| 22 | `POST` | `/monitoring/websites` | Start monitoring a URL under a project, optionally with its own recipients. |
-| 23 | `GET` | `/monitoring/websites/{website_id}` | Return one monitored site with its live outage state. |
-| 24 | `PATCH` | `/monitoring/websites/{website_id}` | Update a site's URL, interval, timeout, alert budget, alert emails or enabled flag. |
-| 25 | `DELETE` | `/monitoring/websites/{website_id}` | Stop monitoring a site and delete its check history. |
-| 26 | `POST` | `/monitoring/websites/{website_id}/recipients` | Add one or more users alerted about this site only. |
-| 27 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | Stop alerting a user about this site. |
-| 28 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
-| 29 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
-| 30 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack switches per kind. |
-| 31 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
-| 32 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
-| 33 | `POST` | `/monitoring/notifications/preview` | Render a notification with sample data, exactly as it would be sent. |
-| 34 | `GET` | `/monitoring/projects/{project_id}/notifications` | A project's settings after inheriting from global. |
-| 35 | `PUT` | `/monitoring/projects/{project_id}/notifications/{kind}` | Override one kind for a project. |
-| 36 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
-| 37 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
-| 38 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
+| 3 | `POST` | `/auth/forgot-password` | Email a temporary password; signing in with it leads to choosing a new one (public). |
+| 4 | `POST` | `/auth/confirm-email` | Finish an email change from the link sent to the new address (public). |
+| 5 | `GET` | `/users/me` | Return the signed-in user's own profile. |
+| 6 | `PATCH` | `/users/me` | Change your own full name. |
+| 7 | `POST` | `/users/me/password` | Change your own password, given the current one. |
+| 8 | `POST` | `/users/me/email` | Ask to change your email; a link is sent to the new address to confirm it. |
+| 9 | `DELETE` | `/users/me/email` | Cancel a pending email change. |
+| 10 | `GET` | `/users` | List users, with role and active-state filters. |
+| 11 | `GET` | `/users/{user_id}` | Return one user by id. |
+| 12 | `PATCH` | `/users/{user_id}/role` | Assign a different role to a user. |
+| 13 | `PATCH` | `/users/{user_id}/suspend` | Block a user from logging in and kill their current session. |
+| 14 | `PATCH` | `/users/{user_id}/reactivate` | Lift a suspension and restore access. |
+| 15 | `POST` | `/invitations` | Email someone a one-time link that creates their account with a chosen role. |
+| 16 | `GET` | `/invitations` | List invitations, newest first, filterable by status. |
+| 17 | `PATCH` | `/invitations/{invitation_id}/revoke` | Kill an invitation's link. |
+| 18 | `POST` | `/invitations/preview` | Show an invitee which address and role a token is for (public). |
+| 19 | `POST` | `/invitations/accept` | Accept an invitation: create the account and sign in (public). |
+| 20 | `GET` | `/monitoring/projects` | List projects the caller is allowed to see. |
+| 21 | `POST` | `/monitoring/projects` | Create a project and name the members responsible for it. |
+| 22 | `GET` | `/monitoring/projects/{project_id}` | Return one project with its members. |
+| 23 | `PATCH` | `/monitoring/projects/{project_id}` | Update a project's name, description, active flag or extra alert emails. |
+| 24 | `DELETE` | `/monitoring/projects/{project_id}` | Delete a project and stop monitoring every site under it. |
+| 25 | `POST` | `/monitoring/projects/{project_id}/members` | Add one or more users as responsible members (they start receiving alerts). |
+| 26 | `DELETE` | `/monitoring/projects/{project_id}/members/{user_id}` | Remove a member so they stop receiving that project's alerts. |
+| 27 | `GET` | `/monitoring/websites` | List monitored sites and their current up/down status. |
+| 28 | `POST` | `/monitoring/websites` | Start monitoring a URL under a project, optionally with its own recipients. |
+| 29 | `GET` | `/monitoring/websites/{website_id}` | Return one monitored site with its live outage state. |
+| 30 | `PATCH` | `/monitoring/websites/{website_id}` | Update a site's URL, interval, timeout, alert budget, alert emails or enabled flag. |
+| 31 | `DELETE` | `/monitoring/websites/{website_id}` | Stop monitoring a site and delete its check history. |
+| 32 | `POST` | `/monitoring/websites/{website_id}/recipients` | Add one or more users alerted about this site only. |
+| 33 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | Stop alerting a user about this site. |
+| 34 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
+| 35 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
+| 36 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack switches per kind. |
+| 37 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
+| 38 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
+| 39 | `POST` | `/monitoring/notifications/preview` | Render a notification with sample data, exactly as it would be sent. |
+| 40 | `GET` | `/monitoring/projects/{project_id}/notifications` | A project's settings after inheriting from global. |
+| 41 | `PUT` | `/monitoring/projects/{project_id}/notifications/{kind}` | Override one kind for a project. |
+| 42 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
+| 43 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
+| 44 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
 
 ---
 
@@ -68,8 +79,29 @@ is always `Viewer` and cannot be set from the payload.
 
 ### `POST /api/v1/auth/login`
 Authenticate with `identifier` (username **or** email) plus `password`, and
-receive the user plus an access/refresh token pair.
+receive the user plus an access/refresh token pair. A temporary password from
+forgot password works too, while it lasts: it becomes the password, and the
+user comes back with `must_change_password: true`.
 `200` · `401` wrong credentials or unknown user · `403` suspended · `422` invalid
+
+### `POST /api/v1/auth/forgot-password`
+Body: `{"email": "jane@example.com"}`. Emails that account a temporary password
+that works for `TEMP_PASSWORD_EXPIRE_MINUTES` (default 60). Always `202` with
+the same message, account or not, so it cannot be used to find out who has one;
+the email is sent after the response for the same reason. The current password
+keeps working until the temporary one is used, so asking for someone else
+cannot lock them out, and signing in with the current password cancels the
+temporary one. A second request within a minute is ignored. Suspended accounts
+are sent nothing.
+`202` · `422` invalid address
+
+### `POST /api/v1/auth/confirm-email`
+Finish an email change started with `POST /users/me/email`. Body:
+`{"token": "<from the email>"}`. No sign-in needed — the token went only to the
+new address, so holding it proves the address is yours. The link works once.
+`200` the updated user · `403` suspended · `404` no pending change matches (used,
+cancelled or replaced) · `409` another account took the address meanwhile ·
+`410` expired
 
 > There is no logout endpoint — the client discards its tokens.
 
@@ -79,11 +111,43 @@ receive the user plus an access/refresh token pair.
 
 | who can call | |
 | ------------ | - |
-| `/users/me` | any signed-in user |
+| `/users/me`, `/users/me/…` | any signed-in user, about themselves |
 | everything else | admin, DevOps, project manager (per-target rules below) |
 
 ### `GET /api/v1/users/me`
-Return the signed-in user's own profile, whatever their role.
+Return the signed-in user's own profile, whatever their role — plus
+`pending_email` and `pending_email_expires_at` while an email change awaits
+confirmation.
+`200`
+
+### `PATCH /api/v1/users/me`
+Change your full name: `{"full_name": "Jane Doe"}`, or `null`/`""` to clear it.
+Any other field is refused — the email has its own endpoint below, and your
+role and username are not yours to change.
+`200` · `422` unknown field
+
+### `POST /api/v1/users/me/password`
+Body: `current_password`, `new_password`, `confirm_password`. Takes effect at
+the next sign-in; sessions already signed in stay signed in until their token
+expires. After signing in with a temporary password this is the only call
+allowed — `current_password` is the temporary one — and it clears
+`must_change_password`.
+`200` · `400` current password wrong, or new = current · `422` mismatch or too short
+
+### `POST /api/v1/users/me/email`
+Body: `new_email`, `current_password`. Emails a confirmation link to the new
+address (see `POST /auth/confirm-email`); the account keeps its current address
+until then, and the response shows the new one as `pending_email`. Asking again
+replaces the pending change, and the old link stops working. The link expires
+after `EMAIL_CHANGE_EXPIRE_HOURS` (default 24). Like invitations, it needs SMTP
+and `ALERT_DASHBOARD_URL`; the change is saved either way, and `email_sent`
+says whether the email went out.
+`202` · `400` current password wrong, or already your address · `409` another
+account uses it · `422` invalid address
+
+### `DELETE /api/v1/users/me/email`
+Cancel a pending email change; its link stops working. Nothing happens if there
+is none.
 `200`
 
 ### `GET /api/v1/users`
@@ -299,8 +363,11 @@ Refused if it would leave the site with no alert channel.
 `200` · `403` · `404` · `422` would leave no alert channel
 
 ### `GET /api/v1/monitoring/websites/{website_id}/checks`
-Recent check results, newest first — status code, response time, error and
-final URL for each poll.
+Recent check results, newest first — for each poll the status code and
+reason, response time, error and `error_type`, final URL, diagnostic headers,
+and the time spent in each step (`dns_ms`, `connect_ms`, `tls_ms`,
+`first_byte_ms`; null when the step did not finish). Checks recorded before
+these fields existed have them null.
 Query: `limit` (1–500)
 `200` · `404`
 
