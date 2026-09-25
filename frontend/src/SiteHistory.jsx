@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 import { Empty, ErrorBanner, Loading } from './components.jsx'
+import { saveFile } from './download.js'
 import { useApi } from './useApi.js'
 
 const RANGES = [
@@ -294,12 +295,22 @@ function HistoryTable({ stats }) {
 
 export default function SiteHistory({ websiteId }) {
   const [range, setRange] = useState('24h')
+  const [downloadError, setDownloadError] = useState(null)
   // The rollup behind these moves once a minute, with the scheduler.
   const stats = useApi(() => api.getWebsiteStats(websiteId, range), [websiteId, range], {
     pollMs: 60000,
   })
   const s = stats.data
   const label = RANGES.find((r) => r.key === range).label
+
+  async function download() {
+    setDownloadError(null)
+    try {
+      saveFile(`watchly-site-${websiteId}-${range}.csv`, await api.websiteStatsCsv(websiteId, range))
+    } catch (error) {
+      setDownloadError(error)
+    }
+  }
 
   return (
     <section className="card">
@@ -318,7 +329,7 @@ export default function SiteHistory({ websiteId }) {
           </button>
         ))}
       </div>
-      <ErrorBanner error={stats.error} />
+      <ErrorBanner error={stats.error ?? downloadError} />
       {!s ? (
         stats.loading && <Loading />
       ) : (
@@ -341,6 +352,9 @@ export default function SiteHistory({ websiteId }) {
               <span>Checks</span>
               <strong>{s.checks.toLocaleString()}</strong>
             </div>
+            <button type="button" className="btn btn-sm kv-action" onClick={download}>
+              Download CSV
+            </button>
           </div>
           {s.checks === 0 ? (
             <Empty>No checks in the last {label}.</Empty>

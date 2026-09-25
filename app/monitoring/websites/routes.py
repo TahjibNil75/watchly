@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_roles
@@ -12,11 +12,13 @@ from app.monitoring.projects.service import (
     ProjectService,
     UnknownMembersError,
 )
+from app.monitoring.exports import csv_response, stats_csv
 from app.monitoring.service import MonitoringService
 from app.monitoring.websites.history import HistoryService
 from app.monitoring.websites.models import WebsiteStatus
 from app.monitoring.websites.schemas import (
     CheckNowResponse,
+    StatsFormat,
     StatsRange,
     WebsiteCheckRead,
     WebsiteCreate,
@@ -31,6 +33,7 @@ from app.monitoring.websites.schemas import (
 from app.monitoring.websites.models import Website
 from app.monitoring.websites.service import (
     DuplicateWebsiteError,
+    WebsiteContentRuleError,
     WebsiteNotAlertableError,
     WebsiteNotFoundError,
     WebsiteService,
@@ -173,8 +176,8 @@ async def summarize_websites(
         409: {"description": "URL already monitored"},
         422: {
             "description": (
-                "Unknown recipient id, no alert channel, or Slack settings "
-                "that post nowhere"
+                "Unknown recipient id, no alert channel, Slack settings that "
+                "post nowhere, or content rules on a HEAD/OPTIONS request"
             )
         },
     },
@@ -196,7 +199,12 @@ async def create_website(
         website = await service.create(payload, project, created_by_id=actor.id)
     except DuplicateWebsiteError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    except (UnknownMembersError, WebsiteNotAlertableError, WebsiteSlackError) as exc:
+    except (
+        UnknownMembersError,
+        WebsiteContentRuleError,
+        WebsiteNotAlertableError,
+        WebsiteSlackError,
+    ) as exc:
         raise _unprocessable(exc) from exc
     return WebsiteRead.model_validate(website)
 
@@ -230,8 +238,8 @@ async def read_website(
         409: {"description": "URL already monitored"},
         422: {
             "description": (
-                "The change would leave no alert channel, or Slack settings "
-                "that post nowhere"
+                "The change would leave no alert channel, Slack settings that "
+                "post nowhere, or content rules on a HEAD/OPTIONS request"
             )
         },
     },
@@ -251,7 +259,7 @@ async def update_website(
         return WebsiteRead.model_validate(await service.update(website_id, payload))
     except DuplicateWebsiteError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    except (WebsiteNotAlertableError, WebsiteSlackError) as exc:
+    except (WebsiteContentRuleError, WebsiteNotAlertableError, WebsiteSlackError) as exc:
         raise _unprocessable(exc) from exc
 
 
@@ -346,14 +354,17 @@ async def list_checks(
     "/{website_id}/stats",
     response_model=WebsiteStats,
     summary="Uptime and response time over a range",
-    responses=NOT_FOUND,
+    responses={**NOT_FOUND, 200: {"content": {"text/csv": {}}}},
 )
 async def website_stats(
     website_id: int = Path(ge=1),
     range_: StatsRange = Query(StatsRange.DAY, alias="range"),
+    format_: StatsFormat = Query(
+        StatsFormat.JSON, alias="format", description="`csv` downloads the series as a file."
+    ),
     actor: User = Depends(get_current_user),
     service: WebsiteService = Depends(get_website_service),
-) -> WebsiteStats:
+) -> WebsiteStats | Response:
     """Read from hourly rollups, so it reaches back past the retention of raw
     checks. Buckets are UTC hours for 24h and 7d, UTC days for 30d and 90d; the
     last one is still filling. Uptime is the share of checks that succeeded, and
@@ -362,7 +373,10 @@ async def website_stats(
         await service.get_visible(website_id, actor)
     except WebsiteNotFoundError as exc:
         raise _not_found(exc) from exc
-    return await HistoryService(service.session).stats(website_id, range_)
+    stats = await HistoryService(service.session).stats(website_id, range_)
+    if format_ is StatsFormat.CSV:
+        return csv_response(stats_csv(stats), f"watchly-site-{website_id}-{range_.value}.csv")
+    return stats
 
 
 @router.post(

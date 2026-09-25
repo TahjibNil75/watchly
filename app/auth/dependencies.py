@@ -33,9 +33,8 @@ async def get_current_claims(
 ) -> dict[str, Any]:
     """Validate the `Authorization: Bearer <access token>` header.
 
-    Checks the signature and expiry and rejects refresh tokens. Tokens are
-    stateless: there is no server-side revocation, so a token stays valid until
-    it expires even after the client discards it.
+    Checks the signature and expiry and rejects refresh tokens. Revocation is
+    checked against the user in :func:`get_authenticated_user`.
     """
     if credentials is None:
         raise _unauthorized("Not authenticated.")
@@ -64,6 +63,12 @@ async def get_authenticated_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account has been suspended.",
         )
+    # Tokens from before `sv` existed count as version 0, like every account
+    # then, so they are only refused once the account ends its sessions.
+    if claims.get("sv", 0) != user.session_version:
+        # 401, so the client tries its refresh cookie: the device that changed
+        # the password has a new one; every other device is signed out.
+        raise _unauthorized("This session has ended. Please sign in again.")
     return user
 
 

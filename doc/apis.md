@@ -67,8 +67,9 @@ together, see [`hld.md`](hld.md).
 | 44 | `GET` | `/monitoring/projects/{project_id}/notifications` | A project's settings after inheriting from global. |
 | 45 | `PUT` | `/monitoring/projects/{project_id}/notifications/{kind}` | Override one kind for a project. |
 | 46 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
-| 47 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
-| 48 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
+| 47 | `GET` | `/monitoring/projects/{project_id}/report.csv` | Download a monthly uptime report as CSV, one row per site — for anyone who can see the project. |
+| 48 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
+| 49 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
 
 ---
 
@@ -159,9 +160,13 @@ role and username are not yours to change.
 `200` · `422` unknown field
 
 ### `POST /api/v1/users/me/password`
-Body: `current_password`, `new_password`, `confirm_password`. Takes effect at
-the next sign-in; sessions already signed in stay signed in until their token
-expires. After signing in with a temporary password this is the only call
+Body: `current_password`, `new_password`, `confirm_password`. Signs out every
+session the account has — other devices included — and starts a new one for the
+caller, whose refresh cookie is replaced in the response. Access tokens already
+issued — the caller's included — are refused from the next request with `401`,
+so the caller's client refreshes with its new cookie and every other device is
+signed out at once. Signing in with a temporary password does the same, since it
+replaces the old password. After signing in with a temporary password this is the only call
 allowed — `current_password` is the temporary one — and it clears
 `must_change_password`.
 `200` · `400` current password wrong, or new = current · `422` mismatch or too short
@@ -362,6 +367,11 @@ Body: `project_id`, `name`, `url`, and optionally `environment` (`development`,
 `testing`, `uat`, `staging` or `production` — the web form requires it, the API
 does not, so existing scripts keep working), `method`, `expected_status`,
 `timeout_seconds`, `check_interval_seconds` (≥30), `max_down_alerts`,
+`retries_on_failure` (0–3, default 1: a failed check is repeated a few seconds
+later, and only the last result is recorded and alerted on),
+`must_contain` / `must_not_contain` (the body must have, or must not have, this
+text — case-sensitive, first 1 MB; needs GET or POST; a failure has
+`error_type` `content_missing` / `content_forbidden`),
 `is_enabled`, `recipient_ids` (users alerted about this site only),
 `alert_emails` (addresses alerted about this site only),
 `inherit_project_recipients` (default `true`), `slack_channel_id` (post to
@@ -369,7 +379,8 @@ this channel instead of the project's), `slack_bot_token` (the site's own bot,
 for when the project has no Slack; needs `slack_channel_id`)
 `201` · `403` not your project · `404` no such project · `409` URL already
 monitored · `422` invalid field, unknown recipient id, the site would have
-no alert channel, or its Slack settings post nowhere
+no alert channel, its Slack settings post nowhere, or content rules on a
+HEAD/OPTIONS request
 
 ### `GET /api/v1/monitoring/websites/{website_id}`
 Return one site with its live state: `status`, `last_checked_at`, `down_since`,
@@ -382,8 +393,9 @@ Return one site with its live state: `status`, `last_checked_at`, `down_since`,
 Update any of the check settings, `alert_emails` (replaces the whole list),
 `inherit_project_recipients`, the site's Slack (`slack_channel_id: null`
 removes it, token included; `slack_bot_token: null` goes back to the project's
-token), or disable the site without deleting it. A change that would leave the
-site with no alert channel is refused.
+token), `retries_on_failure`, the content rules (`null` removes one), or disable
+the site without deleting it. A change that would leave the site with no alert
+channel is refused.
 `200` · `403` · `404` · `409` URL already monitored · `422` would leave no
 alert channel, or Slack settings that post nowhere
 
@@ -419,7 +431,9 @@ filling. A bucket with no checks has `checks: 0` and nulls. Read from hourly
 rollups, so it reaches back past the retention of raw checks. Uptime is the
 share of checks that succeeded; response times count successful checks only,
 as in the monthly report; the percentile is accurate to within about 25%.
-`200` · `404` · `422` unknown range
+`format=csv` downloads the series as a file instead (one row per bucket, blank
+figures for an empty one).
+`200` · `404` · `422` unknown range or format
 
 ### `POST /api/v1/monitoring/websites/{website_id}/check`
 Probe now, through the same state machine as a scheduled check, so it can raise
@@ -484,6 +498,14 @@ or ownership of the project.
 Remove the project's override; it follows global again.
 `200` · `403` · `404`
 
+### `GET /api/v1/monitoring/projects/{project_id}/report.csv`
+The figures of the emailed monthly report as a CSV file, one row per site that
+had checks: uptime, downtime, incidents, longest outage, average and 95th
+percentile response time. For anyone who can see the project; sends nothing.
+Query: `month` (`YYYY-MM`, a month that has ended; default last month)
+`200` · `404` · `409` no checks that month, the month has not ended, or its
+checks are older than `CHECK_RETENTION_DAYS` allows · `422` bad month
+
 ### `POST /api/v1/monitoring/projects/{project_id}/report`
 Build and send a monthly uptime report now. Body (optional): `month` as
 `YYYY-MM`, a month that has ended; defaults to last month. Follows the
@@ -531,10 +553,10 @@ masked `slack_token_hint` such as `xoxb-…9f2a` instead (and, for a project,
 
 ## Not built yet
 
-- Revoking access tokens. They are stateless and work until they expire;
-  logout and suspension revoke the refresh side only.
-- Revoking other sessions when a password changes or a temporary password is
-  used. Until then a stolen refresh cookie survives a password reset.
+- Revoking one device's access token at sign-out. Logout revokes that
+  session's refresh token, but its access token works until it expires.
+  Ending every session (password change, temporary password, suspension)
+  does revoke access tokens, through `users.session_version`.
 - Audit trail for role changes, suspensions, invitations and project edits.
 - Retrying a monthly report that nobody received. It is sent at most once per
   project per month; use `POST /monitoring/projects/{id}/report` to resend.

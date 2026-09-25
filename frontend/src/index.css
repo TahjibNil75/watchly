@@ -628,6 +628,10 @@ tbody tr:hover td {
   color: var(--muted);
   font-size: 0.82rem;
 }
+.kv-inline .kv-action {
+  margin-left: auto;
+  align-self: flex-end;
+}
 .kv-inline strong {
   font-size: 1.15rem;
   font-variant-numeric: tabular-nums;
@@ -1029,6 +1033,11 @@ textarea {
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 14px;
+}
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .section-head h2,
 .section-head p {

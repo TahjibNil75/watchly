@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import (
@@ -9,7 +9,8 @@ from app.auth.dependencies import (
 )
 from app.db.models.user import User, UserRole
 from app.db.session import get_db
-from app.auth.service import UserAlreadyExistsError
+from app.auth.cookies import set_refresh_cookie
+from app.auth.service import AuthService, UserAlreadyExistsError
 from app.schemas.user import UserRead
 from app.user.mail import send_email_confirmation
 from app.user.schemas import (
@@ -86,11 +87,15 @@ async def update_me(
 )
 async def change_my_password(
     payload: PasswordChangeRequest,
+    response: Response,
     current_user: User = Depends(get_authenticated_user),
     service: UserService = Depends(get_user_service),
 ) -> ProfileRead:
-    """Set a new password, given the current one. Takes effect at the next sign
-    in; sessions already signed in are not signed out.
+    """Set a new password, given the current one. Every session the account has
+    is signed out — other devices included — except the one making the change,
+    which gets a new refresh cookie in this response. Access tokens already
+    issued are refused from the next request (401): the caller's own client
+    then refreshes with its new cookie, and every other device is signed out.
 
     After signing in with a temporary password this is the only thing the
     account may do, with the temporary password as `current_password`.
@@ -101,6 +106,7 @@ async def change_my_password(
         )
     except (IncorrectPasswordError, SamePasswordError) as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    set_refresh_cookie(response, await AuthService(service.session).start_session(user))
     return ProfileRead.model_validate(user)
 
 

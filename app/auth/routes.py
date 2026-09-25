@@ -10,6 +10,11 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.cookies import (
+    REFRESH_COOKIE,
+    clear_refresh_cookie,
+    set_refresh_cookie,
+)
 from app.auth.dependencies import get_auth_service
 from app.auth.mail import send_temporary_password, temporary_password_email
 from app.auth.schemas import (
@@ -39,41 +44,15 @@ from app.utils.jwt import create_access_token
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-#: httpOnly, so the page's scripts (and any injected into it) cannot read it,
-#: and scoped to /auth, so it is only sent to be refreshed or revoked.
-REFRESH_COOKIE = "watchly_refresh"
-REFRESH_COOKIE_PATH = f"{settings.API_V1_PREFIX}/auth"
-
-
-def set_refresh_cookie(response: Response, token: str) -> None:
-    response.set_cookie(
-        REFRESH_COOKIE,
-        token,
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        path=REFRESH_COOKIE_PATH,
-        secure=settings.REFRESH_COOKIE_SECURE,
-        httponly=True,
-        # Never sent on a request started by another site, which is what keeps
-        # /refresh and /logout safe from cross-site request forgery.
-        samesite="strict",
-    )
-
-
-def clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(
-        REFRESH_COOKIE,
-        path=REFRESH_COOKIE_PATH,
-        secure=settings.REFRESH_COOKIE_SECURE,
-        httponly=True,
-        samesite="strict",
-    )
-
-
 def access_token_for(user: User) -> TokenResponse:
     return TokenResponse(
         access_token=create_access_token(
             subject=str(user.id),
-            extra_claims={"username": user.username, "role": user.role.value},
+            extra_claims={
+                "username": user.username,
+                "role": user.role.value,
+                "sv": user.session_version,
+            },
         ),
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
@@ -216,8 +195,9 @@ async def logout(
     """Revoke the refresh cookie's session and clear the cookie. Always `204`,
     signed in or not.
 
-    The access token cannot be revoked and works until it expires
-    (`ACCESS_TOKEN_EXPIRE_MINUTES`); the client should discard it.
+    This device's access token works until it expires
+    (`ACCESS_TOKEN_EXPIRE_MINUTES`); the client should discard it. Ending
+    *every* session (password change, suspension) revokes access tokens too.
     """
     if refresh_token:
         await service.end_session(refresh_token)

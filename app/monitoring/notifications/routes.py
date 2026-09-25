@@ -6,7 +6,7 @@ override them for itself. See `service.py` for how the levels combine.
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_roles
@@ -17,9 +17,11 @@ from app.monitoring.alerts.base import NotificationKind
 from app.monitoring.alerts.email import render_html, render_text
 from app.monitoring.alerts.slack import build_payload
 from app.monitoring.notifications.catalog import CATALOG
+from app.monitoring.exports import csv_response, report_csv
 from app.monitoring.notifications.reports import (
     NoReportDataError,
     PeriodNotOverError,
+    PeriodNotRetainedError,
     ReportService,
     month_period,
     previous_month,
@@ -249,6 +251,48 @@ async def reset_project_setting(
 
 
 # -- monthly report -------------------------------------------------------
+
+
+@router.get(
+    "/projects/{project_id}/report.csv",
+    summary="Download a monthly uptime report as CSV",
+    response_class=Response,
+    responses={
+        **{404: PROJECT_ERRORS[404]},
+        200: {"content": {"text/csv": {}}},
+        409: {
+            "description": (
+                "No checks in that month, the month has not ended, or its "
+                "checks are older than the retained history"
+            )
+        },
+    },
+)
+async def download_report(
+    project_id: int = Path(ge=1),
+    month: str | None = Query(
+        default=None,
+        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
+        description="`YYYY-MM`, a month that has ended. Defaults to last month.",
+        examples=["2026-08"],
+    ),
+    actor: User = Depends(get_current_user),
+    projects: ProjectService = Depends(get_project_service),
+    reports: ReportService = Depends(get_report_service),
+) -> Response:
+    """One row per site with checks in the month — the figures of the emailed
+    report, for anyone who can see the project. Sends nothing."""
+    try:
+        project = await projects.get_visible(project_id, actor)
+    except ProjectNotFoundError as exc:
+        raise _project_error(exc) from exc
+
+    period = month_period(int(month[:4]), int(month[5:])) if month else previous_month(datetime.now(UTC))
+    try:
+        event = await reports.export(project, period)
+    except (NoReportDataError, PeriodNotOverError, PeriodNotRetainedError) as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return csv_response(report_csv(event), f"watchly-project-{project_id}-report-{period.label}.csv")
 
 
 @router.post(

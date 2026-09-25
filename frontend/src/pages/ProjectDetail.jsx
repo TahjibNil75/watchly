@@ -10,7 +10,8 @@ import {
   UserChecklist,
   WebsiteTable,
 } from '../components.jsx'
-import { dateTime, parseEmails } from '../format.js'
+import { saveFile } from '../download.js'
+import { dateTime, parseEmails, previousMonthUtc } from '../format.js'
 import NotificationSettings from '../NotificationSettings.jsx'
 import ProjectForm from '../ProjectForm.jsx'
 import { canManageProject } from '../roles.js'
@@ -106,6 +107,12 @@ export default function ProjectDetail() {
     run(async () => {
       setReportResult(null)
       setReportResult(await api.sendReport(p.id))
+    })
+
+  const downloadReport = () =>
+    run(async () => {
+      const month = previousMonthUtc()
+      saveFile(`watchly-${p.name.replace(/\W+/g, '-')}-report-${month}.csv`, await api.projectReportCsv(p.id, month))
     })
 
   const memberIds = new Set(p.members.map((m) => m.id))
@@ -306,11 +313,16 @@ export default function ProjectDetail() {
               Anything left alone follows the global settings.
             </p>
           </div>
-          {canManage && (
-            <button type="button" className="btn btn-sm" onClick={sendReport} disabled={busy}>
-              Send last month&apos;s report now
+          <div className="section-actions">
+            <button type="button" className="btn btn-sm" onClick={downloadReport} disabled={busy}>
+              Download last month&apos;s report (CSV)
             </button>
-          )}
+            {canManage && (
+              <button type="button" className="btn btn-sm" onClick={sendReport} disabled={busy}>
+                Send last month&apos;s report now
+              </button>
+            )}
+          </div>
         </div>
         <NotificationSettings projectId={p.id} canEdit={canManage} channels={p.alert_channels} />
       </section>

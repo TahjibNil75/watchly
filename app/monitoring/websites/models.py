@@ -140,6 +140,15 @@ class Website(Base, TimestampMixin):
     is_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
+    #: Times a failed check is repeated, CHECK_RETRY_DELAY_SECONDS apart, before
+    #: it counts as failed. 0 makes every failure count at once.
+    retries_on_failure: Mapped[int] = mapped_column(
+        Integer, default=1, server_default=text("1"), nullable=False
+    )
+    #: Text the response body must contain, and text it must not — else the
+    #: check fails even on the expected status. Case-sensitive; None is no rule.
+    must_contain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    must_not_contain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     #: Development, staging, production... None for sites added before the
     #: field existed; the UI asks for it on every new one.
     environment: Mapped[WebsiteEnvironment | None] = mapped_column(

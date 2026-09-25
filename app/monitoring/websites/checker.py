@@ -354,16 +354,49 @@ async def probe_certificate(url: str, timeout: float) -> CertInfo:
 async def check_website(
     website: Website, client: httpx.AsyncClient | None = None
 ) -> CheckResult:
-    """Probe `website` once and report what happened.
+    """Probe `website` and report what happened.
+
+    A failed probe is repeated up to `website.retries_on_failure` times,
+    CHECK_RETRY_DELAY_SECONDS apart, and only the last result is returned, so a
+    one-off blip neither counts as a failed check nor raises an alert.
 
     A caller running many checks should pass one shared `new_client()`, so
     connections are reused. When the site's certificate is due for a read, the
     same call also fills `result.cert`.
     """
     result = await _http_probe(website, client)
+    for _ in range(website.retries_on_failure):
+        if result.is_up:
+            break
+        await asyncio.sleep(settings.CHECK_RETRY_DELAY_SECONDS)
+        result = await _http_probe(website, client)
     if certificate_check_due(website, result.checked_at):
         result.cert = await probe_certificate(website.url, website.timeout_seconds)
     return result
+
+
+#: How much of a response body the content rules search, so one huge page
+#: cannot cost more than a bounded slice of memory and time.
+MAX_SEARCHED_BYTES = 1_048_576
+
+
+def content_problem(website: Website, response: httpx.Response) -> tuple[str, str] | None:
+    """`(error_type, explanation)` when the body breaks the site's content
+    rules, else None. Case-sensitive, over the first MAX_SEARCHED_BYTES."""
+    if not (website.must_contain or website.must_not_contain):
+        return None
+    body = response.content[:MAX_SEARCHED_BYTES].decode(
+        response.encoding or "utf-8", errors="replace"
+    )
+    if website.must_contain and website.must_contain not in body:
+        return "content_missing", f"Response did not contain {_quoted(website.must_contain)}."
+    if website.must_not_contain and website.must_not_contain in body:
+        return "content_forbidden", f"Response contained {_quoted(website.must_not_contain)}."
+    return None
+
+
+def _quoted(text: str) -> str:
+    return f'"{text[:80]}…"' if len(text) > 80 else f'"{text}"'
 
 
 async def _http_probe(
@@ -399,7 +432,13 @@ async def _http_probe(
         )
     else:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        is_up = response.status_code == website.expected_status
+        status_ok = response.status_code == website.expected_status
+        problem = (
+            None
+            if not status_ok
+            else content_problem(website, response)
+        )
+        is_up = status_ok and problem is None
         return CheckResult(
             is_up=is_up,
             checked_at=checked_at,
@@ -409,9 +448,13 @@ async def _http_probe(
             error=(
                 None
                 if is_up
+                else problem[1]
+                if problem
                 else f"Expected HTTP {website.expected_status}, got {response.status_code}."
             ),
-            error_type=None if is_up else "unexpected_status",
+            error_type=(
+                None if is_up else problem[0] if problem else "unexpected_status"
+            ),
             final_url=str(response.url),
             redirected=str(response.url) != website.url,
             content_length=len(response.content) if response.content else 0,

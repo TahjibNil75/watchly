@@ -299,6 +299,22 @@ export default function WebsiteDetail() {
               <dd>{s.max_down_alerts}</dd>
             </div>
             <div>
+              <dt>Retries</dt>
+              <dd>{s.retries_on_failure}</dd>
+            </div>
+            {s.must_contain && (
+              <div>
+                <dt>Must contain</dt>
+                <dd className="truncate">{s.must_contain}</dd>
+              </div>
+            )}
+            {s.must_not_contain && (
+              <div>
+                <dt>Must not contain</dt>
+                <dd className="truncate">{s.must_not_contain}</dd>
+              </div>
+            )}
+            <div>
               <dt>Slow after</dt>
               <dd>{s.slow_threshold_ms ? `${s.slow_threshold_ms} ms` : 'server default'}</dd>
             </div>

@@ -175,7 +175,7 @@ function PasswordCard() {
       }
       await api.changePassword(form)
       setForm(EMPTY_PASSWORDS)
-      return 'Password changed. Use the new one next time you sign in.'
+      return 'Password changed. Your other devices have been signed out.'
     })
   }
 

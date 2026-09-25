@@ -23,6 +23,13 @@ export function dateTime(iso) {
   return iso ? new Date(iso).toLocaleString() : '—'
 }
 
+// The month before this one, as 'YYYY-MM' in UTC, which is how reports cut months.
+export function previousMonthUtc() {
+  const now = new Date()
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
 // Accepts addresses separated by commas, semicolons, spaces or newlines.
 export function parseEmails(text) {
   return text

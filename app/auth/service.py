@@ -100,7 +100,8 @@ class AuthService:
         A temporary password from "forgot password" is accepted too, while it
         lasts. Signing in with one makes it the account's password and sets
         `must_change_password`, which confines the session to choosing a new
-        one. Signing in either way uses up a pending temporary password.
+        one, and signs out every session the old password had. Signing in either
+        way uses up a pending temporary password.
 
         A wrong password counts against the account, and MAX_FAILED_LOGIN_ATTEMPTS
         in a row suspend it; signing in resets the count.
@@ -137,9 +138,11 @@ class AuthService:
 
         if used_temporary:
             # Only now does the old password stop working: someone has shown
-            # they can read the account's mailbox.
+            # they can read the account's mailbox. Sessions opened with the old
+            # one end with it — that is what a reset is for.
             user.password_hash = user.temp_password_hash
             user.must_change_password = True
+            await self.end_all_sessions(user.id)
         user.clear_temporary_password()
         user.failed_login_attempts = 0
         user.last_activity = datetime.now(UTC)
@@ -330,8 +333,15 @@ class AuthService:
             await self.session.commit()
 
     async def end_all_sessions(self, user_id: int) -> None:
-        """Revoke every session `user_id` has. The caller commits."""
+        """Revoke every session `user_id` has: its refresh tokens, and — by
+        bumping `session_version` — every access token already issued. The
+        caller commits, and refreshes a loaded `User` before minting a token."""
         await self._revoke(RefreshToken.user_id == user_id, datetime.now(UTC))
+        await self.session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(session_version=User.session_version + 1)
+        )
 
     def _add_refresh_token(self, user_id: int, family_id: str, now: datetime) -> str:
         token = new_link_token()

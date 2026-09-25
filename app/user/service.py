@@ -219,9 +219,9 @@ class UserService:
     ) -> User:
         """Replace `user`'s password, given the one they have now.
 
-        Other sessions stay signed in: their refresh tokens are not revoked.
-        Also lifts `must_change_password` and drops any pending temporary
-        password.
+        Signs out every session the user has, this one included: the caller
+        starts a fresh one for the device that made the change. Also lifts
+        `must_change_password` and drops any pending temporary password.
 
         Raises:
             IncorrectPasswordError: `current_password` is wrong.
@@ -235,6 +235,8 @@ class UserService:
         user.password_hash = generate_hash_password(new_password)
         user.must_change_password = False
         user.clear_temporary_password()
+        # Same transaction as the password: never one without the other.
+        await AuthService(self.session).end_all_sessions(user.id)
         await self.session.commit()
         await self.session.refresh(user)
         return user

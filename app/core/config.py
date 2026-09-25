@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     DEFAULT_TIMEOUT_SECONDS: int = 10
     #: Alerts sent per outage: 1 immediate + 3 follow-ups, then silence.
     DEFAULT_MAX_DOWN_ALERTS: int = 4
+    #: A failed check is repeated (up to the site's `retries_on_failure` times)
+    #: this long after, before it counts, so a one-off blip stays quiet.
+    CHECK_RETRY_DELAY_SECONDS: int = Field(default=5, ge=1, le=60)
     #: Days of raw check history kept; charts and uptime past that come from
     #: hourly rollups, which are kept. At least 35 so the monthly report has
     #: its month — and whatever it is set to, checks last month's report may

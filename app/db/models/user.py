@@ -57,6 +57,13 @@ class User(TimestampMixin, Base):
     failed_login_attempts: Mapped[int] = mapped_column(
         Integer, default=0, server_default=text("0"), nullable=False
     )
+    #: Stamped into every access token as `sv`; a token carrying an older value
+    #: is refused. Bumped whenever all of the user's sessions end — a password
+    #: change, a temporary password used, a suspension — so access tokens die
+    #: with the refresh tokens instead of living out their 30 minutes.
+    session_version: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
 
     # --- an email change waiting for the new address to be confirmed -------
     # One at a time: asking again replaces it, and the old link stops working.

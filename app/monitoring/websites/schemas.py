@@ -16,6 +16,11 @@ from app.monitoring.websites.models import WebsiteEnvironment, WebsiteStatus
 HTTP_METHODS = frozenset({"GET", "HEAD", "POST", "OPTIONS"})
 
 
+def _blank_to_none(cls, value):
+    """A content rule that is only whitespace is no rule at all."""
+    return value if value and value.strip() else None
+
+
 class WebsiteBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     url: AnyHttpUrl
@@ -30,6 +35,25 @@ class WebsiteBase(BaseModel):
         description="Alerts per outage: the immediate one plus follow-ups.",
     )
     is_enabled: bool = True
+    retries_on_failure: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description=(
+            "Times a failed check is repeated (CHECK_RETRY_DELAY_SECONDS apart) "
+            "before it counts as failed. 0 alerts on the first failure."
+        ),
+    )
+    must_contain: str | None = Field(
+        default=None,
+        max_length=255,
+        description="The response body must contain this text, or the check fails.",
+    )
+    must_not_contain: str | None = Field(
+        default=None,
+        max_length=255,
+        description="The response body must not contain this text, or the check fails.",
+    )
     environment: WebsiteEnvironment | None = Field(
         default=None,
         description="Which deployment this is: development, testing, uat, staging or production.",
@@ -91,6 +115,7 @@ class WebsiteBase(BaseModel):
     _channel_id = field_validator("slack_channel_id")(
         SlackSettings.looks_like_a_channel_id.__func__
     )
+    _content_rules = field_validator("must_contain", "must_not_contain")(_blank_to_none)
 
 
 class WebsiteCreate(WebsiteBase):
@@ -125,6 +150,13 @@ class WebsiteUpdate(BaseModel):
     check_interval_seconds: int | None = Field(default=None, ge=30, le=86_400)
     max_down_alerts: int | None = Field(default=None, ge=1, le=50)
     is_enabled: bool | None = None
+    retries_on_failure: int | None = Field(default=None, ge=0, le=3)
+    must_contain: str | None = Field(
+        default=None, max_length=255, description="Send null to remove the rule."
+    )
+    must_not_contain: str | None = Field(
+        default=None, max_length=255, description="Send null to remove the rule."
+    )
     environment: WebsiteEnvironment | None = Field(
         default=None, description="Send null to clear it."
     )
@@ -151,6 +183,7 @@ class WebsiteUpdate(BaseModel):
     )
 
     _known_method = field_validator("method")(WebsiteBase.known_method.__func__)
+    _content_rules = field_validator("must_contain", "must_not_contain")(_blank_to_none)
     _bot_token = field_validator("slack_bot_token")(
         SlackSettings.looks_like_a_bot_token.__func__
     )
@@ -218,6 +251,9 @@ class WebsiteRead(BaseModel):
     check_interval_seconds: int
     max_down_alerts: int
     is_enabled: bool
+    retries_on_failure: int
+    must_contain: str | None = None
+    must_not_contain: str | None = None
     environment: WebsiteEnvironment | None = None
     slow_threshold_ms: int | None = None
     recipients: list[WebsiteRecipientRead]
@@ -280,6 +316,11 @@ class StatsRange(str, enum.Enum):
     WEEK = "7d"
     MONTH = "30d"
     QUARTER = "90d"
+
+
+class StatsFormat(str, enum.Enum):
+    JSON = "json"
+    CSV = "csv"
 
 
 class StatsFigures(BaseModel):

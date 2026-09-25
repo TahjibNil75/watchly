@@ -248,10 +248,16 @@ curl -c jar -b jar -X POST http://127.0.0.1:8000/api/v1/auth/refresh
 
 (curl only sends a `Secure` cookie over HTTPS, or to `localhost`.)
 
-`POST /auth/logout` revokes the session and clears the cookie. The access token
-is a stateless JWT and stays usable until its `exp` even after that, so keep
-`ACCESS_TOKEN_EXPIRE_MINUTES` short. Revoking it would need a `jti` denylist
-checked on every request; that is deliberately not in this codebase.
+`POST /auth/logout` revokes the session and clears the cookie. That device's
+access token is a JWT and stays usable until its `exp` even after that, so keep
+`ACCESS_TOKEN_EXPIRE_MINUTES` short.
+
+Ending *all* of a user's sessions revokes their access tokens as well. Each
+token carries the user's `session_version` (claim `sv`), which a password
+change, a sign-in with a temporary password and a suspension all bump;
+`get_current_user` already loads the user on every request, so a token with an
+older version is refused with `401` at no extra cost. Tokens issued before this
+existed count as version 0 and keep working until the account's first bump.
 
 ### Protecting your own routes
 
@@ -548,6 +554,7 @@ for it, also send `PATCH .../websites/1` with
 | -------------------------------------------------------- | -------------------------- |
 | `GET /api/v1/monitoring/projects`                        | any signed-in — *scoped*   |
 | `GET /api/v1/monitoring/projects/{id}`                   | any signed-in — *scoped*   |
+| `GET /api/v1/monitoring/projects/{id}/report.csv`        | any signed-in — *scoped*   |
 | `POST /api/v1/monitoring/projects`                       | admin, DevOps, project mgr |
 | `PATCH /api/v1/monitoring/projects/{id}`                 | admin, DevOps, **owner**   |
 | `DELETE /api/v1/monitoring/projects/{id}`                | admin, DevOps, **owner**   |
@@ -681,7 +688,9 @@ nobody received is not retried. If the API was down at the 1st, it is sent when
 it comes back, but only within 3 days; a project deployed on the 20th is not
 mailed last month's report. `POST /monitoring/projects/{id}/report` sends one
 on demand (this is what **Send last month's report now** does), and does not
-stop the scheduled one.
+stop the scheduled one. `GET /monitoring/projects/{id}/report.csv` downloads
+the same figures as a file for anyone who can see the project (**Download last
+month's report** on the project page); a site's history has **Download CSV** too.
 
 > Reports read `website_checks`, which is purged after `CHECK_RETENTION_DAYS`
 > (at least 35). Whatever it is set to, the purge keeps every check last

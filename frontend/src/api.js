@@ -97,7 +97,9 @@ function withLock(name, callback) {
   return navigator.locks ? navigator.locks.request(name, callback) : callback()
 }
 
-async function request(path, { method = 'GET', body, query } = {}) {
+// `text: true` returns a successful body as a string instead of parsing JSON,
+// for downloads; errors are JSON either way.
+async function request(path, { method = 'GET', body, query, text = false } = {}) {
   const url = new URL(API_ORIGIN + path, window.location.origin)
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined && value !== null && value !== '') {
@@ -125,6 +127,7 @@ async function request(path, { method = 'GET', body, query } = {}) {
   }
 
   if (res.status === 204) return null
+  if (text && res.ok) return res.text()
   const data = await res.json().catch(() => null)
   if (!res.ok) {
     if (res.status === 401 && token) onUnauthorized()
@@ -202,6 +205,8 @@ export const api = {
   listChecks: (id, limit = 50) => v1(`/monitoring/websites/${id}/checks`, { query: { limit } }),
   // range: 24h | 7d | 30d | 90d
   getWebsiteStats: (id, range) => v1(`/monitoring/websites/${id}/stats`, { query: { range } }),
+  websiteStatsCsv: (id, range) =>
+    v1(`/monitoring/websites/${id}/stats`, { query: { range, format: 'csv' }, text: true }),
   checkNow: (id) => v1(`/monitoring/websites/${id}/check`, { method: 'POST' }),
 
   // Notification wording and switches. Global = the admin's defaults; a
@@ -217,6 +222,9 @@ export const api = {
     v1(`/monitoring/projects/${id}/notifications/${kind}`, { method: 'DELETE' }),
   previewNotification: (payload) =>
     v1('/monitoring/notifications/preview', { method: 'POST', body: payload }),
+  // month: 'YYYY-MM', a month that has ended.
+  projectReportCsv: (id, month) =>
+    v1(`/monitoring/projects/${id}/report.csv`, { query: { month }, text: true }),
   sendReport: (id, month) =>
     v1(`/monitoring/projects/${id}/report`, { method: 'POST', body: month ? { month } : {} }),
 }

@@ -81,7 +81,14 @@ Two properties worth preserving if you change this:
   it raised, one bad site would stop the whole tick.
 
 A site counts as up when its status code equals `expected_status` (default
-`200`) after following redirects.
+`200`) after following redirects, and — if the site sets them — its body has
+the text in `must_contain` and lacks the text in `must_not_contain`
+(case-sensitive, first 1 MB, so GET or POST only).
+
+A failed probe is repeated `retries_on_failure` times (default 1),
+`CHECK_RETRY_DELAY_SECONDS` apart, inside `check_website`. Only the last result
+is recorded, so a one-off blip leaves no failed check and raises no alert; set
+it to 0 on a site that must alert on the first failure.
 
 Each `website_checks` row keeps what the probe learned, not just the verdict:
 the status and reason phrase, the `error_type` (see below), the diagnostic
@@ -100,6 +107,8 @@ redirects. A step that did not finish, or that a reused connection skipped, is
 | `tls_error`          | the TLS handshake failed — e.g. an expired or untrusted certificate |
 | `read_timeout`       | connected, but no response within the timeout      |
 | `unexpected_status`  | answered, but not with `expected_status`           |
+| `content_missing`    | answered as expected, but the body lacks `must_contain` |
+| `content_forbidden`  | answered as expected, but the body has `must_not_contain` |
 | `too_many_redirects`, `protocol_error`, `invalid_url`, `timeout` | as named |
 
 To time DNS apart from the TCP connect, probes resolve the hostname
@@ -332,7 +341,8 @@ List filters: `limit` (1–100), `offset`, `is_active`, `owner_id`.
 List filters: `limit` (1–100), `offset`, `status` (`unknown`/`up`/`down`),
 `is_enabled`, `project_id`, `q` (name or URL), `sort` (`id`, `name`, `status`).
 The summary takes `project_id` and `q`. History takes `limit` (1–500), newest
-first; stats take `range` (`24h`, `7d`, `30d`, `90d`).
+first; stats take `range` (`24h`, `7d`, `30d`, `90d`) and `format` (`json`, or
+`csv` to download the series).
 
 Site recipients: create accepts `recipient_ids`; afterwards `POST .../recipients`
 with `{"recipient_ids": [...]}` adds several at once (idempotent), and

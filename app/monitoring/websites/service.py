@@ -73,6 +73,23 @@ def slack_problem(website: Website) -> WebsiteSlackError | None:
     return None
 
 
+class WebsiteContentRuleError(WebsiteError):
+    """A content rule on a request that comes back with no body to search."""
+
+
+def content_rule_problem(website: Website) -> WebsiteContentRuleError | None:
+    """Why the site's content rules could never be checked, if they could not."""
+    if (website.must_contain or website.must_not_contain) and website.method in {
+        "HEAD",
+        "OPTIONS",
+    }:
+        return WebsiteContentRuleError(
+            f"{website.method} responses have no body to search: use GET or POST, "
+            "or remove must_contain / must_not_contain."
+        )
+    return None
+
+
 class WebsiteService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -81,9 +98,12 @@ class WebsiteService:
         self, website: Website, *, check_slack: bool = False
     ) -> None:
         """Commit a change unless it leaves the site unable to alert anyone,
-        or — with `check_slack` — with Slack settings that post nowhere."""
+        with content rules on a bodiless method, or — with `check_slack` — with
+        Slack settings that post nowhere."""
         # Build the error before rolling back, which expires `website`.
         error = slack_problem(website) if check_slack else None
+        if error is None:
+            error = content_rule_problem(website)
         if error is None and not website.alert_channels:
             error = WebsiteNotAlertableError(website)
         if error is not None:
@@ -250,9 +270,10 @@ class WebsiteService:
             changes["url"] = str(changes["url"])
         if "alert_emails" in changes and changes["alert_emails"] is not None:
             changes["alert_emails"] = [str(e) for e in changes["alert_emails"]]
-        if changes.get("inherit_project_recipients") is None:
-            # Optional in the payload but NOT NULL in the table.
-            changes.pop("inherit_project_recipients", None)
+        for not_null in ("inherit_project_recipients", "retries_on_failure"):
+            if changes.get(not_null) is None:
+                # Optional in the payload but NOT NULL in the table.
+                changes.pop(not_null, None)
         if "slack_channel_id" in changes and not changes["slack_channel_id"]:
             changes["slack_channel_id"] = None
             # The site's own token only ever posts to the site's own channel,

@@ -17,6 +17,9 @@ const BLANK = {
   check_interval_seconds: 300,
   max_down_alerts: 4,
   slow_threshold_ms: '',
+  retries_on_failure: 1,
+  must_contain: '',
+  must_not_contain: '',
   alert_emails: '',
   inherit_project_recipients: true,
   slack_channel_id: '',
@@ -32,6 +35,8 @@ function fromSite(site) {
     // The stored token is never sent back to us; blank means "keep it".
     slack_bot_token: '',
     slow_threshold_ms: site.slow_threshold_ms ?? '',
+    must_contain: site.must_contain ?? '',
+    must_not_contain: site.must_not_contain ?? '',
     environment: site.environment ?? '',
   }
 }
@@ -121,6 +126,10 @@ export default function WebsiteForm({
       max_down_alerts: Number(form.max_down_alerts),
       // Blank means "use the server-wide threshold".
       slow_threshold_ms: form.slow_threshold_ms === '' ? null : Number(form.slow_threshold_ms),
+      retries_on_failure: Number(form.retries_on_failure),
+      // Blank removes the rule.
+      must_contain: form.must_contain || null,
+      must_not_contain: form.must_not_contain || null,
       alert_emails: parseEmails(form.alert_emails),
       inherit_project_recipients: form.inherit_project_recipients,
       // Clearing the channel removes the site's own Slack, token included.
@@ -264,6 +273,44 @@ export default function WebsiteForm({
             />
             <span className="muted small">
               Alert when successful responses stay slower than this.
+            </span>
+          </label>
+        </div>
+        <div className="row-3">
+          <label className="field">
+            <span>Retries before failing</span>
+            <input
+              type="number"
+              min={0}
+              max={3}
+              value={form.retries_on_failure}
+              onChange={set('retries_on_failure')}
+              required
+            />
+            <span className="muted small">
+              A failed check is repeated a few seconds later, so a one-off blip stays quiet. 0
+              alerts on the first failure.
+            </span>
+          </label>
+          <label className="field">
+            <span>Response must contain</span>
+            <input
+              value={form.must_contain}
+              onChange={set('must_contain')}
+              maxLength={255}
+              placeholder="e.g. Add to cart"
+            />
+          </label>
+          <label className="field">
+            <span>Response must not contain</span>
+            <input
+              value={form.must_not_contain}
+              onChange={set('must_not_contain')}
+              maxLength={255}
+              placeholder="e.g. Service unavailable"
+            />
+            <span className="muted small">
+              Case-sensitive, over the first 1 MB. Needs GET or POST.
             </span>
           </label>
         </div>

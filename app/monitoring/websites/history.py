@@ -18,8 +18,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
-from app.monitoring.notifications.reports import report_data_floor
+from app.monitoring.notifications.reports import retained_checks_since
 from app.monitoring.websites.models import RESPONSE_BUCKETS_MS, WebsiteCheckHourly
 from app.monitoring.websites.schemas import StatsBucket, StatsRange, WebsiteStats
 from app.monitoring.websites.service import WebsiteService
@@ -183,12 +182,8 @@ class HistoryService:
         latest = await self._rolled_up_to()
         if latest is None:
             return 0  # nothing rolled up: every check is still the only copy
-        cutoff = min(
-            now - timedelta(days=settings.CHECK_RETENTION_DAYS),
-            report_data_floor(now),
-            # `rollup` re-reads the hour before `latest`; leave it alone.
-            latest - HOUR,
-        )
+        # `rollup` re-reads the hour before `latest`; leave it alone.
+        cutoff = min(retained_checks_since(now), latest - HOUR)
         return await WebsiteService(self.session).purge_old_checks(cutoff)
 
     async def stats(

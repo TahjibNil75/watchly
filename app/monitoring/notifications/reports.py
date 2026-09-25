@@ -68,6 +68,14 @@ class NoReportDataError(Exception):
         )
 
 
+class PeriodNotRetainedError(Exception):
+    def __init__(self, period: Period) -> None:
+        super().__init__(
+            f"Checks from {period.start:%B %Y} are older than the retained check "
+            "history, so its figures would be incomplete."
+        )
+
+
 class PeriodNotOverError(Exception):
     def __init__(self, period: Period) -> None:
         super().__init__(f"{period.start:%B %Y} has not ended yet.")
@@ -94,6 +102,12 @@ def report_data_floor(now: datetime) -> datetime:
     ends. Up to about 64 days with the report on the 28th.
     """
     return previous_month(now.astimezone(UTC)).start - CARRY_OVER_LOOKBACK
+
+
+def retained_checks_since(now: datetime) -> datetime:
+    """Raw checks newer than this are kept: CHECK_RETENTION_DAYS, or what last
+    month's report may still read, whichever reaches further back."""
+    return min(now - timedelta(days=settings.CHECK_RETENTION_DAYS), report_data_floor(now))
 
 
 def scheduled_period(now: datetime) -> Period | None:
@@ -265,6 +279,19 @@ class ReportService:
         if event is None:
             raise NoReportDataError(project, period)
         return event, await self.notifier.dispatch(event)
+
+    async def export(self, project: Project, period: Period, now: datetime | None = None) -> ReportEvent:
+        """The project's report for a month that has ended and whose checks are
+        all still stored, for download. Sends nothing."""
+        now = now or datetime.now(UTC)
+        if period.end > now:
+            raise PeriodNotOverError(period)
+        if period.start < retained_checks_since(now):
+            raise PeriodNotRetainedError(period)
+        event = await self.build(project, period)
+        if event is None:
+            raise NoReportDataError(project, period)
+        return event
 
     async def _claim(self, project_id: int, period: Period) -> ReportDelivery | None:
         """Record that this report is being handled, before sending it.
