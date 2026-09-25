@@ -15,6 +15,7 @@ import {
 import { environmentLabel } from '../environments.js'
 import { dateTime, duration, since, timeAgo } from '../format.js'
 import { canManageProject } from '../roles.js'
+import SiteHistory from '../SiteHistory.jsx'
 import { useApi } from '../useApi.js'
 import WebsiteForm from '../WebsiteForm.jsx'
 
@@ -66,28 +67,9 @@ const COLLAPSED_ROWS = 15
 function Checks({ checks }) {
   const [expanded, setExpanded] = useState(false)
   if (!checks.length) return <Empty>No checks yet. The first one runs within a minute.</Empty>
-  const up = checks.filter((c) => c.is_up).length
-  const timed = checks.map(responseTime).filter((ms) => ms != null)
-  const avg = timed.length ? Math.round(timed.reduce((sum, ms) => sum + ms, 0) / timed.length) : null
 
   return (
     <>
-      <div className="kv kv-inline">
-        <div>
-          <span>Uptime</span>
-          <strong>{((up / checks.length) * 100).toFixed(1)}%</strong>
-        </div>
-        <div>
-          <span>Avg response</span>
-          <strong>{avg != null ? `${avg} ms` : '—'}</strong>
-        </div>
-        <div>
-          <span>Sample</span>
-          <strong>
-            last {checks.length} {checks.length === 1 ? 'check' : 'checks'}
-          </strong>
-        </div>
-      </div>
       <CheckStrip checks={checks} />
       <div className="table-wrap">
         <table>
@@ -401,6 +383,8 @@ export default function WebsiteDetail() {
           )}
         </section>
       </div>
+
+      <SiteHistory websiteId={s.id} />
 
       <section className="card">
         <h2>Recent checks</h2>

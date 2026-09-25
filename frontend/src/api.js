@@ -185,6 +185,8 @@ export const api = {
     v1(`/monitoring/projects/${id}/members/${userId}`, { method: 'DELETE' }),
 
   listWebsites: (query) => v1('/monitoring/websites', { query: { limit: 100, ...query } }),
+  // Counts by state over the same sites as listWebsites with the same project_id and q.
+  websiteSummary: (query) => v1('/monitoring/websites/summary', { query }),
   getWebsite: (id) => v1(`/monitoring/websites/${id}`),
   createWebsite: (payload) => v1('/monitoring/websites', { method: 'POST', body: payload }),
   updateWebsite: (id, payload) =>
@@ -198,6 +200,8 @@ export const api = {
   removeRecipient: (id, userId) =>
     v1(`/monitoring/websites/${id}/recipients/${userId}`, { method: 'DELETE' }),
   listChecks: (id, limit = 50) => v1(`/monitoring/websites/${id}/checks`, { query: { limit } }),
+  // range: 24h | 7d | 30d | 90d
+  getWebsiteStats: (id, range) => v1(`/monitoring/websites/${id}/stats`, { query: { range } }),
   checkNow: (id) => v1(`/monitoring/websites/${id}/check`, { method: 'POST' }),
 
   // Notification wording and switches. Global = the admin's defaults; a

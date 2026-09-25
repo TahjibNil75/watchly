@@ -1,3 +1,4 @@
+import enum
 from datetime import datetime
 
 from pydantic import (
@@ -252,6 +253,66 @@ class WebsiteListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class WebsiteSort(str, enum.Enum):
+    ID = "id"
+    NAME = "name"
+    #: Down sites (that are not paused) first, then by name — the dashboard's order.
+    STATUS = "status"
+
+
+class WebsiteSummary(BaseModel):
+    """How many of the sites the caller can see are in each state. The first
+    four add up to `total`."""
+
+    total: int
+    up: int
+    down: int
+    unknown: int = Field(description="Enabled, but not checked yet.")
+    paused: int
+
+
+class StatsRange(str, enum.Enum):
+    """How far back, and so how the series is bucketed."""
+
+    DAY = "24h"
+    WEEK = "7d"
+    MONTH = "30d"
+    QUARTER = "90d"
+
+
+class StatsFigures(BaseModel):
+    checks: int
+    up_checks: int
+    uptime_percent: float | None = Field(
+        description="Share of checks that succeeded; null with no checks."
+    )
+    avg_response_ms: int | None = Field(
+        description="Mean response time of successful checks; null with none."
+    )
+    p95_response_ms: int | None = Field(
+        description=(
+            "95th percentile of successful checks, read from response-time "
+            "buckets: accurate to within about 25%."
+        )
+    )
+
+
+class StatsBucket(StatsFigures):
+    start: datetime
+
+
+class WebsiteStats(StatsFigures):
+    """Uptime and response time over a range, with the series behind a chart."""
+
+    range: StatsRange
+    start: datetime = Field(description="Start of the first bucket, UTC.")
+    end: datetime
+    bucket_seconds: int = Field(description="3600 for 24h and 7d, 86400 for longer.")
+    series: list[StatsBucket] = Field(
+        description="Oldest first, every bucket present; an empty one has 0 checks."
+    )
 
 
 class CheckNowResponse(BaseModel):

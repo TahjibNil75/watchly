@@ -137,9 +137,9 @@ workers and tests can use them.
 app/monitoring/
 ├── routes.py       aggregates the sub-routers
 ├── service.py      MonitoringService — the outage state machine, slow + SSL tracking
-├── scheduler.py    the background loop + advisory lock; also triggers monthly reports
+├── scheduler.py    the background loop + advisory lock; also rolls up and purges checks, and triggers monthly reports
 ├── projects/       Project, membership, alert-channel config
-├── websites/       Website, WebsiteCheck, the HTTP + certificate probe
+├── websites/       Website, WebsiteCheck, the HTTP + certificate probe; hourly rollups + retention (history.py)
 ├── alerts/         what is sent and how each channel draws it
 │   ├── base.py     NotificationKind, Message (channel-neutral), Alerter interface
 │   ├── events.py   OutageEvent, SslExpiryEvent, SlowResponseEvent, ReportEvent
@@ -179,6 +179,7 @@ erDiagram
     users ||--o{ website_recipients : "is alerted about"
     websites ||--o{ website_recipients : "alerts its"
     websites ||--o{ website_checks : "poll history"
+    websites ||--o{ website_check_hourly : "checks per hour"
     projects ||--o{ notification_settings : "overrides"
     projects ||--o{ report_deliveries : "monthly reports sent"
 
@@ -285,6 +286,16 @@ erDiagram
         int connect_ms
         int tls_ms
         int first_byte_ms
+    }
+    website_check_hourly {
+        int website_id PK
+        timestamptz hour PK
+        int checks
+        int up_checks
+        int timed_checks
+        bigint sum_ms
+        int max_ms
+        int_array histogram
     }
 ```
 
@@ -570,7 +581,7 @@ Worth knowing before this carries real load:
 
 | Limit | Detail |
 | ----- | ------ |
-| **`website_checks` grows unbounded** | One row per site per interval — roughly 105k rows per site per year at 5 minutes. `WebsiteService.purge_old_checks()` exists but **nothing calls it**. Wire it to a cron before production, and keep at least 35 days: the monthly uptime report is computed from these rows. |
+| **Raw checks are purged after `CHECK_RETENTION_DAYS`** | One row per site per interval — roughly 105k rows per site per year at 5 minutes. Each tick rolls them into `website_check_hourly` (kept) and deletes older ones in batches. The setting is at least 35, and the purge also keeps whatever last month's report may still read (`report_data_floor`), which is up to ~64 days with the report on the 28th. |
 | **Monthly report is at-most-once** | The delivery row is written before sending, so a report nobody received is not retried (`report_deliveries.channels` is empty). Resend with `POST /monitoring/projects/{id}/report`. |
 | **Single-node loop** | One worker does all the probing. Fine for hundreds of sites; thousands would want sharding or a real scheduler. |
 | **No alert retry** | A failed delivery is logged, not queued. The next follow-up alert is the recovery mechanism. |

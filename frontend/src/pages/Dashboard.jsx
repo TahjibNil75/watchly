@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
@@ -6,36 +6,70 @@ import { ErrorBanner, Loading, PageHeader, WebsiteTable } from '../components.js
 import { canCreateProjects, canViewAllProjects } from '../roles.js'
 import { useApi } from '../useApi.js'
 
+const PAGE_SIZE = 50
+
+// `count` reads the summary; `query` is what the list asks the server for.
 const FILTERS = [
-  { key: 'all', label: 'All', match: () => true },
-  { key: 'down', label: 'Down', match: (s) => s.is_enabled && s.status === 'down' },
-  { key: 'up', label: 'Up', match: (s) => s.is_enabled && s.status === 'up' },
-  { key: 'unknown', label: 'Pending', match: (s) => s.is_enabled && s.status === 'unknown' },
-  { key: 'paused', label: 'Paused', match: (s) => !s.is_enabled },
+  { key: 'all', label: 'All', count: 'total', query: {} },
+  { key: 'down', label: 'Down', count: 'down', query: { status: 'down', is_enabled: true } },
+  { key: 'up', label: 'Up', count: 'up', query: { status: 'up', is_enabled: true } },
+  { key: 'unknown', label: 'Pending', count: 'unknown', query: { status: 'unknown', is_enabled: true } },
+  { key: 'paused', label: 'Paused', count: 'paused', query: { is_enabled: false } },
 ]
 
 export default function Dashboard() {
   const { user } = useAuth()
   const [filter, setFilter] = useState('all')
   const [projectId, setProjectId] = useState('')
+  const [search, setSearch] = useState('')
+  const [q, setQ] = useState('')
+  const [page, setPage] = useState(0)
 
-  // One unfiltered request feeds both the counters and the table, so the
-  // counters always describe everything, whatever filter is picked below.
-  const sites = useApi(() => api.listWebsites(), [], { pollMs: 30000 })
+  // Search once typing pauses, not on every keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQ(search.trim())
+      setPage(0)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  const active = FILTERS.find((f) => f.key === filter)
+  const scope = { project_id: projectId, q }
+  // The counters cover every state within the project and search, whichever
+  // one the table below is showing.
+  const summary = useApi(() => api.websiteSummary(scope), [projectId, q], { pollMs: 30000 })
+  const sites = useApi(
+    () =>
+      api.listWebsites({
+        ...scope,
+        ...active.query,
+        sort: 'status',
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      }),
+    [filter, projectId, q, page],
+    { pollMs: 30000 },
+  )
   const projects = useApi(() => api.listProjects(), [])
+
+  const total = sites.data?.total ?? 0
+  const lastPage = Math.max(Math.ceil(total / PAGE_SIZE) - 1, 0)
+  // Sites deleted or recovered since can leave the page past the end.
+  if (sites.data && page > lastPage) setPage(lastPage)
+
+  const pick = (setter) => (value) => {
+    setter(value)
+    setPage(0)
+  }
 
   const projectItems = projects.data?.items ?? []
   const projectNames = Object.fromEntries(projectItems.map((p) => [p.id, p.name]))
-  const all = sites.data?.items ?? []
-  const inProject = projectId ? all.filter((s) => s.project_id === Number(projectId)) : all
-  const active = FILTERS.find((f) => f.key === filter)
-  const shown = inProject.filter(active.match)
-  // Down sites first, then by name.
-  shown.sort((a, b) => (b.status === 'down') - (a.status === 'down') || a.name.localeCompare(b.name))
 
   const creator = canCreateProjects(user)
-  const emptyLabel = all.length ? (
-    'No websites match this filter.'
+  const nothingYet = summary.data?.total === 0 && !q && !projectId
+  const emptyLabel = !nothingYet ? (
+    'No websites match this search and filter.'
   ) : canViewAllProjects(user) ? (
     <>
       Nothing is being monitored yet. <Link to="/projects">Create a project</Link>, then add a
@@ -60,7 +94,7 @@ export default function Dashboard() {
         )}
       </PageHeader>
 
-      <ErrorBanner error={sites.error} />
+      <ErrorBanner error={sites.error ?? summary.error} />
 
       <div className="stats">
         {FILTERS.map((f) => (
@@ -68,21 +102,29 @@ export default function Dashboard() {
             key={f.key}
             type="button"
             className={`stat stat-${f.key} ${filter === f.key ? 'is-active' : ''}`}
-            onClick={() => setFilter(f.key)}
+            onClick={() => pick(setFilter)(f.key)}
           >
-            <span className="stat-value">
-              {sites.data ? inProject.filter(f.match).length : '–'}
-            </span>
+            <span className="stat-value">{summary.data ? summary.data[f.count] : '–'}</span>
             <span className="stat-label">{f.label}</span>
           </button>
         ))}
       </div>
 
-      {projectItems.length > 1 && (
-        <div className="toolbar">
+      <div className="toolbar">
+        <label className="inline-field">
+          <span>Search</span>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Name or URL"
+            maxLength={200}
+          />
+        </label>
+        {projectItems.length > 1 && (
           <label className="inline-field">
             <span>Project</span>
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            <select value={projectId} onChange={(e) => pick(setProjectId)(e.target.value)}>
               <option value="">All projects</option>
               {projectItems.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -91,19 +133,36 @@ export default function Dashboard() {
               ))}
             </select>
           </label>
-        </div>
-      )}
+        )}
+      </div>
 
       {sites.loading ? (
         <Loading />
       ) : (
-        <WebsiteTable sites={shown} projectNames={projectNames} emptyLabel={emptyLabel} />
+        <WebsiteTable
+          sites={sites.data?.items ?? []}
+          projectNames={projectNames}
+          emptyLabel={emptyLabel}
+        />
       )}
 
-      {sites.data && sites.data.total > all.length && (
-        <p className="muted small">
-          Showing the first {all.length} of {sites.data.total} websites.
-        </p>
+      {total > PAGE_SIZE && (
+        <div className="pager">
+          <span className="muted small">
+            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+          </span>
+          <button type="button" className="btn btn-sm" onClick={() => setPage(page - 1)} disabled={page === 0}>
+            Previous
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => setPage(page + 1)}
+            disabled={page >= lastPage}
+          >
+            Next
+          </button>
+        </div>
       )}
     </>
   )

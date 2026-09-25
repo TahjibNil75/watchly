@@ -554,8 +554,10 @@ for it, also send `PATCH .../websites/1` with
 | `POST /api/v1/monitoring/projects/{id}/members`          | admin, DevOps, **owner**   |
 | `DELETE /api/v1/monitoring/projects/{id}/members/{uid}`  | admin, DevOps, **owner**   |
 | `GET /api/v1/monitoring/websites`                        | any signed-in — *scoped*   |
+| `GET /api/v1/monitoring/websites/summary`                | any signed-in — *scoped*   |
 | `GET /api/v1/monitoring/websites/{id}`                   | any signed-in — *scoped*   |
 | `GET /api/v1/monitoring/websites/{id}/checks`            | any signed-in — *scoped*   |
+| `GET /api/v1/monitoring/websites/{id}/stats`             | any signed-in — *scoped*   |
 | `POST /api/v1/monitoring/websites`                       | admin, DevOps, **owner**   |
 | `PATCH /api/v1/monitoring/websites/{id}`                 | admin, DevOps, **owner**   |
 | `DELETE /api/v1/monitoring/websites/{id}`                | admin, DevOps, **owner**   |
@@ -681,8 +683,9 @@ mailed last month's report. `POST /monitoring/projects/{id}/report` sends one
 on demand (this is what **Send last month's report now** does), and does not
 stop the scheduled one.
 
-> Reports read `website_checks`. If you wire up `purge_old_checks()`, keep at
-> least 35 days, or the report for the month just ended will be missing data.
+> Reports read `website_checks`, which is purged after `CHECK_RETENTION_DAYS`
+> (at least 35). Whatever it is set to, the purge keeps every check last
+> month's report may still read until this month ends.
 
 ### Customizing notifications
 
@@ -775,8 +778,11 @@ Two operational notes:
 
 - State is committed **before** alerts are sent, so a slow or broken mail server
   can never cause the same alert to be re-sent on the next tick.
-- `website_checks` grows one row per site per interval. Wire
-  `WebsiteService.purge_old_checks()` to a cron; nothing prunes it automatically.
+- `website_checks` grows one row per site per interval. Each tick sums it into
+  `website_check_hourly` (kept, and what charts read) and then deletes checks
+  older than `CHECK_RETENTION_DAYS` (default 90, minimum 35), a few batches per
+  tick. It never deletes a check not yet rolled up, nor one last month's report
+  may still need.
 
 ## Migrations
 

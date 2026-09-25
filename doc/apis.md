@@ -50,23 +50,25 @@ together, see [`hld.md`](hld.md).
 | 27 | `POST` | `/monitoring/projects/{project_id}/members` | Add one or more users as responsible members (they start receiving alerts). |
 | 28 | `DELETE` | `/monitoring/projects/{project_id}/members/{user_id}` | Remove a member so they stop receiving that project's alerts. |
 | 29 | `GET` | `/monitoring/websites` | List monitored sites and their current up/down status. |
-| 30 | `POST` | `/monitoring/websites` | Start monitoring a URL under a project, optionally with its own recipients. |
-| 31 | `GET` | `/monitoring/websites/{website_id}` | Return one monitored site with its live outage state. |
-| 32 | `PATCH` | `/monitoring/websites/{website_id}` | Update a site's URL, interval, timeout, alert budget, alert emails or enabled flag. |
-| 33 | `DELETE` | `/monitoring/websites/{website_id}` | Stop monitoring a site and delete its check history. |
-| 34 | `POST` | `/monitoring/websites/{website_id}/recipients` | Add one or more users alerted about this site only. |
-| 35 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | Stop alerting a user about this site. |
-| 36 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
-| 37 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
-| 38 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack switches per kind. |
-| 39 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
-| 40 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
-| 41 | `POST` | `/monitoring/notifications/preview` | Render a notification with sample data, exactly as it would be sent. |
-| 42 | `GET` | `/monitoring/projects/{project_id}/notifications` | A project's settings after inheriting from global. |
-| 43 | `PUT` | `/monitoring/projects/{project_id}/notifications/{kind}` | Override one kind for a project. |
-| 44 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
-| 45 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
-| 46 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
+| 30 | `GET` | `/monitoring/websites/summary` | Count the sites you can see by state: up, down, pending, paused. |
+| 31 | `POST` | `/monitoring/websites` | Start monitoring a URL under a project, optionally with its own recipients. |
+| 32 | `GET` | `/monitoring/websites/{website_id}` | Return one monitored site with its live outage state. |
+| 33 | `PATCH` | `/monitoring/websites/{website_id}` | Update a site's URL, interval, timeout, alert budget, alert emails or enabled flag. |
+| 34 | `DELETE` | `/monitoring/websites/{website_id}` | Stop monitoring a site and delete its check history. |
+| 35 | `POST` | `/monitoring/websites/{website_id}/recipients` | Add one or more users alerted about this site only. |
+| 36 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | Stop alerting a user about this site. |
+| 37 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
+| 38 | `GET` | `/monitoring/websites/{website_id}/stats` | Uptime and response time over 24h, 7d, 30d or 90d, with a bucketed series for charts. |
+| 39 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
+| 40 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack switches per kind. |
+| 41 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
+| 42 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
+| 43 | `POST` | `/monitoring/notifications/preview` | Render a notification with sample data, exactly as it would be sent. |
+| 44 | `GET` | `/monitoring/projects/{project_id}/notifications` | A project's settings after inheriting from global. |
+| 45 | `PUT` | `/monitoring/projects/{project_id}/notifications/{kind}` | Override one kind for a project. |
+| 46 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
+| 47 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
+| 48 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
 
 ---
 
@@ -343,7 +345,14 @@ project.
 ### `GET /api/v1/monitoring/websites`
 List monitored sites with their current status, last check and outage state.
 Query: `limit` (1–100), `offset`, `status` (`unknown`/`up`/`down`),
-`is_enabled`, `project_id`
+`is_enabled`, `project_id`, `q` (name or URL contains, case-insensitive),
+`sort` (`id` default, `name`, or `status`: down sites first, then by name)
+`200`
+
+### `GET /api/v1/monitoring/websites/summary`
+How many of the sites you can see are `up`, `down`, `unknown` (enabled, not
+checked yet) and `paused`, plus the `total`. Takes the list's `project_id` and
+`q`, so a dashboard can page through one state and still show every count.
 `200`
 
 ### `POST /api/v1/monitoring/websites`
@@ -401,6 +410,16 @@ and the time spent in each step (`dns_ms`, `connect_ms`, `tls_ms`,
 these fields existed have them null.
 Query: `limit` (1–500)
 `200` · `404`
+
+### `GET /api/v1/monitoring/websites/{website_id}/stats`
+Uptime, average and 95th-percentile response time over `range` (`24h`, `7d`,
+`30d` or `90d`; default `24h`), and `series`: every bucket in the range, oldest
+first — UTC hours for 24h and 7d, UTC days for 30d and 90d, the last one still
+filling. A bucket with no checks has `checks: 0` and nulls. Read from hourly
+rollups, so it reaches back past the retention of raw checks. Uptime is the
+share of checks that succeeded; response times count successful checks only,
+as in the monthly report; the percentile is accurate to within about 25%.
+`200` · `404` · `422` unknown range
 
 ### `POST /api/v1/monitoring/websites/{website_id}/check`
 Probe now, through the same state machine as a scheduled check, so it can raise
@@ -517,9 +536,6 @@ masked `slack_token_hint` such as `xoxb-…9f2a` instead (and, for a project,
 - Revoking other sessions when a password changes or a temporary password is
   used. Until then a stolen refresh cookie survives a password reset.
 - Audit trail for role changes, suspensions, invitations and project edits.
-- Automatic pruning of `website_checks`; `WebsiteService.purge_old_checks()`
-  exists but nothing calls it. When you add it, keep at least 35 days: the
-  monthly uptime report is computed from these rows.
 - Retrying a monthly report that nobody received. It is sent at most once per
   project per month; use `POST /monitoring/projects/{id}/report` to resend.
 - An audit trail of who changed a notification template.

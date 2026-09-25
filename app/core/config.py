@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     DEFAULT_TIMEOUT_SECONDS: int = 10
     #: Alerts sent per outage: 1 immediate + 3 follow-ups, then silence.
     DEFAULT_MAX_DOWN_ALERTS: int = 4
+    #: Days of raw check history kept; charts and uptime past that come from
+    #: hourly rollups, which are kept. At least 35 so the monthly report has
+    #: its month — and whatever it is set to, checks last month's report may
+    #: still read are kept until this month ends.
+    CHECK_RETENTION_DAYS: int = Field(default=90, ge=35)
 
     # --- Alerting -------------------------------------------------------
     ALERTS_ENABLED: bool = True

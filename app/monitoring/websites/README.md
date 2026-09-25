@@ -27,7 +27,8 @@ Project ──┬── members (users)  ─┐  inherited unless the site sets
 | `project_members`    | which users are responsible for which project              |
 | `websites`           | one URL, how to check it, and its live outage state        |
 | `website_recipients` | which users are alerted about one particular site          |
-| `website_checks`     | the result of every poll — the evidence behind each alert, including why it failed and where its time went |
+| `website_checks`     | the result of every poll — the evidence behind each alert, including why it failed and where its time went; purged after `CHECK_RETENTION_DAYS` |
+| `website_check_hourly` | each site's checks summed per UTC hour — what charts and long-range uptime read; kept |
 
 Deleting a project deletes its websites, which deletes their check history.
 
@@ -41,6 +42,7 @@ Deleting a project deletes its websites, which deletes their check history.
 | `schemas.py`  | request/response contracts and their validation rules            |
 | `checker.py`  | the HTTP probe (and, every few hours, the certificate read) — turns a URL into a `CheckResult` |
 | `service.py`  | CRUD, filtering, and "which sites are due for a check"           |
+| `history.py`  | hourly rollups, the stats read from them, and purging old checks |
 | `routes.py`   | the HTTP endpoints below                                          |
 
 The pieces they talk to live one level up:
@@ -316,6 +318,7 @@ List filters: `limit` (1–100), `offset`, `is_active`, `owner_id`.
 | method | path | status codes |
 | ------ | ---- | ------------ |
 | `GET` | `/monitoring/websites` | `200 422` |
+| `GET` | `/monitoring/websites/summary` | `200 422` |
 | `POST` | `/monitoring/websites` | `201 403 404 409 422` |
 | `GET` | `/monitoring/websites/{website_id}` | `200 404 422` |
 | `PATCH` | `/monitoring/websites/{website_id}` | `200 403 404 409 422` |
@@ -323,10 +326,13 @@ List filters: `limit` (1–100), `offset`, `is_active`, `owner_id`.
 | `POST` | `/monitoring/websites/{website_id}/recipients` | `200 403 404 422` |
 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | `200 403 404 422` |
 | `GET` | `/monitoring/websites/{website_id}/checks` | `200 404 422` |
+| `GET` | `/monitoring/websites/{website_id}/stats` | `200 404 422` |
 | `POST` | `/monitoring/websites/{website_id}/check` | `200 403 404 422` |
 
 List filters: `limit` (1–100), `offset`, `status` (`unknown`/`up`/`down`),
-`is_enabled`, `project_id`. History takes `limit` (1–500), newest first.
+`is_enabled`, `project_id`, `q` (name or URL), `sort` (`id`, `name`, `status`).
+The summary takes `project_id` and `q`. History takes `limit` (1–500), newest
+first; stats take `range` (`24h`, `7d`, `30d`, `90d`).
 
 Site recipients: create accepts `recipient_ids`; afterwards `POST .../recipients`
 with `{"recipient_ids": [...]}` adds several at once (idempotent), and
@@ -425,8 +431,11 @@ alerts are not duplicated.
 
 ## 10. Operational notes
 
-- **`website_checks` grows unbounded** — one row per site per interval. Wire
-  `WebsiteService.purge_old_checks()` to a cron; nothing prunes it automatically.
+- **Raw checks are purged; hourly rollups are kept.** Every tick re-sums the
+  last hour or two into `website_check_hourly`, then deletes checks older than
+  `CHECK_RETENTION_DAYS` in batches (see `history.py`). The 95th percentile is
+  read from response-time buckets per hour, so it can be added across hours;
+  changing `RESPONSE_BUCKETS_MS` means re-rolling history.
 - **Alert recipients are resolved at send time**, so changing project membership
   or a site's recipients takes effect on the next check with no other action.
 - **Eager loading matters.** `Website.project`, `Website.recipients` and

@@ -2,6 +2,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -329,3 +330,41 @@ class WebsiteCheck(Base):
     def __repr__(self) -> str:
         state = "up" if self.is_up else "down"
         return f"<WebsiteCheck site={self.website_id} {state} {self.status_code}>"
+
+
+#: Lower edge, in ms, of each response-time bucket in
+#: `WebsiteCheckHourly.histogram`; the last bucket is open-ended. Each is about
+#: 25% wider than the one before, so a percentile read back from the buckets is
+#: off by at most one bucket's width. Migration 0017 holds a copy for its
+#: backfill: change the two together, and re-roll history when you do.
+RESPONSE_BUCKETS_MS: tuple[int, ...] = (
+    0, 10, 12, 16, 20, 24, 31, 38, 48, 60, 75, 93, 116, 146, 182, 227, 284,
+    355, 444, 555, 694, 867, 1084, 1355, 1694, 2118, 2647, 3309, 4136, 5170,
+    6462, 8078, 10097, 12622, 15777, 19722, 24652, 30815, 38519, 48148, 60185,
+)
+
+
+class WebsiteCheckHourly(Base):
+    """One site's checks in one UTC hour, summed up.
+
+    Charts and long-range uptime read these instead of `website_checks`, which
+    is purged after CHECK_RETENTION_DAYS; these rows are kept. Response-time
+    figures cover successful checks only, as in the monthly report.
+    """
+
+    __tablename__ = "website_check_hourly"
+
+    website_id: Mapped[int] = mapped_column(
+        ForeignKey("websites.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: Start of the hour, UTC.
+    hour: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    checks: Mapped[int] = mapped_column(Integer, nullable=False)
+    up_checks: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Successful checks that recorded a response time; what sum_ms divides by.
+    timed_checks: Mapped[int] = mapped_column(Integer, nullable=False)
+    sum_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    max_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Count of timed checks per RESPONSE_BUCKETS_MS bucket. Sums across hours,
+    #: which a stored p95 would not.
+    histogram: Mapped[list[int]] = mapped_column(ARRAY(Integer), nullable=False)

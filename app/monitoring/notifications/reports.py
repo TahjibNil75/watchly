@@ -1,7 +1,7 @@
 """The monthly uptime report: computing it from stored checks, and sending it.
 
-Numbers come from `website_checks`, which means pruning that table shorter than
-a month (see `WebsiteService.purge_old_checks`) would hollow out the report.
+Numbers come from `website_checks`, so the purge of old checks keeps whatever
+last month's report may still read: see `report_data_floor`.
 
 How the figures are defined, since a report is only worth sending if people can
 trust it:
@@ -43,6 +43,10 @@ logger = logging.getLogger(__name__)
 #: month's report to someone who has just deployed the feature on the 20th.
 CATCH_UP = timedelta(days=3)
 
+#: How far before a month the report looks for an outage carried into it: two
+#: intervals (see `_site_stats`) of the slowest check a site may have, a day.
+CARRY_OVER_LOOKBACK = timedelta(days=2)
+
 
 @dataclass(frozen=True, slots=True)
 class Period:
@@ -79,6 +83,17 @@ def previous_month(now: datetime) -> Period:
     first_of_this = datetime(now.year, now.month, 1, tzinfo=UTC)
     last_of_previous = first_of_this - timedelta(days=1)
     return month_period(last_of_previous.year, last_of_previous.month)
+
+
+def report_data_floor(now: datetime) -> datetime:
+    """The oldest check last month's report can still need at `now`.
+
+    That report goes out on MONTHLY_REPORT_DAY, may catch up for `CATCH_UP`
+    after, and can be sent by hand (`send_now`) any time this month — so the
+    whole of last month, and the lookback before it, stays until this month
+    ends. Up to about 64 days with the report on the 28th.
+    """
+    return previous_month(now.astimezone(UTC)).start - CARRY_OVER_LOOKBACK
 
 
 def scheduled_period(now: datetime) -> Period | None:

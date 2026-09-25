@@ -13,14 +13,19 @@ from app.monitoring.projects.service import (
     UnknownMembersError,
 )
 from app.monitoring.service import MonitoringService
+from app.monitoring.websites.history import HistoryService
 from app.monitoring.websites.models import WebsiteStatus
 from app.monitoring.websites.schemas import (
     CheckNowResponse,
+    StatsRange,
     WebsiteCheckRead,
     WebsiteCreate,
     WebsiteListResponse,
     WebsiteRead,
     WebsiteRecipientsUpdate,
+    WebsiteSort,
+    WebsiteStats,
+    WebsiteSummary,
     WebsiteUpdate,
 )
 from app.monitoring.websites.models import Website
@@ -105,6 +110,12 @@ async def list_websites(
     status_filter: WebsiteStatus | None = Query(None, alias="status"),
     is_enabled: bool | None = Query(None),
     project_id: int | None = Query(None, ge=1, description="Only this project's sites."),
+    q: str | None = Query(
+        None, max_length=200, description="Only sites whose name or URL contains this."
+    ),
+    sort: WebsiteSort = Query(
+        WebsiteSort.ID, description="`status` puts down sites first, then sorts by name."
+    ),
     actor: User = Depends(get_current_user),
     service: WebsiteService = Depends(get_website_service),
 ) -> WebsiteListResponse:
@@ -121,6 +132,8 @@ async def list_websites(
         status=status_filter,
         is_enabled=is_enabled,
         project_id=project_id,
+        q=q,
+        sort=sort,
     )
     return WebsiteListResponse(
         items=[WebsiteRead.model_validate(s) for s in sites],
@@ -128,6 +141,25 @@ async def list_websites(
         limit=limit,
         offset=offset,
     )
+
+
+# Declared before "/{website_id}", which would otherwise claim the path.
+@router.get(
+    "/summary",
+    response_model=WebsiteSummary,
+    summary="Count monitored websites by state",
+)
+async def summarize_websites(
+    project_id: int | None = Query(None, ge=1, description="Only this project's sites."),
+    q: str | None = Query(
+        None, max_length=200, description="Only sites whose name or URL contains this."
+    ),
+    actor: User = Depends(get_current_user),
+    service: WebsiteService = Depends(get_website_service),
+) -> WebsiteSummary:
+    """Over the same sites as the list with the same `project_id` and `q`, so a
+    dashboard can show every count while paging through one state."""
+    return await service.summary(actor, project_id=project_id, q=q)
 
 
 @router.post(
@@ -308,6 +340,29 @@ async def list_checks(
     except WebsiteNotFoundError as exc:
         raise _not_found(exc) from exc
     return [WebsiteCheckRead.model_validate(c) for c in checks]
+
+
+@router.get(
+    "/{website_id}/stats",
+    response_model=WebsiteStats,
+    summary="Uptime and response time over a range",
+    responses=NOT_FOUND,
+)
+async def website_stats(
+    website_id: int = Path(ge=1),
+    range_: StatsRange = Query(StatsRange.DAY, alias="range"),
+    actor: User = Depends(get_current_user),
+    service: WebsiteService = Depends(get_website_service),
+) -> WebsiteStats:
+    """Read from hourly rollups, so it reaches back past the retention of raw
+    checks. Buckets are UTC hours for 24h and 7d, UTC days for 30d and 90d; the
+    last one is still filling. Uptime is the share of checks that succeeded, and
+    response times count successful checks only, as in the monthly report."""
+    try:
+        await service.get_visible(website_id, actor)
+    except WebsiteNotFoundError as exc:
+        raise _not_found(exc) from exc
+    return await HistoryService(service.session).stats(website_id, range_)
 
 
 @router.post(

@@ -10,6 +10,9 @@
   --up: #1c8f4e;
   --down: #d23a3a;
   --pending: #b7791f;
+  /* Chart series, checked for colour-blind separation on --surface. */
+  --series-1: #3a5bd9;
+  --series-2: #eb6834;
   --paused: #7a808c;
   --radius: 10px;
   --shadow: 0 1px 2px rgb(16 24 40 / 0.05);
@@ -36,6 +39,8 @@
     --up: #3dbb72;
     --down: #f16565;
     --pending: #e0a93b;
+    --series-1: #6d8bff;
+    --series-2: #d95926;
     --paused: #8b919c;
     --shadow: none;
 
@@ -650,6 +655,145 @@ tbody tr:hover td {
 .strip-bar.is-down {
   background: var(--down);
 }
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- History chart ---------- */
+.is-stale {
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.series-1 {
+  --series: var(--series-1);
+}
+.series-2 {
+  --series: var(--series-2);
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin-bottom: 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.chart-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-legend-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+}
+.line-key {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--series, var(--muted));
+}
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.chart {
+  position: relative;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  touch-action: pan-y;
+}
+.chart:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+}
+.chart svg {
+  display: block;
+}
+.chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.chart-tick {
+  fill: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.chart-line {
+  fill: none;
+  stroke: var(--series);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.chart-dot {
+  fill: var(--series);
+}
+.chart-dot.is-active {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.chart-crosshair {
+  stroke: var(--muted);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.uptime-bar,
+.swatch {
+  fill: var(--border);
+  background: var(--border);
+}
+.uptime-bar.is-up,
+.swatch.is-up {
+  fill: var(--up);
+  background: var(--up);
+}
+.uptime-bar.is-degraded,
+.swatch.is-degraded {
+  fill: var(--pending);
+  background: var(--pending);
+}
+.uptime-bar.is-down,
+.swatch.is-down {
+  fill: var(--down);
+  background: var(--down);
+}
+.uptime-bar-ring {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+.chart-tip {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgb(16 24 40 / 0.12);
+}
+.chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chart-tip strong {
+  font-variant-numeric: tabular-nums;
+}
+
 .strip-bar.is-empty {
   height: 100%;
   background: var(--border);
@@ -712,9 +856,17 @@ textarea {
   width: 100%;
 }
 .inline-field select,
+.inline-field input,
 td select {
   width: auto;
   padding: 5px 8px;
+}
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
 }
 input:focus,
 select:focus,
@@ -963,6 +1115,7 @@ textarea {
   margin-bottom: 10px;
 }
 .tab {
+  white-space: nowrap;
   font: inherit;
   font-weight: 500;
   padding: 6px 12px;

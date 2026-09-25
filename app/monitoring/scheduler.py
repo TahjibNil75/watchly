@@ -12,13 +12,16 @@ lock and skips the tick if another worker already holds it.
 import asyncio
 import contextlib
 import logging
+from collections.abc import Awaitable, Callable
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal, engine
 from app.monitoring.notifications.reports import ReportService
 from app.monitoring.service import MonitoringService
+from app.monitoring.websites.history import HistoryService
 
 logger = logging.getLogger(__name__)
 
@@ -26,20 +29,29 @@ logger = logging.getLogger(__name__)
 TICK_LOCK_KEY = 0x7A7C_4C59
 
 
+async def _run_guarded(what: str, job: Callable[[AsyncSession], Awaitable[object]]) -> None:
+    """Run `job` in a session of its own. A failure is logged and swallowed: it
+    must not take the tick's check results, or the jobs after it, down too."""
+    try:
+        async with AsyncSessionLocal() as session:
+            await job(session)
+    except Exception:
+        logger.exception("%s failed; continuing.", what)
+
+
 async def run_tick() -> int:
-    """Run one round of due checks, then any monthly reports that are due.
+    """Run one round of due checks, then the housekeeping that follows them:
+    rolling checks up by the hour, any monthly reports that are due, and
+    purging checks past their retention.
 
     Returns how many websites were probed.
     """
     async with AsyncSessionLocal() as session:
         outcomes = await MonitoringService(session).run_due_checks()
-    try:
-        # A separate session, and its own guard: a report that fails must not
-        # take the tick's check results down with it.
-        async with AsyncSessionLocal() as session:
-            await ReportService(session).send_due_reports()
-    except Exception:
-        logger.exception("Monthly report run failed; continuing.")
+    await _run_guarded("Hourly rollup", lambda s: HistoryService(s).rollup())
+    await _run_guarded("Monthly report run", lambda s: ReportService(s).send_due_reports())
+    # After the rollup, which the purge relies on to have copied what it deletes.
+    await _run_guarded("Check purge", lambda s: HistoryService(s).purge())
     return len(outcomes)
 
 

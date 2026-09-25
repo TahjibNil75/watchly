@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, literal_column, or_, select
+from sqlalchemy import and_, case, delete, func, literal_column, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,12 @@ from app.monitoring.websites.models import (
     WebsiteStatus,
     recipient_website_ids,
 )
-from app.monitoring.websites.schemas import WebsiteCreate, WebsiteUpdate
+from app.monitoring.websites.schemas import (
+    WebsiteCreate,
+    WebsiteSort,
+    WebsiteSummary,
+    WebsiteUpdate,
+)
 
 
 class WebsiteError(Exception):
@@ -107,16 +112,12 @@ class WebsiteService:
             return website
         raise WebsiteNotFoundError(website_id)
 
-    async def list(
-        self,
-        actor: User,
-        limit: int = 50,
-        offset: int = 0,
-        status: WebsiteStatus | None = None,
-        is_enabled: bool | None = None,
-        project_id: int | None = None,
-    ) -> tuple[list[Website], int]:
-        """One page of the sites `actor` is allowed to see."""
+    @staticmethod
+    def _visible_filters(
+        actor: User, project_id: int | None = None, q: str | None = None
+    ) -> list:
+        """What narrows both a list and a summary: what the actor may see, and
+        the project and search the caller picked."""
         filters = []
         if not can_view_all_projects(actor.role):
             # Scoped to the sites of projects they own or belong to, plus any
@@ -127,24 +128,78 @@ class WebsiteService:
                     Website.id.in_(recipient_website_ids(actor.id)),
                 )
             )
+        if project_id is not None:
+            filters.append(Website.project_id == project_id)
+        if q and q.strip():
+            term = q.strip()
+            filters.append(
+                or_(
+                    Website.name.icontains(term, autoescape=True),
+                    Website.url.icontains(term, autoescape=True),
+                )
+            )
+        return filters
+
+    async def list(
+        self,
+        actor: User,
+        limit: int = 50,
+        offset: int = 0,
+        status: WebsiteStatus | None = None,
+        is_enabled: bool | None = None,
+        project_id: int | None = None,
+        q: str | None = None,
+        sort: WebsiteSort = WebsiteSort.ID,
+    ) -> tuple[list[Website], int]:
+        """One page of the sites `actor` is allowed to see."""
+        filters = self._visible_filters(actor, project_id, q)
         if status is not None:
             filters.append(Website.status == status)
         if is_enabled is not None:
             filters.append(Website.is_enabled.is_(is_enabled))
-        if project_id is not None:
-            filters.append(Website.project_id == project_id)
+
+        if sort is WebsiteSort.ID:
+            order = [Website.id]
+        else:
+            order = [func.lower(Website.name), Website.id]
+            if sort is WebsiteSort.STATUS:
+                is_down = and_(Website.is_enabled, Website.status == WebsiteStatus.DOWN)
+                order.insert(0, case((is_down, 0), else_=1))
 
         total = await self.session.scalar(
             select(func.count()).select_from(Website).where(*filters)
         )
         rows = await self.session.scalars(
-            select(Website)
-            .where(*filters)
-            .order_by(Website.id)
-            .limit(limit)
-            .offset(offset)
+            select(Website).where(*filters).order_by(*order).limit(limit).offset(offset)
         )
         return list(rows), total or 0
+
+    async def summary(
+        self, actor: User, project_id: int | None = None, q: str | None = None
+    ) -> WebsiteSummary:
+        """Counts by state of the sites `actor` may see, in one query."""
+
+        def enabled_with(status: WebsiteStatus):
+            return func.count().filter(
+                Website.is_enabled.is_(True), Website.status == status
+            )
+
+        row = (
+            await self.session.execute(
+                select(
+                    func.count(),
+                    enabled_with(WebsiteStatus.UP),
+                    enabled_with(WebsiteStatus.DOWN),
+                    enabled_with(WebsiteStatus.UNKNOWN),
+                    func.count().filter(Website.is_enabled.is_(False)),
+                )
+                .select_from(Website)
+                .where(*self._visible_filters(actor, project_id, q))
+            )
+        ).one()
+        return WebsiteSummary(
+            total=row[0], up=row[1], down=row[2], unknown=row[3], paused=row[4]
+        )
 
     async def create(
         self, payload: WebsiteCreate, project: Project, created_by_id: int | None
@@ -291,13 +346,29 @@ class WebsiteService:
         )
         return list(rows)
 
-    async def purge_old_checks(self, older_than_days: int = 30) -> int:
-        """Trim check history. Wire to a cron; nothing calls it automatically."""
-        from sqlalchemy import delete
+    async def purge_old_checks(
+        self, before: datetime, *, batch_size: int = 5_000, max_batches: int = 20
+    ) -> int:
+        """Delete checks older than `before`, one committed batch at a time.
 
-        cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
-        result = await self.session.execute(
-            delete(WebsiteCheck).where(WebsiteCheck.checked_at < cutoff)
-        )
-        await self.session.commit()
-        return result.rowcount or 0
+        Stops after `max_batches`, so the first purge of a large backlog is
+        spread over several scheduler ticks rather than holding one for
+        minutes. Returns how many were deleted. `HistoryService.purge` decides
+        `before`; call that rather than this.
+        """
+        deleted = 0
+        for _ in range(max_batches):
+            batch = (
+                select(WebsiteCheck.id)
+                .where(WebsiteCheck.checked_at < before)
+                .limit(batch_size)
+                .scalar_subquery()
+            )
+            result = await self.session.execute(
+                delete(WebsiteCheck).where(WebsiteCheck.id.in_(batch))
+            )
+            await self.session.commit()
+            deleted += result.rowcount or 0
+            if (result.rowcount or 0) < batch_size:
+                break
+        return deleted
