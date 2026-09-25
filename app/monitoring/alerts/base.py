@@ -98,6 +98,11 @@ class SlackTarget:
 
     bot_token: str
     channel_id: str
+    #: Post as a reply in this thread (the `ts` of its first message) instead
+    #: of as a new message in the channel.
+    thread_ts: str | None = None
+    #: A threaded reply that should also appear in the channel itself.
+    broadcast: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +202,9 @@ class Notification(abc.ABC):
     recipients: tuple[str, ...]
     #: None when the project has no Slack configured.
     slack: SlackTarget | None
+    #: Set by the Slack alerter once its bot post lands: that message's `ts`,
+    #: which later alerts pass as `thread_ts` to reply under it.
+    slack_ts: str | None = None
 
     @abc.abstractmethod
     def describe(self) -> str:

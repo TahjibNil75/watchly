@@ -245,6 +245,8 @@ erDiagram
         timestamptz down_since
         int consecutive_failures
         int down_alerts_sent
+        string slack_thread_ts "outage's first Slack message"
+        string slack_thread_channel
         int slow_threshold_ms "null = server default"
         int slow_streak
         timestamptz last_slow_alert_at
@@ -335,7 +337,8 @@ and `websites.created_by_id` but removes their `project_members` and
 rather than a Postgres enum so a new kind needs no `ALTER TYPE`.
 
 **The live outage state lives on `websites`**, not in memory: `status`,
-`down_since`, `consecutive_failures` and `down_alerts_sent`. A restart mid-outage
+`down_since`, `consecutive_failures`, `down_alerts_sent` and the outage's Slack
+thread (`slack_thread_ts`, `slack_thread_channel`). A restart mid-outage
 picks up exactly where it left off, and every worker sees the same state.
 
 ---
@@ -406,6 +409,11 @@ down → still_down(5m) → still_down(10m) → still_down(15m) → [silence] �
 An immediate alert plus three follow-ups, each stating cumulative downtime, then
 quiet so a long outage does not flood inboxes. Recovery is announced **once**;
 nothing further until the next outage.
+
+In Slack the whole outage is **one thread**: the down alert is a new message,
+the still-down alerts reply under it, and the recovery replies too, with
+"also send to channel" so the channel sees it. (The `SLACK_WEBHOOK_URL`
+fallback cannot thread and posts each alert to the channel.)
 
 ### 5.3 Who gets the alert
 

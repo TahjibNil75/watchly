@@ -12,6 +12,9 @@ With the default interval of 5 minutes and `max_down_alerts = 4`, an outage
 produces an immediate alert plus three follow-ups (at ~5, ~10 and ~15 minutes),
 each stating the cumulative downtime, then silence until recovery.
 
+In Slack an outage is one thread: the down alert starts it, the follow-ups
+reply under it, and the recovery replies too while also showing in the channel.
+
 Two softer signals ride on the same checks, neither of which is an outage:
 
     slow   UP and slower than the threshold for SLOW_RESPONSE_CHECKS checks in
@@ -22,7 +25,7 @@ Two softer signals ride on the same checks, neither of which is an outage:
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -207,13 +210,18 @@ class MonitoringService:
                 )
                 website.down_since = None
                 website.down_alerts_sent = 0
+                website.slack_thread_ts = None
+                website.slack_thread_channel = None
         else:
             website.consecutive_failures += 1
             if not was_down:
-                # First failure of a new outage — alert immediately.
+                # First failure of a new outage — alert immediately, as the
+                # start of a new Slack thread.
                 website.status = WebsiteStatus.DOWN
                 website.down_since = result.checked_at
                 website.down_alerts_sent = 1
+                website.slack_thread_ts = None
+                website.slack_thread_channel = None
                 events.append(
                     self._outage_event(NotificationKind.DOWN, website, result, attempt=1)
                 )
@@ -256,6 +264,7 @@ class MonitoringService:
             for channel in await self.dispatch(event):
                 if channel not in delivered:
                     delivered.append(channel)
+        await self._keep_slack_thread(website, events)
 
         return CheckOutcome(
             website=website,
@@ -282,8 +291,48 @@ class MonitoringService:
             attempt=attempt,
             max_attempts=website.max_down_alerts,
             recipients=self.recipients_for(website),
-            slack=self.slack_target_for(website),
+            slack=self._outage_slack_target(website, kind),
         )
+
+    def _outage_slack_target(
+        self, website: Website, kind: NotificationKind
+    ) -> SlackTarget | None:
+        """The site's Slack target, replying in the outage's thread when there
+        is one in that channel. The recovery also shows in the channel."""
+        target = self.slack_target_for(website)
+        if (
+            target is None
+            or website.slack_thread_ts is None
+            or website.slack_thread_channel != target.channel_id
+        ):
+            return target
+        return replace(
+            target,
+            thread_ts=website.slack_thread_ts,
+            broadcast=kind is NotificationKind.RECOVERED,
+        )
+
+    async def _keep_slack_thread(
+        self, website: Website, events: list[Notification]
+    ) -> None:
+        """Remember an outage alert that went to Slack as a new message, so the
+        rest of the outage replies under it.
+
+        Usually that is the down alert. If it never reached Slack, or the site's
+        channel changed mid-outage, the next alert that posts starts the thread.
+        """
+        for event in events:
+            if (
+                isinstance(event, OutageEvent)
+                and not event.is_recovery
+                and event.slack is not None
+                and event.slack.thread_ts is None
+                and event.slack_ts
+            ):
+                website.slack_thread_ts = event.slack_ts
+                website.slack_thread_channel = event.slack.channel_id
+                await self.session.commit()
+                return
 
     def _track_slowness(
         self, website: Website, result: CheckResult, events: list[Notification]

@@ -138,6 +138,11 @@ down → still_down(5m) → still_down(10m) → still_down(15m) → [silence] �
 No repeat "site is up" mail — recovery is announced once, then nothing until the
 next outage.
 
+In Slack, one outage is one thread: the down alert is posted to the channel,
+the still-down alerts reply under it, and the recovery replies there too while
+also showing in the channel. The thread's `ts` is kept on the website
+(`slack_thread_ts`, `slack_thread_channel`) until the recovery.
+
 ---
 
 ## 5. Who receives an alert

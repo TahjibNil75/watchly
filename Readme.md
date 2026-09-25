@@ -648,6 +648,10 @@ Verified sequence across a simulated 40-minute outage:
 down → still_down(5m) → still_down(10m) → still_down(15m) → [silence] → recovered(40m)
 ```
 
+In Slack that outage is **one thread**, not five messages: the down alert is
+posted to the channel, the still-down alerts reply under it, and the recovery
+replies there too with "also send to channel", so the channel sees it's back up.
+
 ### What else Watchly tells you about
 
 Beyond "down / still down / back up", each of these is its own notification

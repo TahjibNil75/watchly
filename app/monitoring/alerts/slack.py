@@ -7,6 +7,9 @@ override the channel while reusing the project's token.
 If a project has no Slack of its own, the global `SLACK_WEBHOOK_URL` is used as
 a firehose fallback when one is configured.
 
+A bot post can reply in a thread (`SlackTarget.thread_ts`), which is how one
+outage stays one thread; the webhook cannot, and always posts to the channel.
+
 Slack's limits, which the builders below stay inside: a header is at most 150
 characters, a section's text 3000, a field 2000, a section has at most 10
 fields, and a message at most 50 blocks. A field or section with empty text is
@@ -202,6 +205,10 @@ class SlackAlerter(Alerter):
         self, event: Notification, target: SlackTarget, message: Message
     ) -> bool:
         payload = {"channel": target.channel_id, **build_payload(message)}
+        if target.thread_ts:
+            payload["thread_ts"] = target.thread_ts
+            if target.broadcast:
+                payload["reply_broadcast"] = True
         try:
             async with httpx.AsyncClient(timeout=settings.SLACK_TIMEOUT_SECONDS) as client:
                 response = await client.post(
@@ -229,6 +236,7 @@ class SlackAlerter(Alerter):
             )
             return False
 
+        event.slack_ts = body.get("ts")
         logger.info("Posted %s to Slack channel %s", event.describe(), target.channel_id)
         return True
 

@@ -194,6 +194,10 @@ class Website(Base, TimestampMixin):
     down_alerts_sent: Mapped[int] = mapped_column(
         Integer, default=0, server_default=text("0"), nullable=False
     )
+    #: The current outage's first Slack message, and the channel it is in:
+    #: follow-ups and the recovery reply in its thread. Cleared on recovery.
+    slack_thread_ts: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    slack_thread_channel: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     # --- site problems short of down --------------------------------------
     #: A response slower than this counts as slow. None uses the global
