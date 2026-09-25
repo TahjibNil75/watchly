@@ -7,7 +7,7 @@ const ROLE_MANAGERS = ['Admin', 'DevOps']
 const USER_MANAGERS = [...ROLE_MANAGERS, 'Project Manager']
 
 const SUSPENDABLE_BY = {
-  admin: ROLES,
+  Admin: ROLES,
   DevOps: ['Viewer', 'Developer', 'Project Manager'],
   'Project Manager': ['DevOps', 'Developer', 'Viewer'],
 }
