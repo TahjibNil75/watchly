@@ -5,7 +5,9 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, case, delete, func, literal_column, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import contains_eager
 
+from app.core.config import settings
 from app.core.crypto import encrypt_secret
 from app.core.permissions import can_view_all_projects
 from app.db.models.user import User
@@ -14,6 +16,7 @@ from app.monitoring.projects.service import resolve_users
 from app.monitoring.websites.models import (
     Website,
     WebsiteCheck,
+    WebsiteEvent,
     WebsiteStatus,
     recipient_website_ids,
 )
@@ -393,3 +396,34 @@ class WebsiteService:
             if (result.rowcount or 0) < batch_size:
                 break
         return deleted
+
+    async def events(
+        self, actor: User, *, after_id: int | None = None, limit: int = 20
+    ) -> tuple[list[WebsiteEvent], int]:
+        """The alert feed over the sites `actor` may see, newest first, and how
+        many events match. With `after_id`, only the events after that one."""
+        filters = self._visible_filters(actor)
+        if after_id is not None:
+            filters.append(WebsiteEvent.id > after_id)
+        total = await self.session.scalar(
+            select(func.count(WebsiteEvent.id)).join(WebsiteEvent.website).where(*filters)
+        )
+        rows = await self.session.scalars(
+            select(WebsiteEvent)
+            .join(WebsiteEvent.website)
+            .options(contains_eager(WebsiteEvent.website))
+            .where(*filters)
+            .order_by(WebsiteEvent.id.desc())
+            .limit(limit)
+        )
+        return list(rows), total or 0
+
+    async def purge_old_events(self, now: datetime | None = None) -> int:
+        """Delete feed events older than CHECK_RETENTION_DAYS. Called on every
+        tick; returns how many were deleted."""
+        before = (now or datetime.now(UTC)) - timedelta(days=settings.CHECK_RETENTION_DAYS)
+        result = await self.session.execute(
+            delete(WebsiteEvent).where(WebsiteEvent.occurred_at < before)
+        )
+        await self.session.commit()
+        return result.rowcount or 0

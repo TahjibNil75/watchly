@@ -69,6 +69,7 @@ export default function Login() {
           </div>
         </label>
         <button className="btn btn-primary btn-block" disabled={busy}>
+          {busy && <span className="spinner" aria-hidden="true" />}
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
         <p className="muted small center">

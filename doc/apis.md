@@ -51,25 +51,26 @@ together, see [`hld.md`](hld.md).
 | 28 | `DELETE` | `/monitoring/projects/{project_id}/members/{user_id}` | Remove a member so they stop receiving that project's alerts. |
 | 29 | `GET` | `/monitoring/websites` | List monitored sites and their current up/down status. |
 | 30 | `GET` | `/monitoring/websites/summary` | Count the sites you can see by state: up, down, pending, paused. |
-| 31 | `POST` | `/monitoring/websites` | Start monitoring a URL under a project, optionally with its own recipients. |
-| 32 | `GET` | `/monitoring/websites/{website_id}` | Return one monitored site with its live outage state. |
-| 33 | `PATCH` | `/monitoring/websites/{website_id}` | Update a site's URL, interval, timeout, alert budget, alert emails or enabled flag. |
-| 34 | `DELETE` | `/monitoring/websites/{website_id}` | Stop monitoring a site and delete its check history. |
-| 35 | `POST` | `/monitoring/websites/{website_id}/recipients` | Add one or more users alerted about this site only. |
-| 36 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | Stop alerting a user about this site. |
-| 37 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
-| 38 | `GET` | `/monitoring/websites/{website_id}/stats` | Uptime and response time over 24h, 7d, 30d or 90d, with a bucketed series for charts. |
-| 39 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
-| 40 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack switches per kind. |
-| 41 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
-| 42 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
-| 43 | `POST` | `/monitoring/notifications/preview` | Render a notification with sample data, exactly as it would be sent. |
-| 44 | `GET` | `/monitoring/projects/{project_id}/notifications` | A project's settings after inheriting from global. |
-| 45 | `PUT` | `/monitoring/projects/{project_id}/notifications/{kind}` | Override one kind for a project. |
-| 46 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
-| 47 | `GET` | `/monitoring/projects/{project_id}/report.csv` | Download a monthly uptime report as CSV, one row per site — for anyone who can see the project. |
-| 48 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
-| 49 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
+| 31 | `GET` | `/monitoring/websites/events` | Recent outages, recoveries, slow spells and expiring certificates on the sites you can see. |
+| 32 | `POST` | `/monitoring/websites` | Start monitoring a URL under a project, optionally with its own recipients. |
+| 33 | `GET` | `/monitoring/websites/{website_id}` | Return one monitored site with its live outage state. |
+| 34 | `PATCH` | `/monitoring/websites/{website_id}` | Update a site's URL, interval, timeout, alert budget, alert emails or enabled flag. |
+| 35 | `DELETE` | `/monitoring/websites/{website_id}` | Stop monitoring a site and delete its check history. |
+| 36 | `POST` | `/monitoring/websites/{website_id}/recipients` | Add one or more users alerted about this site only. |
+| 37 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | Stop alerting a user about this site. |
+| 38 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
+| 39 | `GET` | `/monitoring/websites/{website_id}/stats` | Uptime and response time over 24h, 7d, 30d or 90d, with a bucketed series for charts. |
+| 40 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
+| 41 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack switches per kind. |
+| 42 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
+| 43 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
+| 44 | `POST` | `/monitoring/notifications/preview` | Render a notification with sample data, exactly as it would be sent. |
+| 45 | `GET` | `/monitoring/projects/{project_id}/notifications` | A project's settings after inheriting from global. |
+| 46 | `PUT` | `/monitoring/projects/{project_id}/notifications/{kind}` | Override one kind for a project. |
+| 47 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
+| 48 | `GET` | `/monitoring/projects/{project_id}/report.csv` | Download a monthly uptime report as CSV, one row per site — for anyone who can see the project. |
+| 49 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
+| 50 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
 
 ---
 
@@ -358,6 +359,20 @@ Query: `limit` (1–100), `offset`, `status` (`unknown`/`up`/`down`),
 How many of the sites you can see are `up`, `down`, `unknown` (enabled, not
 checked yet) and `paused`, plus the `total`. Takes the list's `project_id` and
 `q`, so a dashboard can page through one state and still show every count.
+`200`
+
+### `GET /api/v1/monitoring/websites/events`
+The alert feed the app shows as toasts: each `down`, `recovered`,
+`slow_response` and `ssl_expiring` event on the sites you can see, newest
+first, with its `website` (`id`, `name`, `url`, `environment`), `occurred_at`,
+the check's one-line `summary`, and the figures its kind uses
+(`downtime_seconds`, `threshold_ms` with `response_time_ms`,
+`ssl_expires_at`). Recorded with the check that raised it, whether or not email
+or Slack is on for that kind; an outage appears once, when it starts. Kept for
+`CHECK_RETENTION_DAYS`. `total` counts every match, which may be more than
+`items`.
+Query: `after_id` (only events after this one: poll with the newest id you
+have), `limit` (1–100, default 20)
 `200`
 
 ### `POST /api/v1/monitoring/websites`

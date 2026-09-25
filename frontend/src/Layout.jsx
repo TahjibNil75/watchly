@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { api } from './api.js'
 import { useAuth } from './auth.jsx'
+import EventToasts from './EventToasts.jsx'
 import { canEditNotificationDefaults, canManageUsers } from './roles.js'
 import { useApi } from './useApi.js'
 
@@ -150,6 +151,8 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
+
+      <EventToasts userId={user.id} />
     </div>
   )
 }

@@ -22,6 +22,8 @@ from app.monitoring.websites.schemas import (
     StatsRange,
     WebsiteCheckRead,
     WebsiteCreate,
+    WebsiteEventList,
+    WebsiteEventRead,
     WebsiteListResponse,
     WebsiteRead,
     WebsiteRecipientsUpdate,
@@ -163,6 +165,29 @@ async def summarize_websites(
     """Over the same sites as the list with the same `project_id` and `q`, so a
     dashboard can show every count while paging through one state."""
     return await service.summary(actor, project_id=project_id, q=q)
+
+
+# Declared before "/{website_id}", which would otherwise claim the path.
+@router.get(
+    "/events",
+    response_model=WebsiteEventList,
+    summary="Recent outages, recoveries, slow spells and expiring certificates",
+)
+async def list_events(
+    after_id: int | None = Query(
+        None, ge=0, description="Only events after this one: poll with the newest id you have."
+    ),
+    limit: int = Query(20, ge=1, le=100),
+    actor: User = Depends(get_current_user),
+    service: WebsiteService = Depends(get_website_service),
+) -> WebsiteEventList:
+    """Newest first, over the same sites as the list. Recorded whether or not
+    email or Slack is switched on for the kind. An outage appears once, when it
+    starts: still-down reminders are not recorded."""
+    events, total = await service.events(actor, after_id=after_id, limit=limit)
+    return WebsiteEventList(
+        items=[WebsiteEventRead.model_validate(e) for e in events], total=total, limit=limit
+    )
 
 
 @router.post(

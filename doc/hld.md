@@ -180,6 +180,7 @@ erDiagram
     websites ||--o{ website_recipients : "alerts its"
     websites ||--o{ website_checks : "poll history"
     websites ||--o{ website_check_hourly : "checks per hour"
+    websites ||--o{ website_events : "alert feed"
     projects ||--o{ notification_settings : "overrides"
     projects ||--o{ report_deliveries : "monthly reports sent"
 
@@ -296,6 +297,17 @@ erDiagram
         bigint sum_ms
         int max_ms
         int_array histogram
+    }
+    website_events {
+        int id PK
+        int website_id FK
+        string kind
+        timestamptz occurred_at
+        text summary
+        int response_time_ms
+        int downtime_seconds
+        int threshold_ms
+        timestamptz ssl_expires_at
     }
 ```
 

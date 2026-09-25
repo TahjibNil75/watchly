@@ -36,19 +36,47 @@ from app.monitoring.alerts.base import (
     SlackTarget,
     WebsiteSnapshot,
 )
-from app.monitoring.alerts.events import OutageEvent, SlowResponseEvent, SslExpiryEvent
+from app.monitoring.alerts.events import (
+    OutageEvent,
+    SiteEvent,
+    SlowResponseEvent,
+    SslExpiryEvent,
+)
 from app.monitoring.notifications.dispatcher import Notifier, default_alerters
 from app.monitoring.notifications.recipients import dedupe_emails, slack_target
 from app.monitoring.websites.checker import CheckResult, check_website, new_client
-from app.monitoring.websites.models import Website, WebsiteCheck, WebsiteStatus
+from app.monitoring.websites.models import (
+    Website,
+    WebsiteCheck,
+    WebsiteEvent,
+    WebsiteStatus,
+)
 from app.monitoring.websites.service import WebsiteService
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["CheckOutcome", "MonitoringService", "default_alerters", "ssl_alert_bucket"]
+__all__ = [
+    "FEED_KINDS",
+    "CheckOutcome",
+    "MonitoringService",
+    "default_alerters",
+    "feed_entry",
+    "ssl_alert_bucket",
+]
 
 #: A certificate whose end date moved out by more than this has been replaced.
 _RENEWAL_JUMP = timedelta(hours=12)
+
+#: What the app's alert feed records. A still-down reminder only repeats the
+#: first alert, so the feed keeps that one.
+FEED_KINDS = frozenset(
+    {
+        NotificationKind.DOWN,
+        NotificationKind.RECOVERED,
+        NotificationKind.SLOW_RESPONSE,
+        NotificationKind.SSL_EXPIRING,
+    }
+)
 
 
 @dataclass(slots=True)
@@ -76,6 +104,24 @@ def ssl_alert_bucket(expires_at: datetime, now: datetime) -> int | None:
         if remaining_days <= threshold:
             return threshold
     return None
+
+
+def feed_entry(event: SiteEvent) -> WebsiteEvent:
+    """The row `event` leaves in the app's alert feed."""
+    entry = WebsiteEvent(
+        website_id=event.website.id,
+        kind=event.kind.value,
+        occurred_at=event.result.checked_at,
+        summary=event.result.summary,
+        response_time_ms=event.result.response_time_ms,
+    )
+    if isinstance(event, OutageEvent) and event.is_recovery:
+        entry.downtime_seconds = round(event.downtime_seconds)
+    elif isinstance(event, SlowResponseEvent):
+        entry.threshold_ms = event.threshold_ms
+    elif isinstance(event, SslExpiryEvent):
+        entry.ssl_expires_at = event.expires_at
+    return entry
 
 
 class MonitoringService:
@@ -194,6 +240,10 @@ class MonitoringService:
 
         self._track_slowness(website, result, events)
         self._track_certificate(website, result, events)
+        # The app's own feed, in the same commit as the state it describes.
+        for event in events:
+            if isinstance(event, SiteEvent) and event.kind in FEED_KINDS:
+                self.session.add(feed_entry(event))
 
         # Commit the new state before sending, so a slow or failing mail server
         # can never cause the same alert to be re-sent on the next tick.

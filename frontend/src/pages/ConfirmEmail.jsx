@@ -68,6 +68,7 @@ export default function ConfirmEmail() {
                 onClick={confirm}
                 disabled={busy}
               >
+                {busy && <span className="spinner" aria-hidden="true" />}
                 {busy ? 'Confirming…' : 'Confirm new address'}
               </button>
             )}

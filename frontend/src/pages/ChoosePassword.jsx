@@ -81,6 +81,7 @@ export default function ChoosePassword() {
           />
         </label>
         <button className="btn btn-primary btn-block" disabled={busy}>
+          {busy && <span className="spinner" aria-hidden="true" />}
           {busy ? 'Saving…' : 'Save and continue'}
         </button>
         <p className="muted small center">

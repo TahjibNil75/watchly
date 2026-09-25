@@ -190,6 +190,9 @@ export const api = {
   listWebsites: (query) => v1('/monitoring/websites', { query: { limit: 100, ...query } }),
   // Counts by state over the same sites as listWebsites with the same project_id and q.
   websiteSummary: (query) => v1('/monitoring/websites/summary', { query }),
+  // Outages, recoveries, slow spells and expiring certificates, newest first.
+  // after_id: only events newer than that one.
+  websiteEvents: (query) => v1('/monitoring/websites/events', { query }),
   getWebsite: (id) => v1(`/monitoring/websites/${id}`),
   createWebsite: (payload) => v1('/monitoring/websites', { method: 'POST', body: payload }),
   updateWebsite: (id, payload) =>

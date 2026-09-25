@@ -54,6 +54,7 @@ export default function ForgotPassword() {
               />
             </label>
             <button className="btn btn-primary btn-block" disabled={busy}>
+              {busy && <span className="spinner" aria-hidden="true" />}
               {busy ? 'Sending…' : 'Email me a temporary password'}
             </button>
           </>

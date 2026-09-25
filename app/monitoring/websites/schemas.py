@@ -291,6 +291,47 @@ class WebsiteListResponse(BaseModel):
     offset: int
 
 
+class WebsiteEventSite(BaseModel):
+    """Which site an event is about."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    url: str
+    environment: WebsiteEnvironment | None = None
+
+
+class WebsiteEventRead(BaseModel):
+    """One entry in the alert feed."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    website: WebsiteEventSite
+    kind: str = Field(description="`down`, `recovered`, `slow_response` or `ssl_expiring`.")
+    occurred_at: datetime
+    summary: str = Field(
+        description="The check's one-line description, e.g. `HTTP 503 Service Unavailable`."
+    )
+    response_time_ms: int | None = None
+    downtime_seconds: int | None = Field(
+        default=None, description="`recovered`: how long the outage lasted."
+    )
+    threshold_ms: int | None = Field(
+        default=None, description="`slow_response`: the threshold the site was slower than."
+    )
+    ssl_expires_at: datetime | None = Field(
+        default=None, description="`ssl_expiring`: when the certificate ends, or ended."
+    )
+
+
+class WebsiteEventList(BaseModel):
+    items: list[WebsiteEventRead]
+    total: int = Field(description="How many events match; may be more than `items` holds.")
+    limit: int
+
+
 class WebsiteSort(str, enum.Enum):
     ID = "id"
     NAME = "name"

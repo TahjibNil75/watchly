@@ -341,6 +341,45 @@ class WebsiteCheck(Base):
         return f"<WebsiteCheck site={self.website_id} {state} {self.status_code}>"
 
 
+class WebsiteEvent(Base):
+    """Something a check found that people should hear about: an outage, a
+    recovery, a slow spell, an expiring certificate. The app's own feed.
+
+    Written with the check that raised it, whether or not email or Slack is
+    switched on for that kind, so the feed never depends on those settings.
+    `kind` is a `NotificationKind` value, a plain string as in
+    `notification_settings`. Each kind sets only the columns it uses.
+    Purged after CHECK_RETENTION_DAYS, like the raw checks.
+    """
+
+    __tablename__ = "website_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    website_id: Mapped[int] = mapped_column(
+        ForeignKey("websites.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    #: The check's one-line description, e.g. "HTTP 503 Service Unavailable".
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    response_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: recovered: how long the outage lasted.
+    downtime_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: slow_response: the threshold the site was slower than.
+    threshold_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: ssl_expiring: when the certificate ends (or ended).
+    ssl_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    website: Mapped[Website] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<WebsiteEvent site={self.website_id} {self.kind!r}>"
+
+
 #: Lower edge, in ms, of each response-time bucket in
 #: `WebsiteCheckHourly.histogram`; the last bucket is open-ended. Each is about
 #: 25% wider than the one before, so a percentile read back from the buckets is

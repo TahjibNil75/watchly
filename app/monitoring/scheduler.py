@@ -22,6 +22,7 @@ from app.db.session import AsyncSessionLocal, engine
 from app.monitoring.notifications.reports import ReportService
 from app.monitoring.service import MonitoringService
 from app.monitoring.websites.history import HistoryService
+from app.monitoring.websites.service import WebsiteService
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ async def _run_guarded(what: str, job: Callable[[AsyncSession], Awaitable[object
 async def run_tick() -> int:
     """Run one round of due checks, then the housekeeping that follows them:
     rolling checks up by the hour, any monthly reports that are due, and
-    purging checks past their retention.
+    purging checks and feed events past their retention.
 
     Returns how many websites were probed.
     """
@@ -52,6 +53,7 @@ async def run_tick() -> int:
     await _run_guarded("Monthly report run", lambda s: ReportService(s).send_due_reports())
     # After the rollup, which the purge relies on to have copied what it deletes.
     await _run_guarded("Check purge", lambda s: HistoryService(s).purge())
+    await _run_guarded("Event purge", lambda s: WebsiteService(s).purge_old_events())
     return len(outcomes)
 
 

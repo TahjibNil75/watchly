@@ -562,6 +562,7 @@ for it, also send `PATCH .../websites/1` with
 | `DELETE /api/v1/monitoring/projects/{id}/members/{uid}`  | admin, DevOps, **owner**   |
 | `GET /api/v1/monitoring/websites`                        | any signed-in — *scoped*   |
 | `GET /api/v1/monitoring/websites/summary`                | any signed-in — *scoped*   |
+| `GET /api/v1/monitoring/websites/events`                 | any signed-in — *scoped*   |
 | `GET /api/v1/monitoring/websites/{id}`                   | any signed-in — *scoped*   |
 | `GET /api/v1/monitoring/websites/{id}/checks`            | any signed-in — *scoped*   |
 | `GET /api/v1/monitoring/websites/{id}/stats`             | any signed-in — *scoped*   |
@@ -792,6 +793,10 @@ Two operational notes:
   older than `CHECK_RETENTION_DAYS` (default 90, minimum 35), a few batches per
   tick. It never deletes a check not yet rolled up, nor one last month's report
   may still need.
+- Each outage, recovery, slow spell and expiring certificate is also written to
+  `website_events`, in the same commit as the state it describes, whether or
+  not any channel is on for it. The app polls it for its toasts. Events are
+  purged after `CHECK_RETENTION_DAYS` too.
 
 ## Migrations
 

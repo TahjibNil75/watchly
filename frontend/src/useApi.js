@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+// Fired on window when the event feed brings news of a site (see
+// EventToasts.jsx), so polling views refresh at once instead of lagging a toast.
+export const SITE_EVENTS = 'watchly:site-events'
+
 // Loads data with `load()` whenever `deps` change, optionally re-polling every
-// `pollMs` while the tab is visible. Only the newest request may update state,
-// so a slow response can never overwrite a fresher one.
+// `pollMs` while the tab is visible, and on SITE_EVENTS. Only the newest
+// request may update state, so a slow response can never overwrite a fresher one.
 export function useApi(load, deps, { pollMs } = {}) {
   const [state, setState] = useState({ data: null, error: null, loading: true })
   const latest = useRef(0)
@@ -25,7 +29,11 @@ export function useApi(load, deps, { pollMs } = {}) {
     const timer = setInterval(() => {
       if (!document.hidden) reload()
     }, pollMs)
-    return () => clearInterval(timer)
+    window.addEventListener(SITE_EVENTS, reload)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener(SITE_EVENTS, reload)
+    }
   }, [reload, pollMs])
 
   // Lets a mutation drop its response straight in without a refetch.

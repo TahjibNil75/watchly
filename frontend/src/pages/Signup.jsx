@@ -99,6 +99,7 @@ export default function Signup() {
           </label>
         </div>
         <button className="btn btn-primary btn-block" disabled={busy}>
+          {busy && <span className="spinner" aria-hidden="true" />}
           {busy ? 'Creating account…' : 'Create account'}
         </button>
         <p className="muted small center">
