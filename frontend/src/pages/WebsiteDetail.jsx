@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
+import { isPing, rtt } from '../checkTypes.js'
 import {
+  CheckTypeBadge,
   Empty,
   EnvironmentBadge,
   ErrorBanner,
@@ -21,8 +23,17 @@ import WebsiteForm from '../WebsiteForm.jsx'
 
 const CHECKS_SHOWN = 60
 
-// A failed connection has no response, so its recorded time (often 0) means nothing.
-const responseTime = (c) => (c.status_code != null ? c.response_time_ms : null)
+// A failed connection has no response, so its recorded time (often 0) means
+// nothing. A ping's time is its average round trip, when anything came back.
+const responseTime = (c) =>
+  c.ping ? c.ping.avg_ms : c.status_code != null ? c.response_time_ms : null
+
+// Up, but some pings went unanswered.
+const lossy = (c) => c.is_up && c.ping?.loss_percent > 0
+
+// "3/5 replies · 40% lost", or "5/5 replies".
+const packets = (p) =>
+  `${p.received}/${p.sent} replies${p.received < p.sent ? ` · ${p.loss_percent}% lost` : ''}`
 
 const STEPS = [
   ['dns_ms', 'DNS'],
@@ -51,11 +62,15 @@ function CheckStrip({ checks }) {
       {ordered.map((c) => (
         <span
           key={c.id}
-          className={`strip-bar ${c.is_up ? 'is-up' : 'is-down'}`}
+          className={`strip-bar ${lossy(c) ? 'is-degraded' : c.is_up ? 'is-up' : 'is-down'}`}
           style={{ height: `${c.is_up ? 25 + (75 * (responseTime(c) ?? 0)) / slowest : 100}%` }}
           title={`${dateTime(c.checked_at)} · ${c.is_up ? 'up' : 'down'}${
-            responseTime(c) != null ? ` · ${responseTime(c)} ms` : ''
-          }${c.error ? ` · ${c.error}` : ''}`}
+            responseTime(c) != null
+              ? ` · ${c.ping ? rtt(responseTime(c)) : `${responseTime(c)} ms`}`
+              : ''
+          }${lossy(c) ? ` · ${c.ping.loss_percent}% packet loss` : ''}${
+            c.error ? ` · ${c.error}` : ''
+          }`}
         />
       ))}
     </div>
@@ -64,9 +79,37 @@ function CheckStrip({ checks }) {
 
 const COLLAPSED_ROWS = 15
 
-function Checks({ checks }) {
+// A ping check's row: packets instead of an HTTP status, round trips instead
+// of a response time.
+function PingCells({ check: c, host }) {
+  const p = c.ping
+  return (
+    <>
+      <td className={`nowrap${lossy(c) ? ' text-pending' : ''}`}>{p ? packets(p) : '—'}</td>
+      <td
+        className="nowrap"
+        title={
+          p?.avg_ms != null
+            ? `min ${rtt(p.min_ms)} · avg ${rtt(p.avg_ms)} · max ${rtt(p.max_ms)}` +
+              (p.jitter_ms != null ? ` · jitter ${rtt(p.jitter_ms)}` : '')
+            : undefined
+        }
+      >
+        {rtt(p?.avg_ms)}
+      </td>
+      <td className="muted small">
+        {c.error ?? ''}
+        {/* What a host name resolved to. */}
+        {p?.address && p.address !== host && <div className="truncate">→ {p.address}</div>}
+      </td>
+    </>
+  )
+}
+
+function Checks({ checks, site }) {
   const [expanded, setExpanded] = useState(false)
   if (!checks.length) return <Empty>No checks yet. The first one runs within a minute.</Empty>
+  const ping = isPing(site)
 
   return (
     <>
@@ -77,8 +120,8 @@ function Checks({ checks }) {
             <tr>
               <th>When</th>
               <th>Result</th>
-              <th>HTTP</th>
-              <th>Response</th>
+              <th>{ping ? 'Packets' : 'HTTP'}</th>
+              <th>{ping ? 'Round trip' : 'Response'}</th>
               <th>Error</th>
             </tr>
           </thead>
@@ -91,14 +134,20 @@ function Checks({ checks }) {
                 <td>
                   <StatusBadge status={c.is_up ? 'up' : 'down'} />
                 </td>
-                <td>{c.status_code ?? '—'}</td>
-                <td className="nowrap" title={timeSplit(c) || undefined}>
-                  {responseTime(c) != null ? `${responseTime(c)} ms` : '—'}
-                </td>
-                <td className="muted small">
-                  {c.error ?? ''}
-                  {c.final_url && <div className="truncate">→ {c.final_url}</div>}
-                </td>
+                {ping ? (
+                  <PingCells check={c} host={site.url} />
+                ) : (
+                  <>
+                    <td>{c.status_code ?? '—'}</td>
+                    <td className="nowrap" title={timeSplit(c) || undefined}>
+                      {responseTime(c) != null ? `${responseTime(c)} ms` : '—'}
+                    </td>
+                    <td className="muted small">
+                      {c.error ?? ''}
+                      {c.final_url && <div className="truncate">→ {c.final_url}</div>}
+                    </td>
+                  </>
+                )}
               </tr>
             ))}
           </tbody>
@@ -152,6 +201,7 @@ export default function WebsiteDetail() {
   }
 
   const s = site.data
+  const ping = isPing(s)
 
   async function run(action) {
     setBusy(true)
@@ -172,9 +222,11 @@ export default function WebsiteDetail() {
       site.setData(result.website)
       checks.reload()
       const c = result.check
-      const detail = c.is_up
-        ? `up · HTTP ${c.status_code} in ${c.response_time_ms} ms`
-        : `down · ${c.error ?? `HTTP ${c.status_code}`}`
+      const detail = !c.is_up
+        ? `down · ${c.error ?? `HTTP ${c.status_code}`}`
+        : c.ping
+          ? `up · ${packets(c.ping)}, ${rtt(c.ping.avg_ms)} average round trip`
+          : `up · HTTP ${c.status_code} in ${c.response_time_ms} ms`
       setNotice(`Checked just now: ${detail}${result.alert_sent ? ` · "${result.alert_sent}" alert sent` : ''}`)
     })
 
@@ -217,12 +269,17 @@ export default function WebsiteDetail() {
           <>
             {s.name} <StatusBadge status={s.status} enabled={s.is_enabled} />
             <EnvironmentBadge environment={s.environment} />
+            <CheckTypeBadge site={s} />
           </>
         }
         subtitle={
-          <a href={s.url} target="_blank" rel="noreferrer">
-            {s.url}
-          </a>
+          ping ? (
+            <code>{s.url}</code>
+          ) : (
+            <a href={s.url} target="_blank" rel="noreferrer">
+              {s.url}
+            </a>
+          )
         }
       >
         {canManage && (
@@ -255,7 +312,7 @@ export default function WebsiteDetail() {
 
       {editing && (
         <section className="card">
-          <h2>Edit website</h2>
+          <h2>{ping ? 'Edit host' : 'Edit website'}</h2>
           <WebsiteForm
             initial={s}
             project={project.data}
@@ -284,16 +341,41 @@ export default function WebsiteDetail() {
               <dt>Interval</dt>
               <dd>every {duration(s.check_interval_seconds)}</dd>
             </div>
-            <div>
-              <dt>Request</dt>
-              <dd>
-                {s.method}, expects {s.expected_status}
-              </dd>
-            </div>
-            <div>
-              <dt>Timeout</dt>
-              <dd>{s.timeout_seconds}s</dd>
-            </div>
+            {ping ? (
+              <>
+                <div>
+                  <dt>Check</dt>
+                  <dd>
+                    ICMP ping, {s.ping_count} {s.ping_count === 1 ? 'ping' : 'pings'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Reply timeout</dt>
+                  <dd>{s.timeout_seconds}s</dd>
+                </div>
+                <div>
+                  <dt>Packet loss alert at</dt>
+                  <dd>
+                    {s.packet_loss_threshold_percent
+                      ? `${s.packet_loss_threshold_percent}%`
+                      : 'server default'}
+                  </dd>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <dt>Request</dt>
+                  <dd>
+                    {s.method}, expects {s.expected_status}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Timeout</dt>
+                  <dd>{s.timeout_seconds}s</dd>
+                </div>
+              </>
+            )}
             <div>
               <dt>Alerts per outage</dt>
               <dd>{s.max_down_alerts}</dd>
@@ -315,25 +397,27 @@ export default function WebsiteDetail() {
               </div>
             )}
             <div>
-              <dt>Slow after</dt>
+              <dt>{ping ? 'Latency alert above' : 'Slow after'}</dt>
               <dd>{s.slow_threshold_ms ? `${s.slow_threshold_ms} ms` : 'server default'}</dd>
             </div>
-            <div>
-              <dt>SSL certificate</dt>
-              <dd>
-                {s.ssl_expires_at ? (
-                  <span className={sslDaysLeft(s.ssl_expires_at) <= 7 ? 'text-down' : undefined}>
-                    {sslDaysLeft(s.ssl_expires_at) < 0
-                      ? `expired ${dateTime(s.ssl_expires_at)}`
-                      : `expires ${dateTime(s.ssl_expires_at)} (${sslDaysLeft(s.ssl_expires_at)} days)`}
-                  </span>
-                ) : s.url.startsWith('https:') ? (
-                  'not read yet'
-                ) : (
-                  '—'
-                )}
-              </dd>
-            </div>
+            {!ping && (
+              <div>
+                <dt>SSL certificate</dt>
+                <dd>
+                  {s.ssl_expires_at ? (
+                    <span className={sslDaysLeft(s.ssl_expires_at) <= 7 ? 'text-down' : undefined}>
+                      {sslDaysLeft(s.ssl_expires_at) < 0
+                        ? `expired ${dateTime(s.ssl_expires_at)}`
+                        : `expires ${dateTime(s.ssl_expires_at)} (${sslDaysLeft(s.ssl_expires_at)} days)`}
+                    </span>
+                  ) : s.url.startsWith('https:') ? (
+                    'not read yet'
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+              </div>
+            )}
             <div>
               <dt>Monitoring since</dt>
               <dd>{dateTime(s.created_at)}</dd>
@@ -400,12 +484,12 @@ export default function WebsiteDetail() {
         </section>
       </div>
 
-      <SiteHistory websiteId={s.id} />
+      <SiteHistory websiteId={s.id} ping={ping} />
 
       <section className="card">
         <h2>Recent checks</h2>
         <ErrorBanner error={checks.error} />
-        {checks.loading ? <Loading /> : <Checks checks={checks.data ?? []} />}
+        {checks.loading ? <Loading /> : <Checks checks={checks.data ?? []} site={s} />}
       </section>
     </>
   )

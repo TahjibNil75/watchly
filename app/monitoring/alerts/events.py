@@ -26,6 +26,7 @@ from app.monitoring.alerts.base import (
     uptime_tone,
 )
 from app.monitoring.websites.checker import CheckResult
+from app.monitoring.websites.pinger import format_rtt
 
 #: Sites listed in one report message; the rest are counted, not drawn.
 REPORT_SITE_LIMIT = 100
@@ -109,11 +110,37 @@ class SiteEvent(Notification):
         return f"{self.kind.value} alert for {self.website.url}"
 
     def _identity_facts(self) -> list[tuple[str, str]]:
-        return [
-            ("Project", self.website.project_name),
-            ("Website", self.website.name),
-            ("URL", self.website.url),
+        site = self.website
+        if not site.is_ping:
+            return [("Project", site.project_name), ("Website", site.name), ("URL", site.url)]
+        rows = [("Project", site.project_name), ("Host", site.name), ("Address", site.url)]
+        ping = self.result.ping
+        if ping is not None and ping.address != site.url:
+            rows.append(("Resolved to", ping.address))
+        return rows
+
+    def _ping_facts(self) -> list[tuple[str, str]]:
+        """Packets and round trips, for a ping check that sent any."""
+        ping = self.result.ping
+        if ping is None:
+            return []
+        rows = [
+            (
+                "Packets",
+                f"{ping.sent} sent, {ping.received} received, {ping.loss_percent:g}% lost",
+            )
         ]
+        if ping.avg_ms is not None:
+            rows.append(
+                (
+                    "Round trip",
+                    f"min {format_rtt(ping.min_ms)} · avg {format_rtt(ping.avg_ms)} · "
+                    f"max {format_rtt(ping.max_ms)}",
+                )
+            )
+        if ping.jitter_ms is not None:
+            rows.append(("Jitter", format_rtt(ping.jitter_ms)))
+        return rows
 
     def _response_facts(self) -> list[tuple[str, str]]:
         r = self.result
@@ -131,12 +158,21 @@ class SiteEvent(Notification):
 
     def context(self) -> dict[str, str]:
         r = self.result
+        if self.website.is_ping:
+            status_code = "—"
+            avg = r.ping.avg_ms if r.ping else None
+            response_time = format_rtt(avg) if avg is not None else "—"
+        else:
+            status_code = str(r.status_code) if r.status_code is not None else "no response"
+            response_time = (
+                f"{r.response_time_ms} ms" if r.response_time_ms is not None else "—"
+            )
         return {
             "project": self.website.project_name,
             "website": self.website.name,
             "url": self.website.url,
-            "status_code": str(r.status_code) if r.status_code is not None else "no response",
-            "response_time": f"{r.response_time_ms} ms" if r.response_time_ms is not None else "—",
+            "status_code": status_code,
+            "response_time": response_time,
             "checked_at": _utc(r.checked_at),
             "summary": r.summary,
             "dashboard_url": dashboard_url(f"/websites/{self.website.id}"),
@@ -150,6 +186,7 @@ class SiteEvent(Notification):
             "id": self.website.id,
             "name": self.website.name,
             "url": self.website.url,
+            "check_type": self.website.check_type.value,
             "expected_status": self.website.expected_status,
             "check_interval_seconds": self.website.check_interval_seconds,
         }
@@ -174,6 +211,20 @@ class SiteEvent(Notification):
                 "tls_ms": r.timings.tls_ms,
                 "first_byte_ms": r.timings.first_byte_ms,
             },
+            "ping": (
+                {
+                    "address": r.ping.address,
+                    "sent": r.ping.sent,
+                    "received": r.ping.received,
+                    "loss_percent": r.ping.loss_percent,
+                    "min_ms": r.ping.min_ms,
+                    "avg_ms": r.ping.avg_ms,
+                    "max_ms": r.ping.max_ms,
+                    "jitter_ms": r.ping.jitter_ms,
+                }
+                if r.ping
+                else None
+            ),
         }
 
 
@@ -212,21 +263,26 @@ class OutageEvent(SiteEvent):
     def facts(self) -> list[tuple[str, str]]:
         """Ordered diagnostic rows."""
         r = self.result
+        ping = self.website.is_ping
         rows = self._identity_facts()
         rows.append(("Status", "UP" if r.is_up else "DOWN"))
         rows.append(("Checked at", _utc(r.checked_at)))
-        rows.extend(self._response_facts()[:1])  # the HTTP status line
-        if not r.is_up:
-            rows.append(("Expected status", str(self.website.expected_status)))
+        if not ping:
+            rows.extend(self._response_facts()[:1])  # the HTTP status line
+            if not r.is_up:
+                rows.append(("Expected status", str(self.website.expected_status)))
         if r.error:
             rows.append(("Error", r.error))
         if r.error_type:
             rows.append(("Error type", r.error_type))
-        if r.response_time_ms is not None:
-            rows.append(("Response time", f"{r.response_time_ms} ms"))
-        if split := _time_split(r):
-            rows.append(("Timing", " · ".join(f"{label} {ms} ms" for label, ms in split)))
-        rows.append(("Timeout", f"{self.website.timeout_seconds}s"))
+        if ping:
+            rows.extend(self._ping_facts())
+        else:
+            if r.response_time_ms is not None:
+                rows.append(("Response time", f"{r.response_time_ms} ms"))
+            if split := _time_split(r):
+                rows.append(("Timing", " · ".join(f"{label} {ms} ms" for label, ms in split)))
+        rows.append(("Reply timeout" if ping else "Timeout", f"{self.website.timeout_seconds}s"))
         if r.final_url and r.redirected:
             rows.append(("Redirected to", r.final_url))
         if r.content_length is not None:
@@ -245,9 +301,10 @@ class OutageEvent(SiteEvent):
         return rows
 
     def _note(self) -> str:
+        noun = self.website.noun
         if self.kind is NotificationKind.DOWN:
             return (
-                f"This site will be re-checked every "
+                f"This {noun} will be re-checked every "
                 f"{format_duration(self.website.check_interval_seconds)}. "
                 f"You will get up to {self.max_attempts - 1} further alerts while it "
                 "stays down, then one when it recovers."
@@ -257,10 +314,10 @@ class OutageEvent(SiteEvent):
             if remaining > 0:
                 return (
                     f"{remaining} further down-alert(s) will follow, then alerts pause "
-                    "until the site recovers."
+                    f"until the {noun} recovers."
                 )
             return "This is the final down-alert; the next one will be the recovery."
-        return "No further alerts until the site goes down again."
+        return f"No further alerts until the {noun} goes down again."
 
     def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
         name = self.website.name
@@ -424,18 +481,26 @@ class SlowResponseEvent(SiteEvent):
     #: Consecutive slow checks that led to this alert.
     slow_checks: int
 
+    def _slowest(self) -> str | None:
+        # A ping's time is all round trip; there are no steps to compare.
+        return None if self.website.is_ping else _slowest_step(self.result)
+
     def context(self) -> dict[str, str]:
         return {
             **super().context(),
             "threshold": f"{self.threshold_ms} ms",
             "slow_checks": str(self.slow_checks),
-            "slowest_step": _slowest_step(self.result) or "—",
+            "slowest_step": self._slowest() or "—",
         }
 
     def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
+        ping = self.website.is_ping
         rows = self._identity_facts()
-        rows.extend(self._response_facts()[::-1])  # response time first
-        if slowest := _slowest_step(self.result):
+        if ping:
+            rows.extend(self._ping_facts())
+        else:
+            rows.extend(self._response_facts()[::-1])  # response time first
+        if slowest := self._slowest():
             rows.append(("Slowest step", slowest))
             rows.extend((label, f"{ms} ms") for label, ms in _time_split(self.result))
         rows.append(("Threshold", f"{self.threshold_ms} ms"))
@@ -445,18 +510,19 @@ class SlowResponseEvent(SiteEvent):
             ("Check interval", format_duration(self.website.check_interval_seconds))
         )
         cooldown = format_duration(settings.SLOW_ALERT_COOLDOWN_SECONDS)
+        name = self.website.name
         return Message(
             kind=self.kind,
             tone=Tone.WARNING,
-            kicker="Slow response",
-            title=f"{self.website.name} is responding slowly",
+            kicker="High latency" if ping else "Slow response",
+            title=f"{name} has high latency" if ping else f"{name} is responding slowly",
             subject=subject,
             body=body,
             slack_body=slack_body,
             facts=rows,
             note=(
-                f"The site is still up. Watchly will not repeat this alert for "
-                f"{cooldown}, even if it stays slow."
+                f"The {self.website.noun} is still up. Watchly will not repeat this "
+                f"alert for {cooldown}, even if it stays slow."
             ),
             link=self._site_link(),
         )
@@ -471,6 +537,69 @@ class SlowResponseEvent(SiteEvent):
             "slow": {
                 "threshold_ms": self.threshold_ms,
                 "consecutive_slow_checks": self.slow_checks,
+            },
+        }
+
+
+@dataclass(kw_only=True)
+class PacketLossEvent(SiteEvent):
+    """A pinged host still answers, but has kept losing packets over its threshold."""
+
+    kind: ClassVar[NotificationKind] = NotificationKind.PACKET_LOSS
+
+    threshold_percent: int
+    #: Consecutive lossy checks that led to this alert.
+    lossy_checks: int
+
+    @property
+    def loss(self) -> str:
+        ping = self.result.ping
+        return f"{ping.loss_percent:g}%" if ping else "—"
+
+    def context(self) -> dict[str, str]:
+        return {
+            **super().context(),
+            "packet_loss": self.loss,
+            "threshold": f"{self.threshold_percent}%",
+            "lossy_checks": str(self.lossy_checks),
+        }
+
+    def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
+        rows = self._identity_facts()
+        rows.extend(self._ping_facts())
+        rows.append(("Threshold", f"{self.threshold_percent}% of pings lost"))
+        rows.append(("Lossy checks in a row", str(self.lossy_checks)))
+        rows.append(("Checked at", _utc(self.result.checked_at)))
+        rows.append(
+            ("Check interval", format_duration(self.website.check_interval_seconds))
+        )
+        cooldown = format_duration(settings.PACKET_LOSS_ALERT_COOLDOWN_SECONDS)
+        return Message(
+            kind=self.kind,
+            tone=Tone.WARNING,
+            kicker="Packet loss",
+            title=f"{self.website.name} is losing {self.loss} of pings",
+            subject=subject,
+            body=body,
+            slack_body=slack_body,
+            facts=rows,
+            note=(
+                "The host is still answering, so it is not counted as down. Watchly "
+                f"will not repeat this alert for {cooldown}, even if the loss goes on."
+            ),
+            link=self._site_link(),
+        )
+
+    def payload(self, subject: str) -> dict:
+        return {
+            "event": self.kind.value,
+            "subject": subject,
+            "summary": self.result.summary,
+            "website": self._website_payload(),
+            "check": self._check_payload(),
+            "packet_loss": {
+                "threshold_percent": self.threshold_percent,
+                "consecutive_lossy_checks": self.lossy_checks,
             },
         }
 

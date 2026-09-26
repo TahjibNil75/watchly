@@ -46,7 +46,8 @@ _HISTOGRAM = ", ".join(
 #: backfill, from a copy of its own.
 ROLLUP_SQL = text(f"""
 INSERT INTO website_check_hourly
-    (website_id, hour, checks, up_checks, timed_checks, sum_ms, max_ms, histogram)
+    (website_id, hour, checks, up_checks, timed_checks, sum_ms, max_ms, histogram,
+     packets_sent, packets_received)
 SELECT website_id,
        hour,
        count(*),
@@ -54,7 +55,9 @@ SELECT website_id,
        count(bucket),
        coalesce(sum(response_time_ms) FILTER (WHERE bucket IS NOT NULL), 0),
        max(response_time_ms) FILTER (WHERE bucket IS NOT NULL),
-       ARRAY[{_HISTOGRAM}]
+       ARRAY[{_HISTOGRAM}],
+       coalesce(sum(packets_sent), 0),
+       coalesce(sum(packets_received), 0)
 FROM (
     SELECT website_id,
            date_trunc('hour', checked_at, 'UTC') AS hour,
@@ -62,7 +65,9 @@ FROM (
            response_time_ms,
            CASE WHEN is_up AND response_time_ms IS NOT NULL
                 THEN width_bucket(greatest(response_time_ms, 0), CAST(:bounds AS integer[]))
-           END AS bucket
+           END AS bucket,
+           packets_sent,
+           packets_received
     FROM website_checks
     WHERE checked_at >= :since
 ) AS c
@@ -73,7 +78,9 @@ ON CONFLICT (website_id, hour) DO UPDATE SET
     timed_checks = EXCLUDED.timed_checks,
     sum_ms = EXCLUDED.sum_ms,
     max_ms = EXCLUDED.max_ms,
-    histogram = EXCLUDED.histogram
+    histogram = EXCLUDED.histogram,
+    packets_sent = EXCLUDED.packets_sent,
+    packets_received = EXCLUDED.packets_received
 """)
 
 
@@ -121,12 +128,16 @@ class Tally:
     sum_ms: int = 0
     max_ms: int | None = None
     histogram: list[int] = field(default_factory=lambda: [0] * len(RESPONSE_BUCKETS_MS))
+    packets_sent: int = 0
+    packets_received: int = 0
 
     def add(self, row: WebsiteCheckHourly) -> None:
         self.checks += row.checks
         self.up_checks += row.up_checks
         self.timed_checks += row.timed_checks
         self.sum_ms += row.sum_ms
+        self.packets_sent += row.packets_sent
+        self.packets_received += row.packets_received
         if row.max_ms is not None:
             self.max_ms = row.max_ms if self.max_ms is None else max(self.max_ms, row.max_ms)
         for index, count in enumerate(row.histogram[: len(self.histogram)]):
@@ -143,6 +154,11 @@ class Tally:
                 round(self.sum_ms / self.timed_checks) if self.timed_checks else None
             ),
             "p95_response_ms": percentile_ms(self.histogram, self.max_ms),
+            "packet_loss_percent": (
+                round(100 * (self.packets_sent - self.packets_received) / self.packets_sent, 3)
+                if self.packets_sent
+                else None
+            ),
         }
 
 

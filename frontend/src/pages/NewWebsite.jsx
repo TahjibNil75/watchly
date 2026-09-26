@@ -28,7 +28,7 @@ export default function NewWebsite() {
     <>
       <PageHeader
         title="Add website"
-        subtitle="Watchly will poll this URL on its interval and alert the project when it stops answering."
+        subtitle="Watchly will request this URL, or ping this host, on its interval and alert the project when it stops answering."
       />
       <ErrorBanner error={projects.error} />
       {manageable.length === 0 ? (

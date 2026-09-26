@@ -15,12 +15,18 @@ each stating the cumulative downtime, then silence until recovery.
 In Slack an outage is one thread: the down alert starts it, the follow-ups
 reply under it, and the recovery replies too while also showing in the channel.
 
-Two softer signals ride on the same checks, neither of which is an outage:
+Softer signals ride on the same checks, none of which is an outage:
 
     slow   UP and slower than the threshold for SLOW_RESPONSE_CHECKS checks in
            a row -> one alert, then quiet for SLOW_ALERT_COOLDOWN_SECONDS
+    loss   a pinged host UP but losing at least its threshold of pings for
+           PACKET_LOSS_CHECKS checks in a row -> one alert, then quiet for
+           PACKET_LOSS_ALERT_COOLDOWN_SECONDS
     ssl    the certificate crosses a SSL_EXPIRY_ALERT_DAYS threshold -> one
            alert per threshold, and one if it expires; renewing re-arms them
+
+A pinged host is UP while any of its pings is answered; one that answers none
+is DOWN, and goes through the same outage alerts as a website.
 """
 
 import asyncio
@@ -41,6 +47,7 @@ from app.monitoring.alerts.base import (
 )
 from app.monitoring.alerts.events import (
     OutageEvent,
+    PacketLossEvent,
     SiteEvent,
     SlowResponseEvent,
     SslExpiryEvent,
@@ -54,6 +61,7 @@ from app.monitoring.websites.models import (
     WebsiteEvent,
     WebsiteStatus,
 )
+from app.monitoring.websites.pinger import IcmpUnavailableError
 from app.monitoring.websites.service import WebsiteService
 
 logger = logging.getLogger(__name__)
@@ -77,6 +85,7 @@ FEED_KINDS = frozenset(
         NotificationKind.DOWN,
         NotificationKind.RECOVERED,
         NotificationKind.SLOW_RESPONSE,
+        NotificationKind.PACKET_LOSS,
         NotificationKind.SSL_EXPIRING,
     }
 )
@@ -171,6 +180,7 @@ class MonitoringService:
         self, website: Website, result: CheckResult
     ) -> CheckOutcome:
         """Persist a probe, advance the website's state, and alert if warranted."""
+        ping = result.ping
         check = WebsiteCheck(
             website_id=website.id,
             checked_at=result.checked_at,
@@ -186,6 +196,13 @@ class MonitoringService:
             connect_ms=result.timings.connect_ms,
             tls_ms=result.timings.tls_ms,
             first_byte_ms=result.timings.first_byte_ms,
+            packets_sent=ping.sent if ping else None,
+            packets_received=ping.received if ping else None,
+            rtt_min_ms=ping.min_ms if ping else None,
+            rtt_avg_ms=ping.avg_ms if ping else None,
+            rtt_max_ms=ping.max_ms if ping else None,
+            jitter_ms=ping.jitter_ms if ping else None,
+            ip_address=ping.address if ping else None,
         )
         self.session.add(check)
 
@@ -247,6 +264,7 @@ class MonitoringService:
                 )
 
         self._track_slowness(website, result, events)
+        self._track_packet_loss(website, result, events)
         self._track_certificate(website, result, events)
         # The app's own feed, in the same commit as the state it describes.
         for event in events:
@@ -375,6 +393,48 @@ class MonitoringService:
             )
         )
 
+    def _track_packet_loss(
+        self, website: Website, result: CheckResult, events: list[Notification]
+    ) -> None:
+        """Count consecutive pings that lost packets over the threshold while
+        the host still answered; alert once per episode, like slowness.
+
+        A host that answers nothing is down, not lossy, and resets the streak.
+        """
+        threshold = (
+            website.packet_loss_threshold_percent or settings.PACKET_LOSS_THRESHOLD_PERCENT
+        )
+        lossy = (
+            result.is_up
+            and result.ping is not None
+            and threshold > 0
+            and result.ping.loss_percent >= threshold
+        )
+        if not lossy:
+            website.loss_streak = 0
+            return
+
+        website.loss_streak += 1
+        if website.loss_streak < settings.PACKET_LOSS_CHECKS:
+            return
+        last = website.last_loss_alert_at
+        if last is not None and (
+            result.checked_at - last
+        ).total_seconds() < settings.PACKET_LOSS_ALERT_COOLDOWN_SECONDS:
+            return
+
+        website.last_loss_alert_at = result.checked_at
+        events.append(
+            PacketLossEvent(
+                website=WebsiteSnapshot.of(website),
+                result=result,
+                threshold_percent=threshold,
+                lossy_checks=website.loss_streak,
+                recipients=self.recipients_for(website),
+                slack=self.slack_target_for(website),
+            )
+        )
+
     def _track_certificate(
         self, website: Website, result: CheckResult, events: list[Notification]
     ) -> None:
@@ -430,6 +490,8 @@ class MonitoringService:
     async def check_one(
         self, website: Website, client: httpx.AsyncClient | None = None
     ) -> CheckOutcome:
+        """Raises `IcmpUnavailableError` for a ping check when this server
+        cannot ping at all; nothing is recorded then."""
         result = await check_website(website, client=client)
         return await self.record_result(website, result)
 
@@ -449,6 +511,11 @@ class MonitoringService:
                 return_exceptions=True,
             )
             for website, result in zip(due, results, strict=True):
+                if isinstance(result, IcmpUnavailableError):
+                    # A problem with this server, not the host: recording the
+                    # host as down would alert its people about the wrong thing.
+                    logger.error("Could not ping %s: %s", website.url, result)
+                    continue
                 if isinstance(result, BaseException):
                     logger.exception(
                         "Unexpected error checking %s", website.url, exc_info=result

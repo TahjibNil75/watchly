@@ -12,9 +12,10 @@ from app.monitoring.alerts.base import NotificationKind
 _SITE = {
     "project": "Project name",
     "website": "Website name",
-    "url": "Website URL",
-    "status_code": "HTTP status of the latest check, or “no response”",
-    "response_time": "Response time of the latest check, e.g. “212 ms”",
+    "url": "Website URL, or the host of a ping check",
+    "status_code": "HTTP status of the latest check, “no response”, or “—” for a ping check",
+    "response_time": "Response time of the latest check, e.g. “212 ms”; for a ping check "
+    "the average round trip",
     "checked_at": "When the latest check ran (UTC)",
     "summary": "One-line result of the latest check, e.g. “HTTP 503 Service Unavailable”",
     "dashboard_url": "Link to this website in Watchly (empty if ALERT_DASHBOARD_URL is unset)",
@@ -43,7 +44,14 @@ _SLOW = {
     "threshold": "The slow-response threshold, e.g. “3000 ms”",
     "slow_checks": "Consecutive slow checks that triggered this alert",
     "slowest_step": "Which step of the latest check took longest, e.g. “Waiting for "
-    "first byte (3920 ms, 93%)”, or “—” if it was not timed",
+    "first byte (3920 ms, 93%)”, or “—” if it was not timed (always for a ping check)",
+}
+
+_LOSS = {
+    **_SITE,
+    "packet_loss": "Share of pings the latest check lost, e.g. “40%”",
+    "threshold": "The packet-loss threshold, e.g. “20%”",
+    "lossy_checks": "Consecutive lossy checks that triggered this alert",
 }
 
 _REPORT = {
@@ -129,6 +137,21 @@ CATALOG: dict[NotificationKind, KindInfo] = {
                 "Slowest step: {{slowest_step}}. It is still up."
             ),
             placeholders=_SLOW,
+        ),
+        KindInfo(
+            kind=NotificationKind.PACKET_LOSS,
+            label="Packet loss",
+            description="A pinged host still answers, but has lost at least its threshold "
+            "of pings for several checks in a row.",
+            audience="Same as “Site down”.",
+            default_subject="[PACKET LOSS] {{project}} / {{website}} is losing {{packet_loss}} of pings",
+            default_body=(
+                "{{website}} has lost at least {{threshold}} of its pings for "
+                "{{lossy_checks}} checks in a row; the latest lost {{packet_loss}}, and "
+                "the replies that came back took {{response_time}} on average. It is "
+                "still up."
+            ),
+            placeholders=_LOSS,
         ),
         KindInfo(
             kind=NotificationKind.MONTHLY_REPORT,

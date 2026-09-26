@@ -1,5 +1,8 @@
 import enum
+import ipaddress
+import re
 from datetime import datetime
+from typing import Self
 
 from pydantic import (
     AnyHttpUrl,
@@ -7,13 +10,26 @@ from pydantic import (
     ConfigDict,
     EmailStr,
     Field,
+    TypeAdapter,
+    ValidationError,
+    ValidationInfo,
     field_validator,
+    model_validator,
 )
+from pydantic_core import PydanticCustomError
 
 from app.monitoring.projects.schemas import ProjectMemberRead, SlackSettings
-from app.monitoring.websites.models import WebsiteEnvironment, WebsiteStatus
+from app.monitoring.websites.models import CheckType, WebsiteEnvironment, WebsiteStatus
 
 HTTP_METHODS = frozenset({"GET", "HEAD", "POST", "OPTIONS"})
+
+#: A ping waits for echo replies, not pages, so its default timeout is short.
+PING_TIMEOUT_SECONDS = 2
+
+_HTTP_URL = TypeAdapter(AnyHttpUrl)
+#: One DNS label. Underscores are not valid in host names, but turn up in
+#: internal ones often enough to allow.
+_HOST_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)$")
 
 
 def _blank_to_none(cls, value):
@@ -21,12 +37,81 @@ def _blank_to_none(cls, value):
     return value if value and value.strip() else None
 
 
+def http_url(value: str) -> str:
+    """An http(s) URL, normalized as pydantic does, e.g. with a trailing slash
+    after a bare host."""
+    try:
+        return str(_HTTP_URL.validate_python(value))
+    except ValidationError as exc:
+        raise PydanticCustomError("url_parsing", exc.errors()[0]["msg"]) from None
+
+
+def ping_host(value: str) -> str:
+    """A host name or IP address to ping: lower case, with no trailing dot, and
+    an IPv6 address compressed and out of its brackets."""
+    host = value.strip()
+    if "/" in host:
+        raise PydanticCustomError(
+            "ping_host",
+            "A ping needs a host name or IP address, not a URL: e.g. 203.0.113.10 "
+            "or server.example.com.",
+        )
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    try:
+        return ipaddress.ip_address(host).compressed
+    except ValueError:
+        pass
+    host = host.rstrip(".").lower()
+    if not host.isascii():
+        try:
+            host = host.encode("idna").decode("ascii")
+        except UnicodeError:
+            host = ""
+    labels = host.split(".")
+    # A last label of only digits would make it an IP address, and this is not a valid one.
+    if len(host) > 253 or not all(map(_HOST_LABEL.match, labels)) or labels[-1].isdigit():
+        raise PydanticCustomError(
+            "ping_host",
+            "Enter a valid host name or IP address: e.g. 203.0.113.10 or server.example.com.",
+        )
+    return host
+
+
+def monitor_target(check_type: CheckType, value: str) -> str:
+    """What `url` holds for this kind of check, validated and normalized."""
+    return ping_host(value) if check_type is CheckType.PING else http_url(value)
+
+
 class WebsiteBase(BaseModel):
+    # Before `url`, whose validation depends on it.
+    check_type: CheckType = Field(
+        default=CheckType.HTTP,
+        description=(
+            "`http` requests `url`; `ping` sends ICMP echo requests to the host "
+            "name or IP address in `url`. Fixed once the site is created."
+        ),
+    )
     name: str = Field(min_length=1, max_length=255)
-    url: AnyHttpUrl
+    url: str = Field(
+        min_length=1,
+        max_length=2048,
+        description=(
+            "The http(s) URL to request, or for a ping check the host name or "
+            "IP address, e.g. `203.0.113.10` or `server.example.com`."
+        ),
+    )
     method: str = "GET"
     expected_status: int = Field(default=200, ge=100, le=599)
-    timeout_seconds: int = Field(default=10, ge=1, le=120)
+    timeout_seconds: int = Field(
+        default=10,
+        ge=1,
+        le=120,
+        description=(
+            "Per request; for a ping check, how long to wait for each reply "
+            f"(default {PING_TIMEOUT_SECONDS})."
+        ),
+    )
     check_interval_seconds: int = Field(default=300, ge=30, le=86_400)
     max_down_alerts: int = Field(
         default=4,
@@ -63,8 +148,22 @@ class WebsiteBase(BaseModel):
         ge=1,
         le=120_000,
         description=(
-            "Alert when successful responses stay slower than this. Leave null "
-            "to use the server-wide SLOW_RESPONSE_THRESHOLD_MS."
+            "Alert when successful responses stay slower than this; for a ping "
+            "check, the average round trip. Leave null to use the server-wide "
+            "SLOW_RESPONSE_THRESHOLD_MS."
+        ),
+    )
+    ping_count: int = Field(
+        default=5, ge=1, le=20, description="Ping checks: echo requests sent per check."
+    )
+    packet_loss_threshold_percent: int | None = Field(
+        default=None,
+        ge=1,
+        le=99,
+        description=(
+            "Ping checks: alert when the host answers but keeps losing at least "
+            "this share of pings. Leave null to use the server-wide "
+            "PACKET_LOSS_THRESHOLD_PERCENT."
         ),
     )
     alert_emails: list[EmailStr] = Field(
@@ -101,6 +200,12 @@ class WebsiteBase(BaseModel):
         ),
     )
 
+    @field_validator("url")
+    @classmethod
+    def _valid_target(cls, value: str, info: ValidationInfo) -> str:
+        # Missing when check_type itself failed validation; that error is reported.
+        return monitor_target(info.data.get("check_type", CheckType.HTTP), value)
+
     @field_validator("method")
     @classmethod
     def known_method(cls, value: str) -> str:
@@ -108,6 +213,12 @@ class WebsiteBase(BaseModel):
         if upper not in HTTP_METHODS:
             raise ValueError(f"method must be one of {sorted(HTTP_METHODS)}")
         return upper
+
+    @model_validator(mode="after")
+    def _ping_timeout(self) -> Self:
+        if self.check_type is CheckType.PING and "timeout_seconds" not in self.model_fields_set:
+            self.timeout_seconds = PING_TIMEOUT_SECONDS
+        return self
 
     _bot_token = field_validator("slack_bot_token")(
         SlackSettings.looks_like_a_bot_token.__func__
@@ -143,7 +254,12 @@ class WebsiteUpdate(BaseModel):
     """Partial update; omitted fields are left alone."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    url: AnyHttpUrl | None = None
+    url: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=2048,
+        description="A URL, or for a ping check a host name or IP address.",
+    )
     method: str | None = None
     expected_status: int | None = Field(default=None, ge=100, le=599)
     timeout_seconds: int | None = Field(default=None, ge=1, le=120)
@@ -164,6 +280,13 @@ class WebsiteUpdate(BaseModel):
         default=None,
         ge=1,
         le=120_000,
+        description="Send null to go back to the server-wide default.",
+    )
+    ping_count: int | None = Field(default=None, ge=1, le=20)
+    packet_loss_threshold_percent: int | None = Field(
+        default=None,
+        ge=1,
+        le=99,
         description="Send null to go back to the server-wide default.",
     )
     alert_emails: list[EmailStr] | None = Field(
@@ -204,6 +327,23 @@ class WebsiteRecipientRead(ProjectMemberRead):
     """A user alerted about this one site."""
 
 
+class PingCheckRead(BaseModel):
+    """What one ping check's echo requests found."""
+
+    address: str | None = Field(
+        description="The IP address pinged: the host itself, or what its name resolved to."
+    )
+    sent: int = Field(description="Echo requests attempted.")
+    received: int = Field(description="Requests answered within the timeout.")
+    loss_percent: float
+    min_ms: float | None = Field(description="Round trips; null when nothing came back.")
+    avg_ms: float | None
+    max_ms: float | None
+    jitter_ms: float | None = Field(
+        description="Mean difference between consecutive round trips; null under two replies."
+    )
+
+
 class WebsiteCheckRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -218,7 +358,7 @@ class WebsiteCheckRead(BaseModel):
         default=None,
         description=(
             "Why the check failed, e.g. `dns_error`, `connect_timeout`, `tls_error`, "
-            "`unexpected_status`; null when it succeeded."
+            "`unexpected_status`, or for a ping `no_reply`; null when it succeeded."
         ),
     )
     final_url: str | None
@@ -236,6 +376,14 @@ class WebsiteCheckRead(BaseModel):
             "the step did not finish (or a reused connection skipped it)."
         ),
     )
+    ping: PingCheckRead | None = Field(
+        default=None,
+        description=(
+            "Ping checks: packets and round trips. Null for HTTP checks, and for a "
+            "ping that sent nothing (e.g. the name did not resolve). `response_time_ms` "
+            "is then the average round trip, rounded."
+        ),
+    )
 
 
 class WebsiteRead(BaseModel):
@@ -243,8 +391,11 @@ class WebsiteRead(BaseModel):
 
     id: int
     project_id: int
+    check_type: CheckType
     name: str
     url: str
+    ping_count: int
+    packet_loss_threshold_percent: int | None = None
     method: str
     expected_status: int
     timeout_seconds: int
@@ -299,6 +450,7 @@ class WebsiteEventSite(BaseModel):
     id: int
     name: str
     url: str
+    check_type: CheckType
     environment: WebsiteEnvironment | None = None
 
 
@@ -309,7 +461,9 @@ class WebsiteEventRead(BaseModel):
 
     id: int
     website: WebsiteEventSite
-    kind: str = Field(description="`down`, `recovered`, `slow_response` or `ssl_expiring`.")
+    kind: str = Field(
+        description="`down`, `recovered`, `slow_response`, `packet_loss` or `ssl_expiring`."
+    )
     occurred_at: datetime
     summary: str = Field(
         description="The check's one-line description, e.g. `HTTP 503 Service Unavailable`."
@@ -379,6 +533,10 @@ class StatsFigures(BaseModel):
             "buckets: accurate to within about 25%."
         )
     )
+    packet_loss_percent: float | None = Field(
+        default=None,
+        description="Share of pings lost; null when none were sent, as for an HTTP check.",
+    )
 
 
 class StatsBucket(StatsFigures):
@@ -405,6 +563,6 @@ class CheckNowResponse(BaseModel):
     alert_sent: str | None = Field(
         default=None, description=(
             "Which notification the check raised, if any: down, still_down, "
-            "recovered, ssl_expiring or slow_response."
+            "recovered, ssl_expiring, slow_response or packet_loss."
         )
     )

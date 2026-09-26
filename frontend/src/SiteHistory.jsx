@@ -37,6 +37,7 @@ const percent = (value) =>
   value == null ? '—' : value === 100 ? '100%' : `${(Math.floor(value * 100) / 100).toFixed(2)}%`
 const ms = (value) => (value == null ? '—' : `${value.toLocaleString()} ms`)
 const tickMs = (value) => (value >= 1000 ? `${value / 1000} s` : `${value} ms`)
+const loss = (value) => (value == null ? '—' : `${Math.round(value * 100) / 100}%`)
 
 // Buckets are UTC hours or days, so they are labelled in UTC too.
 const utc = (options) => new Intl.DateTimeFormat(undefined, { timeZone: 'UTC', ...options })
@@ -92,7 +93,7 @@ const MIN_TICK_GAP = 64
 
 // Response time as lines, with each bucket's uptime as a strip beneath them
 // on the same x positions; one crosshair and tooltip read both.
-function HistoryChart({ stats }) {
+function HistoryChart({ stats, ping }) {
   const [ref, width] = useWidth()
   const [active, setActive] = useState(null)
   const series = stats.series
@@ -253,13 +254,21 @@ function HistoryChart({ stats }) {
               uptime · {b.checks.toLocaleString()} {b.checks === 1 ? 'check' : 'checks'}
             </span>
           </div>
+          {ping && b.packet_loss_percent != null && (
+            <div className="chart-tip-row">
+              {/* Not drawn in the chart, so a plain key. */}
+              <span className="swatch" />
+              <strong>{loss(b.packet_loss_percent)}</strong>
+              <span className="muted">packet loss</span>
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function HistoryTable({ stats }) {
+function HistoryTable({ stats, ping }) {
   // Newest first, like the checks table.
   const rows = [...stats.series].reverse().filter((b) => b.checks > 0)
   return (
@@ -274,6 +283,7 @@ function HistoryTable({ stats }) {
               <th>Uptime</th>
               <th>Average</th>
               <th>95th percentile</th>
+              {ping && <th>Packet loss</th>}
             </tr>
           </thead>
           <tbody>
@@ -284,6 +294,7 @@ function HistoryTable({ stats }) {
                 <td className="num">{percent(b.uptime_percent)}</td>
                 <td className="num">{ms(b.avg_response_ms)}</td>
                 <td className="num">{ms(b.p95_response_ms)}</td>
+                {ping && <td className="num">{loss(b.packet_loss_percent)}</td>}
               </tr>
             ))}
           </tbody>
@@ -293,7 +304,9 @@ function HistoryTable({ stats }) {
   )
 }
 
-export default function SiteHistory({ websiteId }) {
+// `ping`: the site is a pinged host, so its times are round trips and it has
+// packet loss to show.
+export default function SiteHistory({ websiteId, ping = false }) {
   const [range, setRange] = useState('24h')
   const [downloadError, setDownloadError] = useState(null)
   // The rollup behind these moves once a minute, with the scheduler.
@@ -341,13 +354,19 @@ export default function SiteHistory({ websiteId }) {
               <strong>{percent(s.uptime_percent)}</strong>
             </div>
             <div>
-              <span>Avg response</span>
+              <span>{ping ? 'Avg round trip' : 'Avg response'}</span>
               <strong>{ms(s.avg_response_ms)}</strong>
             </div>
             <div>
               <span>95th percentile</span>
               <strong>{ms(s.p95_response_ms)}</strong>
             </div>
+            {ping && (
+              <div>
+                <span>Packet loss</span>
+                <strong>{loss(s.packet_loss_percent)}</strong>
+              </div>
+            )}
             <div>
               <span>Checks</span>
               <strong>{s.checks.toLocaleString()}</strong>
@@ -373,12 +392,15 @@ export default function SiteHistory({ websiteId }) {
                   </span>
                 ))}
               </div>
-              <HistoryChart stats={s} />
+              <HistoryChart stats={s} ping={ping} />
               <p className="muted small">
-                Times are UTC. Response times count successful checks only; the 95th percentile
-                is read from response-time buckets, so it is accurate to within about 25%.
+                {ping
+                  ? 'Times are UTC. Round trips are each check’s average, over checks that got a reply, in whole milliseconds; '
+                  : 'Times are UTC. Response times count successful checks only; '}
+                the 95th percentile is read from response-time buckets, so it is accurate to within
+                about 25%.
               </p>
-              <HistoryTable stats={s} />
+              <HistoryTable stats={s} ping={ping} />
             </>
           )}
         </div>

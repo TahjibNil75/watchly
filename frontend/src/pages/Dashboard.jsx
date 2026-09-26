@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
+import { CHECK_TYPES } from '../checkTypes.js'
 import { ErrorBanner, Loading, PageHeader, WebsiteTable } from '../components.jsx'
 import { canCreateProjects, canViewAllProjects } from '../roles.js'
 import { useApi } from '../useApi.js'
@@ -21,6 +22,7 @@ export default function Dashboard() {
   const { user } = useAuth()
   const [filter, setFilter] = useState('all')
   const [projectId, setProjectId] = useState('')
+  const [checkType, setCheckType] = useState('')
   const [search, setSearch] = useState('')
   const [q, setQ] = useState('')
   const [page, setPage] = useState(0)
@@ -35,10 +37,12 @@ export default function Dashboard() {
   }, [search])
 
   const active = FILTERS.find((f) => f.key === filter)
-  const scope = { project_id: projectId, q }
-  // The counters cover every state within the project and search, whichever
-  // one the table below is showing.
-  const summary = useApi(() => api.websiteSummary(scope), [projectId, q], { pollMs: 30000 })
+  const scope = { project_id: projectId, check_type: checkType, q }
+  // The counters cover every state within the project, type and search,
+  // whichever one the table below is showing.
+  const summary = useApi(() => api.websiteSummary(scope), [projectId, checkType, q], {
+    pollMs: 30000,
+  })
   const sites = useApi(
     () =>
       api.listWebsites({
@@ -48,7 +52,7 @@ export default function Dashboard() {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
-    [filter, projectId, q, page],
+    [filter, projectId, checkType, q, page],
     { pollMs: 30000 },
   )
   const projects = useApi(() => api.listProjects(), [])
@@ -67,7 +71,7 @@ export default function Dashboard() {
   const projectNames = Object.fromEntries(projectItems.map((p) => [p.id, p.name]))
 
   const creator = canCreateProjects(user)
-  const nothingYet = summary.data?.total === 0 && !q && !projectId
+  const nothingYet = summary.data?.total === 0 && !q && !projectId && !checkType
   const emptyLabel = !nothingYet ? (
     'No websites match this search and filter.'
   ) : canViewAllProjects(user) ? (
@@ -86,7 +90,10 @@ export default function Dashboard() {
 
   return (
     <>
-      <PageHeader title="Websites" subtitle="Live status of every site you can see. Refreshes every 30 seconds.">
+      <PageHeader
+        title="Websites"
+        subtitle="Live status of every site and pinged host you can see. Refreshes every 30 seconds."
+      >
         {creator && (
           <Link to="/websites/new" className="btn btn-primary">
             Add website
@@ -117,9 +124,20 @@ export default function Dashboard() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Name or URL"
+            placeholder="Name, URL or host"
             maxLength={200}
           />
+        </label>
+        <label className="inline-field">
+          <span>Type</span>
+          <select value={checkType} onChange={(e) => pick(setCheckType)(e.target.value)}>
+            <option value="">All types</option>
+            {CHECK_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
         </label>
         {projectItems.length > 1 && (
           <label className="inline-field">

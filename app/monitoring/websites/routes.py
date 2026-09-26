@@ -15,7 +15,8 @@ from app.monitoring.projects.service import (
 from app.monitoring.exports import csv_response, stats_csv
 from app.monitoring.service import MonitoringService
 from app.monitoring.websites.history import HistoryService
-from app.monitoring.websites.models import WebsiteStatus
+from app.monitoring.websites.models import CheckType, WebsiteStatus
+from app.monitoring.websites.pinger import IcmpUnavailableError
 from app.monitoring.websites.schemas import (
     CheckNowResponse,
     StatsFormat,
@@ -40,6 +41,7 @@ from app.monitoring.websites.service import (
     WebsiteNotFoundError,
     WebsiteService,
     WebsiteSlackError,
+    WebsiteTargetError,
 )
 
 router = APIRouter(prefix="/monitoring/websites", tags=["monitoring: websites"])
@@ -121,6 +123,7 @@ async def list_websites(
     sort: WebsiteSort = Query(
         WebsiteSort.ID, description="`status` puts down sites first, then sorts by name."
     ),
+    check_type: CheckType | None = Query(None, description="Only HTTP sites, or only pinged hosts."),
     actor: User = Depends(get_current_user),
     service: WebsiteService = Depends(get_website_service),
 ) -> WebsiteListResponse:
@@ -139,6 +142,7 @@ async def list_websites(
         project_id=project_id,
         q=q,
         sort=sort,
+        check_type=check_type,
     )
     return WebsiteListResponse(
         items=[WebsiteRead.model_validate(s) for s in sites],
@@ -159,19 +163,21 @@ async def summarize_websites(
     q: str | None = Query(
         None, max_length=200, description="Only sites whose name or URL contains this."
     ),
+    check_type: CheckType | None = Query(None, description="Only HTTP sites, or only pinged hosts."),
     actor: User = Depends(get_current_user),
     service: WebsiteService = Depends(get_website_service),
 ) -> WebsiteSummary:
-    """Over the same sites as the list with the same `project_id` and `q`, so a
-    dashboard can show every count while paging through one state."""
-    return await service.summary(actor, project_id=project_id, q=q)
+    """Over the same sites as the list with the same `project_id`, `q` and
+    `check_type`, so a dashboard can show every count while paging through one
+    state."""
+    return await service.summary(actor, project_id=project_id, q=q, check_type=check_type)
 
 
 # Declared before "/{website_id}", which would otherwise claim the path.
 @router.get(
     "/events",
     response_model=WebsiteEventList,
-    summary="Recent outages, recoveries, slow spells and expiring certificates",
+    summary="Recent outages, recoveries, slow spells, packet loss and expiring certificates",
 )
 async def list_events(
     after_id: int | None = Query(
@@ -202,7 +208,8 @@ async def list_events(
         422: {
             "description": (
                 "Unknown recipient id, no alert channel, Slack settings that "
-                "post nowhere, or content rules on a HEAD/OPTIONS request"
+                "post nowhere, a URL that does not suit the check type, or content "
+                "rules on a HEAD/OPTIONS request or a ping"
             )
         },
     },
@@ -213,7 +220,10 @@ async def create_website(
     service: WebsiteService = Depends(get_website_service),
     projects: ProjectService = Depends(get_project_service),
 ) -> WebsiteRead:
-    """The site emails its project's members and extra_emails, plus its own
+    """With `check_type: "ping"`, `url` is a host name or IP address to send
+    ICMP echo requests to, `ping_count` of them per check.
+
+    The site emails its project's members and extra_emails, plus its own
     `recipient_ids` (users) and `alert_emails` (addresses). Set
     `inherit_project_recipients: false` to email only the site's own list.
     Slack comes from the project, optionally on the site's own
@@ -264,7 +274,8 @@ async def read_website(
         422: {
             "description": (
                 "The change would leave no alert channel, Slack settings that "
-                "post nowhere, or content rules on a HEAD/OPTIONS request"
+                "post nowhere, a URL that does not suit the check type, or content "
+                "rules on a HEAD/OPTIONS request or a ping"
             )
         },
     },
@@ -278,13 +289,19 @@ async def update_website(
 ) -> WebsiteRead:
     """`alert_emails` replaces the whole list; site users are managed through
     `/recipients`. `slack_channel_id: null` removes the site's own Slack,
-    token included; `slack_bot_token: null` goes back to the project's token."""
+    token included; `slack_bot_token: null` goes back to the project's token.
+    The check type cannot change: `url` must suit the one the site has."""
     await _get_for_write(service, projects, website_id, actor)
     try:
         return WebsiteRead.model_validate(await service.update(website_id, payload))
     except DuplicateWebsiteError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    except (WebsiteContentRuleError, WebsiteNotAlertableError, WebsiteSlackError) as exc:
+    except (
+        WebsiteContentRuleError,
+        WebsiteNotAlertableError,
+        WebsiteSlackError,
+        WebsiteTargetError,
+    ) as exc:
         raise _unprocessable(exc) from exc
 
 
@@ -393,14 +410,19 @@ async def website_stats(
     """Read from hourly rollups, so it reaches back past the retention of raw
     checks. Buckets are UTC hours for 24h and 7d, UTC days for 30d and 90d; the
     last one is still filling. Uptime is the share of checks that succeeded, and
-    response times count successful checks only, as in the monthly report."""
+    response times count successful checks only, as in the monthly report. For a
+    ping check, response time is the average round trip, and
+    `packet_loss_percent` the share of pings lost."""
     try:
-        await service.get_visible(website_id, actor)
+        website = await service.get_visible(website_id, actor)
     except WebsiteNotFoundError as exc:
         raise _not_found(exc) from exc
     stats = await HistoryService(service.session).stats(website_id, range_)
     if format_ is StatsFormat.CSV:
-        return csv_response(stats_csv(stats), f"watchly-site-{website_id}-{range_.value}.csv")
+        return csv_response(
+            stats_csv(stats, packet_loss=website.check_type is CheckType.PING),
+            f"watchly-site-{website_id}-{range_.value}.csv",
+        )
     return stats
 
 
@@ -408,7 +430,11 @@ async def website_stats(
     "/{website_id}/check",
     response_model=CheckNowResponse,
     summary="Check a website right now",
-    responses={**NOT_FOUND, **NEEDS_MANAGER},
+    responses={
+        **NOT_FOUND,
+        **NEEDS_MANAGER,
+        503: {"description": "A ping check, and this server is not allowed to send pings"},
+    },
 )
 async def check_now(
     website_id: int = Path(ge=1),
@@ -423,7 +449,10 @@ async def check_now(
     """
     website = await _get_for_write(service.websites, projects, website_id, actor)
 
-    outcome = await service.check_one(website)
+    try:
+        outcome = await service.check_one(website)
+    except IcmpUnavailableError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return CheckNowResponse(
         website=WebsiteRead.model_validate(outcome.website),
         check=WebsiteCheckRead.model_validate(outcome.check),

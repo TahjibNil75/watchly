@@ -125,6 +125,20 @@ class Settings(BaseSettings):
     SLOW_RESPONSE_CHECKS: int = 3
     #: After a slow alert, stay quiet at least this long for the same site.
     SLOW_ALERT_COOLDOWN_SECONDS: int = 21_600
+    #: A ping check that loses at least this share of its pings, while the
+    #: host still answers, counts as lossy. 0 turns packet-loss alerts off; a
+    #: host can set its own threshold.
+    PACKET_LOSS_THRESHOLD_PERCENT: int = Field(default=20, ge=0, le=100)
+    #: Consecutive lossy checks before alerting, so one bad moment stays quiet.
+    PACKET_LOSS_CHECKS: int = Field(default=3, ge=1)
+    #: After a packet-loss alert, stay quiet at least this long for the same host.
+    PACKET_LOSS_ALERT_COOLDOWN_SECONDS: int = 21_600
+
+    # --- Ping checks ------------------------------------------------------
+    #: Ping over raw sockets, which need root or CAP_NET_RAW. Off, pings use
+    #: unprivileged ICMP sockets, which Linux allows only to the groups in the
+    #: net.ipv4.ping_group_range sysctl; docker-compose.yml opens it for the API.
+    PING_PRIVILEGED: bool = False
 
     # --- Monthly uptime report --------------------------------------------
     MONTHLY_REPORTS_ENABLED: bool = True

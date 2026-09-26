@@ -5,17 +5,21 @@ the placeholders the catalog documents, and the preview endpoint refuses to
 run if it does not.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from app.monitoring.alerts.base import Notification, NotificationKind, WebsiteSnapshot
 from app.monitoring.alerts.events import (
     OutageEvent,
+    PacketLossEvent,
     ReportEvent,
     SiteStats,
     SlowResponseEvent,
     SslExpiryEvent,
 )
 from app.monitoring.websites.checker import CheckResult, Timings
+from app.monitoring.websites.models import CheckType
+from app.monitoring.websites.pinger import PingStats
 
 _PROJECT = "Acme Corp"
 
@@ -118,6 +122,37 @@ def sample_event(kind: NotificationKind) -> Notification:
                 result=slow,
                 threshold_ms=3000,
                 slow_checks=3,
+                recipients=recipients,
+            )
+        case NotificationKind.PACKET_LOSS:
+            host = replace(
+                site,
+                name="Core router",
+                url="gw.acme.example",
+                timeout_seconds=2,
+                check_interval_seconds=60,
+                check_type=CheckType.PING,
+            )
+            lossy = CheckResult(
+                is_up=True,
+                checked_at=now,
+                response_time_ms=24,
+                timings=Timings(dns_ms=4),
+                ping=PingStats(
+                    address="203.0.113.1",
+                    sent=5,
+                    received=3,
+                    min_ms=18.204,
+                    avg_ms=23.871,
+                    max_ms=31.56,
+                    jitter_ms=6.702,
+                ),
+            )
+            return PacketLossEvent(
+                website=host,
+                result=lossy,
+                threshold_percent=20,
+                lossy_checks=3,
                 recipients=recipients,
             )
         case NotificationKind.MONTHLY_REPORT:

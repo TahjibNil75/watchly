@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { checkType } from './checkTypes.js'
 import { environmentLabel } from './environments.js'
 import { duration, since, timeAgo } from './format.js'
 
@@ -13,6 +14,16 @@ export function EnvironmentBadge({ environment }) {
   const label = environmentLabel(environment)
   if (!label) return null
   return <span className={`badge badge-env badge-env-${environment}`}>{label}</span>
+}
+
+// How a site is checked: HTTP or Ping.
+export function CheckTypeBadge({ site }) {
+  const type = checkType(site.check_type)
+  return (
+    <span className={`badge badge-type badge-type-${type.value}`} title={type.description}>
+      {type.short}
+    </span>
+  )
 }
 
 export function ErrorBanner({ error }) {
@@ -95,6 +106,7 @@ export function WebsiteTable({ sites, projectNames, emptyLabel }) {
           <tr>
             <th>Status</th>
             <th>Website</th>
+            <th>Type</th>
             <th>Environment</th>
             {projectNames && <th>Project</th>}
             <th>Last check</th>
@@ -113,6 +125,9 @@ export function WebsiteTable({ sites, projectNames, emptyLabel }) {
                   {site.name}
                 </Link>
                 <div className="muted small truncate">{site.url}</div>
+              </td>
+              <td>
+                <CheckTypeBadge site={site} />
               </td>
               <td>
                 <EnvironmentBadge environment={site.environment} />

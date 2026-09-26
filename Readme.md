@@ -506,7 +506,8 @@ grant), and the invitee's page is `/accept-invite?token=…`.
 ## Uptime monitoring
 
 The core feature: poll each registered site on its own interval, and email the
-right people the moment it stops answering.
+right people the moment it stops answering. A site is either a URL to request
+over HTTP(S) or a host to **ping** (see [Ping checks](#ping-checks)).
 
 ### Projects come first
 
@@ -652,6 +653,31 @@ In Slack that outage is **one thread**, not five messages: the down alert is
 posted to the channel, the still-down alerts reply under it, and the recovery
 replies there too with "also send to channel", so the channel sees it's back up.
 
+### Ping checks
+
+A site with `check_type: "ping"` is a server or network device watched at the
+IP level: instead of requesting a URL, each check sends `ping_count` ICMP echo
+requests (default 5, half a second apart) to the host name or IP address in
+`url`, and waits up to `timeout_seconds` (default 2) for the replies. Use it for
+hosts with no web server, or next to a site's HTTP check, where a silent host
+tells you the problem is below the application.
+
+- **Down** when no ping is answered: the same outage alerts as a website, with
+  `error_type` `no_reply`, `dns_error`, `unreachable` (a router sent back
+  "destination unreachable"), `ttl_exceeded` or `network_error`.
+- **Round trips** — min, average, max and jitter — are kept per check. The
+  average is the check's response time, so charts, the slow alert (`slow_threshold_ms`,
+  shown as "Latency alert above") and the monthly report read it.
+- **Packet loss** — pings unanswered while others were — is kept per check and
+  per hour, charted, and alerted on (below).
+
+Pings use unprivileged ICMP sockets, which Linux allows only to the groups in
+the `net.ipv4.ping_group_range` sysctl; `docker-compose.yml` opens it for the
+API container. Elsewhere, open it for the API's group, or set
+`PING_PRIVILEGED=true` and give the process `CAP_NET_RAW`. If the server cannot
+ping at all, ping checks are skipped and logged rather than reported as down,
+and "Check now" answers `503`.
+
 ### What else Watchly tells you about
 
 Beyond "down / still down / back up", each of these is its own notification
@@ -661,6 +687,7 @@ kind, on by default and switchable per project:
 | ---- | ---------- | --------- |
 | **SSL certificate expiring** | an HTTPS site's certificate has 14, 7, 3 or 1 days left (`SSL_EXPIRY_ALERT_DAYS`), and once more if it expires | once per threshold; renewing the certificate re-arms them |
 | **Slow response** | a *successful* response is slower than the site's threshold for `SLOW_RESPONSE_CHECKS` (3) checks in a row | then quiet for `SLOW_ALERT_COOLDOWN_SECONDS` (6 h) |
+| **Packet loss** | a pinged host answers, but loses at least its threshold of pings for `PACKET_LOSS_CHECKS` (3) checks in a row | then quiet for `PACKET_LOSS_ALERT_COOLDOWN_SECONDS` (6 h) |
 | **Monthly uptime report** | the 1st of each month, 06:00 UTC, for the month before | once per project per month |
 
 The certificate is read every `SSL_CHECK_INTERVAL_SECONDS` (6 h) with
@@ -668,6 +695,8 @@ verification off, so the end date is known even for an already-expired or
 untrusted certificate — the regular check is what reports those as **down**.
 A site's own slow threshold is `slow_threshold_ms`; leave it unset to use
 `SLOW_RESPONSE_THRESHOLD_MS` (3000). Set that to `0` to turn slow alerts off.
+Likewise a host's `packet_loss_threshold_percent` falls back to
+`PACKET_LOSS_THRESHOLD_PERCENT` (20), and `0` there turns packet-loss alerts off.
 
 ### The monthly uptime report
 
@@ -797,7 +826,7 @@ Two operational notes:
   older than `CHECK_RETENTION_DAYS` (default 90, minimum 35), a few batches per
   tick. It never deletes a check not yet rolled up, nor one last month's report
   may still need.
-- Each outage, recovery, slow spell and expiring certificate is also written to
+- Each outage, recovery, slow spell, packet-loss spell and expiring certificate is also written to
   `website_events`, in the same commit as the state it describes, whether or
   not any channel is on for it. The app polls it for its toasts. Events are
   purged after `CHECK_RETENTION_DAYS` too.

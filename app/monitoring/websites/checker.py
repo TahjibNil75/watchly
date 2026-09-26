@@ -1,8 +1,11 @@
-"""Performs a single HTTP probe of a website.
+"""Performs a single probe of a website: an HTTP request, or for a ping check
+a round of ICMP echo requests (see `pinger.py`).
 
-Every failure mode — DNS, TLS, connect, timeout, unexpected status — comes back
-as a :class:`CheckResult`. This module never raises for a site being down; that
-is a normal outcome, not an error.
+Every failure mode — DNS, TLS, connect, timeout, unexpected status, a silent
+host — comes back as a :class:`CheckResult`. This module never raises for a
+site being down; that is a normal outcome, not an error. The one exception is
+`IcmpUnavailableError`: this server being unable to ping at all says nothing
+about the host.
 """
 
 import asyncio
@@ -23,7 +26,8 @@ from cryptography import x509
 from cryptography.x509.oid import NameOID
 
 from app.core.config import settings
-from app.monitoring.websites.models import Website
+from app.monitoring.websites.models import CheckType, Website
+from app.monitoring.websites.pinger import PingStats, ping
 
 logger = logging.getLogger(__name__)
 
@@ -243,10 +247,14 @@ class CheckResult:
     #: Set only on the checks that also read the certificate; see
     #: `certificate_check_due`. None means "not looked at", not "no certificate".
     cert: CertInfo | None = None
+    #: Set only on ping checks that got as far as sending.
+    ping: PingStats | None = None
 
     @property
     def summary(self) -> str:
         """One-line human description, used as the alert headline."""
+        if self.is_up and self.ping is not None:
+            return self.ping.summary
         if self.is_up:
             return f"HTTP {self.status_code} in {self.response_time_ms} ms"
         if self.status_code is not None:
@@ -296,7 +304,11 @@ def certificate_check_due(website: Website, now: datetime | None = None) -> bool
     than on every check. The attempt time is stored even when the read fails,
     which keeps a broken handshake from being retried every tick.
     """
-    if not settings.SSL_CHECK_ENABLED or not website.url.lower().startswith("https://"):
+    if (
+        not settings.SSL_CHECK_ENABLED
+        or website.check_type is not CheckType.HTTP
+        or not website.url.lower().startswith("https://")
+    ):
         return False
     if website.ssl_checked_at is None:
         return True
@@ -361,15 +373,16 @@ async def check_website(
     one-off blip neither counts as a failed check nor raises an alert.
 
     A caller running many checks should pass one shared `new_client()`, so
-    connections are reused. When the site's certificate is due for a read, the
-    same call also fills `result.cert`.
+    connections are reused; a ping check does not use it. When the site's
+    certificate is due for a read, the same call also fills `result.cert`.
     """
-    result = await _http_probe(website, client)
+    probe = _ping_probe if website.check_type is CheckType.PING else _http_probe
+    result = await probe(website, client)
     for _ in range(website.retries_on_failure):
         if result.is_up:
             break
         await asyncio.sleep(settings.CHECK_RETRY_DELAY_SECONDS)
-        result = await _http_probe(website, client)
+        result = await probe(website, client)
     if certificate_check_due(website, result.checked_at):
         result.cert = await probe_certificate(website.url, website.timeout_seconds)
     return result
@@ -397,6 +410,33 @@ def content_problem(website: Website, response: httpx.Response) -> tuple[str, st
 
 def _quoted(text: str) -> str:
     return f'"{text[:80]}…"' if len(text) > 80 else f'"{text}"'
+
+
+async def _ping_probe(
+    website: Website, client: httpx.AsyncClient | None = None
+) -> CheckResult:
+    """Ping the host in `website.url`. Up when any request is answered; the
+    ones that are not are packet loss, which `MonitoringService` watches."""
+    checked_at = datetime.now(UTC)
+    outcome = await ping(
+        website.url,
+        count=website.ping_count,
+        timeout=website.timeout_seconds,
+        privileged=settings.PING_PRIVILEGED,
+    )
+    stats = outcome.stats
+    if not outcome.is_up:
+        logger.info("Ping failed for %s: %s", website.url, outcome.error)
+    return CheckResult(
+        is_up=outcome.is_up,
+        checked_at=checked_at,
+        # The average round trip; a failed ping has none.
+        response_time_ms=round(stats.avg_ms) if stats and stats.avg_ms is not None else None,
+        error=outcome.error,
+        error_type=outcome.error_type,
+        timings=Timings(dns_ms=outcome.dns_ms),
+        ping=stats,
+    )
 
 
 async def _http_probe(

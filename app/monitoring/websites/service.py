@@ -14,6 +14,7 @@ from app.db.models.user import User
 from app.monitoring.projects.models import Project, visible_project_ids
 from app.monitoring.projects.service import resolve_users
 from app.monitoring.websites.models import (
+    CheckType,
     Website,
     WebsiteCheck,
     WebsiteEvent,
@@ -25,6 +26,7 @@ from app.monitoring.websites.schemas import (
     WebsiteSort,
     WebsiteSummary,
     WebsiteUpdate,
+    monitor_target,
 )
 
 
@@ -80,12 +82,20 @@ class WebsiteContentRuleError(WebsiteError):
     """A content rule on a request that comes back with no body to search."""
 
 
+class WebsiteTargetError(WebsiteError):
+    """A `url` that does not suit the site's check type."""
+
+
 def content_rule_problem(website: Website) -> WebsiteContentRuleError | None:
     """Why the site's content rules could never be checked, if they could not."""
-    if (website.must_contain or website.must_not_contain) and website.method in {
-        "HEAD",
-        "OPTIONS",
-    }:
+    if not (website.must_contain or website.must_not_contain):
+        return None
+    if website.check_type is CheckType.PING:
+        return WebsiteContentRuleError(
+            "A ping has no response body to search: remove must_contain / "
+            "must_not_contain."
+        )
+    if website.method in {"HEAD", "OPTIONS"}:
         return WebsiteContentRuleError(
             f"{website.method} responses have no body to search: use GET or POST, "
             "or remove must_contain / must_not_contain."
@@ -137,10 +147,13 @@ class WebsiteService:
 
     @staticmethod
     def _visible_filters(
-        actor: User, project_id: int | None = None, q: str | None = None
+        actor: User,
+        project_id: int | None = None,
+        q: str | None = None,
+        check_type: CheckType | None = None,
     ) -> list:
         """What narrows both a list and a summary: what the actor may see, and
-        the project and search the caller picked."""
+        the project, search and check type the caller picked."""
         filters = []
         if not can_view_all_projects(actor.role):
             # Scoped to the sites of projects they own or belong to, plus any
@@ -153,6 +166,8 @@ class WebsiteService:
             )
         if project_id is not None:
             filters.append(Website.project_id == project_id)
+        if check_type is not None:
+            filters.append(Website.check_type == check_type)
         if q and q.strip():
             term = q.strip()
             filters.append(
@@ -173,9 +188,10 @@ class WebsiteService:
         project_id: int | None = None,
         q: str | None = None,
         sort: WebsiteSort = WebsiteSort.ID,
+        check_type: CheckType | None = None,
     ) -> tuple[list[Website], int]:
         """One page of the sites `actor` is allowed to see."""
-        filters = self._visible_filters(actor, project_id, q)
+        filters = self._visible_filters(actor, project_id, q, check_type)
         if status is not None:
             filters.append(Website.status == status)
         if is_enabled is not None:
@@ -198,7 +214,11 @@ class WebsiteService:
         return list(rows), total or 0
 
     async def summary(
-        self, actor: User, project_id: int | None = None, q: str | None = None
+        self,
+        actor: User,
+        project_id: int | None = None,
+        q: str | None = None,
+        check_type: CheckType | None = None,
     ) -> WebsiteSummary:
         """Counts by state of the sites `actor` may see, in one query."""
 
@@ -217,7 +237,7 @@ class WebsiteService:
                     func.count().filter(Website.is_enabled.is_(False)),
                 )
                 .select_from(Website)
-                .where(*self._visible_filters(actor, project_id, q))
+                .where(*self._visible_filters(actor, project_id, q, check_type))
             )
         ).one()
         return WebsiteSummary(
@@ -269,11 +289,16 @@ class WebsiteService:
         website = await self.get(website_id)
         changes = payload.model_dump(exclude_unset=True)
 
-        if "url" in changes and changes["url"] is not None:
-            changes["url"] = str(changes["url"])
+        if changes.get("url") is not None:
+            # What a valid target looks like depends on the site's check type,
+            # which the payload cannot change.
+            try:
+                changes["url"] = monitor_target(website.check_type, changes["url"])
+            except ValueError as exc:
+                raise WebsiteTargetError(f"url: {exc}") from exc
         if "alert_emails" in changes and changes["alert_emails"] is not None:
             changes["alert_emails"] = [str(e) for e in changes["alert_emails"]]
-        for not_null in ("inherit_project_recipients", "retries_on_failure"):
+        for not_null in ("inherit_project_recipients", "retries_on_failure", "ping_count"):
             if changes.get(not_null) is None:
                 # Optional in the payload but NOT NULL in the table.
                 changes.pop(not_null, None)

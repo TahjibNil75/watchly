@@ -1,25 +1,31 @@
 import { useState } from 'react'
+import { CHECK_TYPES } from './checkTypes.js'
 import { ErrorBanner, UserChecklist } from './components.jsx'
 import { ENVIRONMENTS } from './environments.js'
 import { duration, parseEmails } from './format.js'
 
 const METHODS = ['GET', 'HEAD', 'POST', 'OPTIONS']
 const INTERVALS = [30, 60, 120, 300, 600, 900, 1800, 3600, 21600, 86400]
+// Each type's default timeout: a ping waits for echo replies, not pages.
+const TIMEOUTS = { http: 10, ping: 2 }
 
 const BLANK = {
   project_id: '',
   environment: '',
+  check_type: 'http',
   name: '',
   url: '',
   method: 'GET',
   expected_status: 200,
-  timeout_seconds: 10,
+  timeout_seconds: TIMEOUTS.http,
   check_interval_seconds: 300,
   max_down_alerts: 4,
   slow_threshold_ms: '',
   retries_on_failure: 1,
   must_contain: '',
   must_not_contain: '',
+  ping_count: 5,
+  packet_loss_threshold_percent: '',
   alert_emails: '',
   inherit_project_recipients: true,
   slack_channel_id: '',
@@ -37,6 +43,7 @@ function fromSite(site) {
     slow_threshold_ms: site.slow_threshold_ms ?? '',
     must_contain: site.must_contain ?? '',
     must_not_contain: site.must_not_contain ?? '',
+    packet_loss_threshold_percent: site.packet_loss_threshold_percent ?? '',
     environment: site.environment ?? '',
   }
 }
@@ -46,6 +53,20 @@ function withScheme(url) {
   const trimmed = url.trim()
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
 }
+
+// A pasted URL is a common slip for a ping; keep just its host.
+function hostOf(text) {
+  const trimmed = text.trim()
+  if (!/^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)) return trimmed
+  try {
+    return new URL(trimmed).hostname
+  } catch {
+    return trimmed
+  }
+}
+
+// Blank means "use the server-wide default".
+const orNull = (value) => (value === '' ? null : Number(value))
 
 // What the Slack fields will do, given the project's own Slack setup.
 function slackHint(project, site) {
@@ -96,6 +117,18 @@ export default function WebsiteForm({
   const set = (key) => (e) =>
     setForm({ ...form, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
+  const ping = form.check_type === 'ping'
+  // Switching type swaps in its default timeout, unless one was typed in.
+  const pickType = (type) =>
+    setForm({
+      ...form,
+      check_type: type,
+      timeout_seconds:
+        Number(form.timeout_seconds) === TIMEOUTS[form.check_type]
+          ? TIMEOUTS[type]
+          : form.timeout_seconds,
+    })
+
   const project = creating
     ? projects.find((p) => String(p.id) === String(form.project_id))
     : siteProject
@@ -118,18 +151,19 @@ export default function WebsiteForm({
     const payload = {
       name: form.name.trim(),
       environment: form.environment || null,
-      url: withScheme(form.url),
+      url: ping ? hostOf(form.url) : withScheme(form.url),
       method: form.method,
       expected_status: Number(form.expected_status),
       timeout_seconds: Number(form.timeout_seconds),
       check_interval_seconds: Number(form.check_interval_seconds),
       max_down_alerts: Number(form.max_down_alerts),
-      // Blank means "use the server-wide threshold".
-      slow_threshold_ms: form.slow_threshold_ms === '' ? null : Number(form.slow_threshold_ms),
+      slow_threshold_ms: orNull(form.slow_threshold_ms),
       retries_on_failure: Number(form.retries_on_failure),
-      // Blank removes the rule.
-      must_contain: form.must_contain || null,
-      must_not_contain: form.must_not_contain || null,
+      // Blank removes the rule; a ping has no body to search.
+      must_contain: (!ping && form.must_contain) || null,
+      must_not_contain: (!ping && form.must_not_contain) || null,
+      ping_count: Number(form.ping_count),
+      packet_loss_threshold_percent: orNull(form.packet_loss_threshold_percent),
       alert_emails: parseEmails(form.alert_emails),
       inherit_project_recipients: form.inherit_project_recipients,
       // Clearing the channel removes the site's own Slack, token included.
@@ -137,6 +171,7 @@ export default function WebsiteForm({
     }
     if (slackToken) payload.slack_bot_token = slackToken
     if (creating) {
+      payload.check_type = form.check_type
       payload.project_id = Number(form.project_id)
       payload.recipient_ids = recipientIds
     }
@@ -154,6 +189,27 @@ export default function WebsiteForm({
   return (
     <form className="form" onSubmit={submit}>
       <ErrorBanner error={error} />
+
+      {/* Fixed once created: the two keep different history. */}
+      {creating && (
+        <div className="choices" role="radiogroup" aria-label="What to check">
+          {CHECK_TYPES.map((t) => (
+            <label key={t.value} className="choice">
+              <input
+                type="radio"
+                name="check_type"
+                value={t.value}
+                checked={form.check_type === t.value}
+                onChange={() => pickType(t.value)}
+              />
+              <span>
+                <strong>{t.label}</strong>
+                <span className="muted small">{t.description}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
 
       <div className="row-2">
         {creating && (
@@ -188,17 +244,17 @@ export default function WebsiteForm({
           <input
             value={form.name}
             onChange={set('name')}
-            placeholder="Marketing site"
+            placeholder={ping ? 'Core router' : 'Marketing site'}
             required
             maxLength={255}
           />
         </label>
         <label className="field">
-          <span>URL</span>
+          <span>{ping ? 'Host or IP address' : 'URL'}</span>
           <input
             value={form.url}
             onChange={set('url')}
-            placeholder="https://example.com/"
+            placeholder={ping ? '203.0.113.10 or server.example.com' : 'https://example.com/'}
             required
           />
         </label>
@@ -216,7 +272,7 @@ export default function WebsiteForm({
           </select>
         </label>
         <label className="field">
-          <span>Timeout (seconds)</span>
+          <span>{ping ? 'Reply timeout (seconds)' : 'Timeout (seconds)'}</span>
           <input
             type="number"
             min={1}
@@ -239,82 +295,152 @@ export default function WebsiteForm({
         </label>
       </div>
 
-      <details className="advanced">
-        <summary>Request options</summary>
-        <div className="row-3">
-          <label className="field">
-            <span>Method</span>
-            <select value={form.method} onChange={set('method')}>
-              {METHODS.map((m) => (
-                <option key={m}>{m}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Expected status</span>
-            <input
-              type="number"
-              min={100}
-              max={599}
-              value={form.expected_status}
-              onChange={set('expected_status')}
-              required
-            />
-          </label>
-          <label className="field">
-            <span>Slow after (ms)</span>
-            <input
-              type="number"
-              min={1}
-              max={120000}
-              value={form.slow_threshold_ms}
-              onChange={set('slow_threshold_ms')}
-              placeholder="Server default"
-            />
-            <span className="muted small">
-              Alert when successful responses stay slower than this.
-            </span>
-          </label>
-        </div>
-        <div className="row-3">
-          <label className="field">
-            <span>Retries before failing</span>
-            <input
-              type="number"
-              min={0}
-              max={3}
-              value={form.retries_on_failure}
-              onChange={set('retries_on_failure')}
-              required
-            />
-            <span className="muted small">
-              A failed check is repeated a few seconds later, so a one-off blip stays quiet. 0
-              alerts on the first failure.
-            </span>
-          </label>
-          <label className="field">
-            <span>Response must contain</span>
-            <input
-              value={form.must_contain}
-              onChange={set('must_contain')}
-              maxLength={255}
-              placeholder="e.g. Add to cart"
-            />
-          </label>
-          <label className="field">
-            <span>Response must not contain</span>
-            <input
-              value={form.must_not_contain}
-              onChange={set('must_not_contain')}
-              maxLength={255}
-              placeholder="e.g. Service unavailable"
-            />
-            <span className="muted small">
-              Case-sensitive, over the first 1 MB. Needs GET or POST.
-            </span>
-          </label>
-        </div>
-      </details>
+      {ping && (
+        <details className="advanced">
+          <summary>Ping options</summary>
+          <div className="row-3">
+            <label className="field">
+              <span>Pings per check</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={form.ping_count}
+                onChange={set('ping_count')}
+                required
+              />
+              <span className="muted small">
+                Sent half a second apart. More pings measure packet loss more finely.
+              </span>
+            </label>
+            <label className="field">
+              <span>Packet loss alert at (%)</span>
+              <input
+                type="number"
+                min={1}
+                max={99}
+                value={form.packet_loss_threshold_percent}
+                onChange={set('packet_loss_threshold_percent')}
+                placeholder="Server default"
+              />
+              <span className="muted small">
+                Alert when the host answers but keeps losing at least this share of pings. Losing
+                them all counts as down.
+              </span>
+            </label>
+            <label className="field">
+              <span>Latency alert above (ms)</span>
+              <input
+                type="number"
+                min={1}
+                max={120000}
+                value={form.slow_threshold_ms}
+                onChange={set('slow_threshold_ms')}
+                placeholder="Server default"
+              />
+              <span className="muted small">
+                Alert when the average round trip stays above this.
+              </span>
+            </label>
+          </div>
+          <div className="row-3">
+            <label className="field">
+              <span>Retries before failing</span>
+              <input
+                type="number"
+                min={0}
+                max={3}
+                value={form.retries_on_failure}
+                onChange={set('retries_on_failure')}
+                required
+              />
+              <span className="muted small">
+                When no ping is answered, try again a few seconds later before alerting. 0 alerts
+                at once.
+              </span>
+            </label>
+          </div>
+        </details>
+      )}
+
+      {!ping && (
+        <details className="advanced">
+          <summary>Request options</summary>
+          <div className="row-3">
+            <label className="field">
+              <span>Method</span>
+              <select value={form.method} onChange={set('method')}>
+                {METHODS.map((m) => (
+                  <option key={m}>{m}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Expected status</span>
+              <input
+                type="number"
+                min={100}
+                max={599}
+                value={form.expected_status}
+                onChange={set('expected_status')}
+                required
+              />
+            </label>
+            <label className="field">
+              <span>Slow after (ms)</span>
+              <input
+                type="number"
+                min={1}
+                max={120000}
+                value={form.slow_threshold_ms}
+                onChange={set('slow_threshold_ms')}
+                placeholder="Server default"
+              />
+              <span className="muted small">
+                Alert when successful responses stay slower than this.
+              </span>
+            </label>
+          </div>
+          <div className="row-3">
+            <label className="field">
+              <span>Retries before failing</span>
+              <input
+                type="number"
+                min={0}
+                max={3}
+                value={form.retries_on_failure}
+                onChange={set('retries_on_failure')}
+                required
+              />
+              <span className="muted small">
+                A failed check is repeated a few seconds later, so a one-off blip stays quiet. 0
+                alerts on the first failure.
+              </span>
+            </label>
+            <label className="field">
+              <span>Response must contain</span>
+              <input
+                value={form.must_contain}
+                onChange={set('must_contain')}
+                maxLength={255}
+                placeholder="e.g. Add to cart"
+              />
+            </label>
+            <label className="field">
+              <span>Response must not contain</span>
+              <input
+                value={form.must_not_contain}
+                onChange={set('must_not_contain')}
+                maxLength={255}
+                placeholder="e.g. Service unavailable"
+              />
+              <span className="muted small">
+                Case-sensitive, over the first 1 MB. Needs GET or POST.
+              </span>
+            </label>
+          </div>
+        </details>
+      )}
 
       <fieldset className="fieldset">
         <legend>Email alerts</legend>

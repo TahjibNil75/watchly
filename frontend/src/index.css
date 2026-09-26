@@ -113,6 +113,10 @@ a:hover {
   color: var(--down);
   font-weight: 500;
 }
+.text-pending {
+  color: var(--pending);
+  font-weight: 500;
+}
 
 /* ---------- Layout ---------- */
 
@@ -932,6 +936,10 @@ strong + .badge {
 .badge-env-production {
   --tone: var(--primary);
 }
+/* How a site is checked: neutral, so status and environment stay what stands out. */
+.badge-type {
+  --tone: var(--muted);
+}
 
 .chip {
   display: inline-block;
@@ -1142,6 +1150,10 @@ tbody tr:hover td {
 }
 .strip-bar.is-down {
   background: var(--down);
+}
+/* Up, but some pings went unanswered. */
+.strip-bar.is-degraded {
+  background: var(--pending);
 }
 .num {
   text-align: right;
@@ -1363,9 +1375,37 @@ textarea:focus {
   outline-offset: 0;
   border-color: var(--primary);
 }
-input[type='checkbox'] {
+input[type='checkbox'],
+input[type='radio'] {
   width: auto;
   accent-color: var(--primary);
+}
+/* Pick-one cards, e.g. what kind of check a new site is. */
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.choice:has(input:checked) {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+}
+.choice input {
+  margin: 3px 0 0;
+  padding: 0;
+}
+.choice strong {
+  display: block;
+  font-size: 0.92rem;
 }
 textarea {
   resize: vertical;

@@ -12,7 +12,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from app.monitoring.websites.models import Website
+from app.monitoring.websites.models import CheckType, Website
 
 
 class NotificationKind(str, enum.Enum):
@@ -26,6 +26,8 @@ class NotificationKind(str, enum.Enum):
     SSL_EXPIRING = "ssl_expiring"
     #: The site answers, but slower than its threshold, repeatedly.
     SLOW_RESPONSE = "slow_response"
+    #: A pinged host answers, but keeps losing packets over its threshold.
+    PACKET_LOSS = "packet_loss"
     #: Once a month, per project: how every site did.
     MONTHLY_REPORT = "monthly_report"
 
@@ -124,6 +126,16 @@ class WebsiteSnapshot:
     check_interval_seconds: int
     down_since: datetime | None
     consecutive_failures: int
+    check_type: CheckType = CheckType.HTTP
+
+    @property
+    def is_ping(self) -> bool:
+        return self.check_type is CheckType.PING
+
+    @property
+    def noun(self) -> str:
+        """What alerts call it: a site, or for a ping check a host."""
+        return "host" if self.is_ping else "site"
 
     @classmethod
     def of(cls, website: Website) -> "WebsiteSnapshot":
@@ -138,6 +150,7 @@ class WebsiteSnapshot:
             check_interval_seconds=website.check_interval_seconds,
             down_since=website.down_since,
             consecutive_failures=website.consecutive_failures,
+            check_type=website.check_type,
         )
 
 

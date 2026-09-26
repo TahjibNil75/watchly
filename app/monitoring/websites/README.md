@@ -1,7 +1,7 @@
 # Website monitoring
 
-How a URL gets watched, how an outage turns into email, and every API in the
-project as it stands today.
+How a URL gets watched (or a host pinged), how an outage turns into email, and
+every API in the project as it stands today.
 
 ---
 
@@ -25,7 +25,7 @@ Project ──┬── members (users)  ─┐  inherited unless the site sets
 | -------------------- | ---------------------------------------------------------- |
 | `projects`           | a client or product; owner, members, extra alert addresses |
 | `project_members`    | which users are responsible for which project              |
-| `websites`           | one URL, how to check it, and its live outage state        |
+| `websites`           | one URL (or host to ping), how to check it, and its live outage state |
 | `website_recipients` | which users are alerted about one particular site          |
 | `website_checks`     | the result of every poll — the evidence behind each alert, including why it failed and where its time went; purged after `CHECK_RETENTION_DAYS` |
 | `website_check_hourly` | each site's checks summed per UTC hour — what charts and long-range uptime read; kept |
@@ -40,7 +40,8 @@ Deleting a project deletes its websites, which deletes their check history.
 | ------------- | ---------------------------------------------------------------- |
 | `models.py`   | `Website` (config + live state) and `WebsiteCheck` (poll history) |
 | `schemas.py`  | request/response contracts and their validation rules            |
-| `checker.py`  | the HTTP probe (and, every few hours, the certificate read) — turns a URL into a `CheckResult` |
+| `checker.py`  | the HTTP probe (and, every few hours, the certificate read) — turns a URL into a `CheckResult`; hands ping checks to `pinger.py` |
+| `pinger.py`   | the ICMP probe — pings a host a few times and reports replies, round trips and packet loss |
 | `service.py`  | CRUD, filtering, and "which sites are due for a check"           |
 | `history.py`  | hourly rollups, the stats read from them, and purging old checks |
 | `routes.py`   | the HTTP endpoints below                                          |
@@ -116,6 +117,43 @@ themselves (`_TimedBackend` in `checker.py`) rather than leaving it to
 httpcore, which does both in one step. The connect then tries the addresses the
 way anyio would have, Happy Eyeballs included.
 
+### Ping checks
+
+A site with `check_type` `ping` keeps a host name or IP address in `url`
+(validated and normalized by `ping_host()` in `schemas.py`; the type cannot
+change after creation). `check_website` hands it to `pinger.ping()`, which:
+
+- resolves a name once, with `AI_ADDRCONFIG` so a dual-stack name is not pinged
+  over a protocol this server lacks (its time goes in `dns_ms`);
+- sends `ping_count` echo requests `PACKET_INTERVAL` (0.5 s) apart while
+  listening, then waits up to `timeout_seconds` after the last — a silent host
+  costs about `(count − 1) × 0.5 s + timeout`, not `count × timeout`;
+- counts a reply slower than `timeout_seconds` as lost.
+
+The check is **up when any request is answered**. `retries_on_failure` still
+applies to a check with no replies. Each `website_checks` row keeps
+`packets_sent` / `packets_received`, `rtt_min_ms` / `rtt_avg_ms` /
+`rtt_max_ms` / `jitter_ms` (fractional ms) and the `ip_address` pinged;
+`response_time_ms` is the average round trip, rounded, so rollups, charts, the
+slow alert and the monthly report work unchanged. The hourly rollup also sums
+the packets, which is where `packet_loss_percent` in the stats comes from.
+
+| error_type      | meaning                                                   |
+| --------------- | --------------------------------------------------------- |
+| `no_reply`      | no echo reply within the timeout                          |
+| `dns_error`     | the host name did not resolve                             |
+| `unreachable`   | a router or the host answered "destination unreachable" (not seen with unprivileged sockets on Linux) |
+| `ttl_exceeded`  | the request looped until its TTL ran out                  |
+| `network_error` | this server could not send to the address, e.g. no route or no IPv6 |
+
+Pings use **unprivileged ICMP (datagram) sockets**, which Linux allows only to
+the groups in `net.ipv4.ping_group_range`; `docker-compose.yml` opens it for
+the API container, and recent Docker does so by default. `PING_PRIVILEGED=true`
+uses raw sockets instead, which need root or `CAP_NET_RAW`. When no ICMP socket
+can be opened at all, `pinger` raises `IcmpUnavailableError`: that is this
+server's problem, not the host's, so the scheduler logs it and records nothing
+(no false outage), and `POST .../check` answers `503` with the fix.
+
 ---
 
 ## 4. When alerts fire
@@ -137,6 +175,13 @@ down → still_down(5m) → still_down(10m) → still_down(15m) → [silence] �
 
 No repeat "site is up" mail — recovery is announced once, then nothing until the
 next outage.
+
+A pinged host that answers some pings but not all is not down. When it loses
+at least `packet_loss_threshold_percent` of them (`PACKET_LOSS_THRESHOLD_PERCENT`,
+20, when unset) for `PACKET_LOSS_CHECKS` checks in a row, a **packet loss**
+alert goes out once, then nothing for `PACKET_LOSS_ALERT_COOLDOWN_SECONDS` —
+the same shape as the slow-response alert, which for a ping watches the average
+round trip.
 
 In Slack, one outage is one thread: the down alert is posted to the channel,
 the still-down alerts reply under it, and the recovery replies there too while
@@ -344,8 +389,9 @@ List filters: `limit` (1–100), `offset`, `is_active`, `owner_id`.
 | `POST` | `/monitoring/websites/{website_id}/check` | `200 403 404 422` |
 
 List filters: `limit` (1–100), `offset`, `status` (`unknown`/`up`/`down`),
-`is_enabled`, `project_id`, `q` (name or URL), `sort` (`id`, `name`, `status`).
-The summary takes `project_id` and `q`. History takes `limit` (1–500), newest
+`is_enabled`, `project_id`, `check_type` (`http`/`ping`), `q` (name or URL),
+`sort` (`id`, `name`, `status`). The summary takes `project_id`, `check_type`
+and `q`. History takes `limit` (1–500), newest
 first; stats take `range` (`24h`, `7d`, `30d`, `90d`) and `format` (`json`, or
 `csv` to download the series).
 
@@ -434,6 +480,10 @@ curl -s "$BASE/monitoring/websites/$SID/checks?limit=10" \
 | `DEFAULT_CHECK_INTERVAL_SECONDS` | `300` | per-site default |
 | `DEFAULT_TIMEOUT_SECONDS` | `10` | per-request timeout |
 | `DEFAULT_MAX_DOWN_ALERTS` | `4` | 1 immediate + 3 follow-ups |
+| `PING_PRIVILEGED` | `false` | ping over raw sockets (root / `CAP_NET_RAW`) instead of unprivileged ones |
+| `PACKET_LOSS_THRESHOLD_PERCENT` | `20` | share of pings lost that makes a check lossy; `0` turns packet-loss alerts off |
+| `PACKET_LOSS_CHECKS` | `3` | lossy checks in a row before alerting |
+| `PACKET_LOSS_ALERT_COOLDOWN_SECONDS` | `21600` | quiet time after a packet-loss alert |
 | `ALERTS_ENABLED` | `true` | master switch for all channels |
 | `ALERT_DEFAULT_EMAILS` | — | comma-separated, added to every alert |
 | `SMTP_HOST` … | — | any provider: SES, Resend, Mailgun, Postmark |

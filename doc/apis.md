@@ -351,20 +351,23 @@ project.
 ### `GET /api/v1/monitoring/websites`
 List monitored sites with their current status, last check and outage state.
 Query: `limit` (1–100), `offset`, `status` (`unknown`/`up`/`down`),
-`is_enabled`, `project_id`, `q` (name or URL contains, case-insensitive),
-`sort` (`id` default, `name`, or `status`: down sites first, then by name)
+`is_enabled`, `project_id`, `check_type` (`http` or `ping`), `q` (name or URL
+contains, case-insensitive), `sort` (`id` default, `name`, or `status`: down
+sites first, then by name)
 `200`
 
 ### `GET /api/v1/monitoring/websites/summary`
 How many of the sites you can see are `up`, `down`, `unknown` (enabled, not
-checked yet) and `paused`, plus the `total`. Takes the list's `project_id` and
-`q`, so a dashboard can page through one state and still show every count.
+checked yet) and `paused`, plus the `total`. Takes the list's `project_id`,
+`check_type` and `q`, so a dashboard can page through one state and still show
+every count.
 `200`
 
 ### `GET /api/v1/monitoring/websites/events`
 The alert feed the app shows as toasts: each `down`, `recovered`,
-`slow_response` and `ssl_expiring` event on the sites you can see, newest
-first, with its `website` (`id`, `name`, `url`, `environment`), `occurred_at`,
+`slow_response`, `packet_loss` and `ssl_expiring` event on the sites you can
+see, newest first, with its `website` (`id`, `name`, `url`, `check_type`,
+`environment`), `occurred_at`,
 the check's one-line `summary`, and the figures its kind uses
 (`downtime_seconds`, `threshold_ms` with `response_time_ms`,
 `ssl_expires_at`). Recorded with the check that raised it, whether or not email
@@ -376,12 +379,19 @@ have), `limit` (1–100, default 20)
 `200`
 
 ### `POST /api/v1/monitoring/websites`
-Start monitoring a URL. Requires `project_id`; the project's members are
-alerted unless `inherit_project_recipients` is false.
-Body: `project_id`, `name`, `url`, and optionally `environment` (`development`,
+Start monitoring a URL, or pinging a host. Requires `project_id`; the project's
+members are alerted unless `inherit_project_recipients` is false.
+Body: `project_id`, `name`, `url`, and optionally `check_type` (`http`, the
+default, or `ping`: then `url` is a host name or IP address such as
+`203.0.113.10` or `server.example.com`, not a URL; fixed once created),
+`ping_count` (1–20, default 5: echo requests per ping check),
+`packet_loss_threshold_percent` (1–99, `null` for the server default: a ping
+check that loses at least this share while the host answers counts as lossy),
+`environment` (`development`,
 `testing`, `uat`, `staging` or `production` — the web form requires it, the API
 does not, so existing scripts keep working), `method`, `expected_status`,
-`timeout_seconds`, `check_interval_seconds` (≥30), `max_down_alerts`,
+`timeout_seconds` (for a ping, the wait for replies; default 2 instead of
+10), `check_interval_seconds` (≥30), `max_down_alerts`,
 `retries_on_failure` (0–3, default 1: a failed check is repeated a few seconds
 later, and only the last result is recorded and alerted on),
 `must_contain` / `must_not_contain` (the body must have, or must not have, this
@@ -394,8 +404,8 @@ this channel instead of the project's), `slack_bot_token` (the site's own bot,
 for when the project has no Slack; needs `slack_channel_id`)
 `201` · `403` not your project · `404` no such project · `409` URL already
 monitored · `422` invalid field, unknown recipient id, the site would have
-no alert channel, its Slack settings post nowhere, or content rules on a
-HEAD/OPTIONS request
+no alert channel, its Slack settings post nowhere, a `url` that does not suit
+the `check_type`, or content rules on a HEAD/OPTIONS request or a ping
 
 ### `GET /api/v1/monitoring/websites/{website_id}`
 Return one site with its live state: `status`, `last_checked_at`, `down_since`,
@@ -410,9 +420,10 @@ Update any of the check settings, `alert_emails` (replaces the whole list),
 removes it, token included; `slack_bot_token: null` goes back to the project's
 token), `retries_on_failure`, the content rules (`null` removes one), or disable
 the site without deleting it. A change that would leave the site with no alert
-channel is refused.
+channel is refused. `check_type` cannot change, and a new `url` must suit it.
 `200` · `403` · `404` · `409` URL already monitored · `422` would leave no
-alert channel, or Slack settings that post nowhere
+alert channel, Slack settings that post nowhere, or a `url` that does not suit
+the check type
 
 ### `DELETE /api/v1/monitoring/websites/{website_id}`
 Stop monitoring and delete the site's check history.
@@ -434,7 +445,11 @@ Recent check results, newest first — for each poll the status code and
 reason, response time, error and `error_type`, final URL, diagnostic headers,
 and the time spent in each step (`dns_ms`, `connect_ms`, `tls_ms`,
 `first_byte_ms`; null when the step did not finish). Checks recorded before
-these fields existed have them null.
+these fields existed have them null. A ping check has `ping` instead: the
+`address` pinged (what a host name resolved to), packets `sent` and `received`,
+`loss_percent`, and round trips `min_ms` / `avg_ms` / `max_ms` / `jitter_ms`;
+its `response_time_ms` is the average round trip, rounded, and `dns_ms` the
+name lookup.
 Query: `limit` (1–500)
 `200` · `404`
 
@@ -446,6 +461,9 @@ filling. A bucket with no checks has `checks: 0` and nulls. Read from hourly
 rollups, so it reaches back past the retention of raw checks. Uptime is the
 share of checks that succeeded; response times count successful checks only,
 as in the monthly report; the percentile is accurate to within about 25%.
+For a ping check the response time is the average round trip, and
+`packet_loss_percent` (whole range and per bucket; null for HTTP checks) the
+share of pings lost — also a CSV column for ping checks.
 `format=csv` downloads the series as a file instead (one row per bucket, blank
 figures for an empty one).
 `200` · `404` · `422` unknown range or format
@@ -454,8 +472,9 @@ figures for an empty one).
 Probe now, through the same state machine as a scheduled check, so it can raise
 and clear alerts. The fastest way to test a new site or your SMTP setup.
 Returns the site, the check, and which notification it raised (if any): `down`,
-`still_down`, `recovered`, `ssl_expiring` or `slow_response`.
-`200` · `403` · `404`
+`still_down`, `recovered`, `ssl_expiring`, `slow_response` or `packet_loss`.
+`200` · `403` · `404` · `503` a ping check, and this server is not allowed to
+send pings (see `PING_PRIVILEGED` in the README)
 
 A website also takes an optional `slow_threshold_ms` (send `null` for the
 server default), an `environment` (send `null` to clear it; sites that predate
@@ -466,7 +485,7 @@ the field have none), and reports a read-only `ssl_expires_at` for HTTPS sites.
 ## Monitoring — notifications
 
 `{kind}` is one of `down`, `still_down`, `recovered`, `ssl_expiring`,
-`slow_response`, `monthly_report`. Settings resolve project → global → built-in
+`slow_response`, `packet_loss`, `monthly_report`. Settings resolve project → global → built-in
 default, field by field; see the README for what each kind is.
 
 Every setting comes back as:

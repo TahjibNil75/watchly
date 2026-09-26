@@ -31,29 +31,33 @@ def _render(header: list[str], rows: list[list]) -> str:
     return out.getvalue()
 
 
-def stats_csv(stats: WebsiteStats) -> str:
-    """One row per bucket, oldest first, including empty ones (blank figures)."""
-    return _render(
-        [
-            "bucket_start_utc",
-            "checks",
-            "up_checks",
-            "uptime_percent",
-            "avg_response_ms",
-            "p95_response_ms",
-        ],
-        [
-            [
-                b.start.isoformat().replace("+00:00", "Z"),
-                b.checks,
-                b.up_checks,
-                _cell(b.uptime_percent),
-                _cell(b.avg_response_ms),
-                _cell(b.p95_response_ms),
-            ]
-            for b in stats.series
-        ],
-    )
+def stats_csv(stats: WebsiteStats, *, packet_loss: bool = False) -> str:
+    """One row per bucket, oldest first, including empty ones (blank figures).
+    `packet_loss` adds a column for it, for a ping check."""
+    header = [
+        "bucket_start_utc",
+        "checks",
+        "up_checks",
+        "uptime_percent",
+        "avg_response_ms",
+        "p95_response_ms",
+    ]
+    if packet_loss:
+        header.append("packet_loss_percent")
+    rows = []
+    for b in stats.series:
+        row = [
+            b.start.isoformat().replace("+00:00", "Z"),
+            b.checks,
+            b.up_checks,
+            _cell(b.uptime_percent),
+            _cell(b.avg_response_ms),
+            _cell(b.p95_response_ms),
+        ]
+        if packet_loss:
+            row.append(_cell(b.packet_loss_percent))
+        rows.append(row)
+    return _render(header, rows)
 
 
 def report_csv(event: ReportEvent) -> str:

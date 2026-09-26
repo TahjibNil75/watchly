@@ -65,7 +65,7 @@ flowchart LR
     API --> SVC
     LOOP --> SVC
     SVC --> DB
-    LOOP -->|"HTTP probe"| TARGETS
+    LOOP -->|"HTTP probe / ICMP ping"| TARGETS
     SVC --> SMTP
     SVC --> SLACK
     SVC --> HOOK
@@ -139,7 +139,7 @@ app/monitoring/
 ├── service.py      MonitoringService — the outage state machine, slow + SSL tracking
 ├── scheduler.py    the background loop + advisory lock; also rolls up and purges checks, and triggers monthly reports
 ├── projects/       Project, membership, alert-channel config
-├── websites/       Website, WebsiteCheck, the HTTP + certificate probe; hourly rollups + retention (history.py)
+├── websites/       Website, WebsiteCheck, the HTTP + certificate probe, the ICMP ping (pinger.py); hourly rollups + retention (history.py)
 ├── alerts/         what is sent and how each channel draws it
 │   ├── base.py     NotificationKind, Message (channel-neutral), Alerter interface
 │   ├── events.py   OutageEvent, SslExpiryEvent, SlowResponseEvent, ReportEvent
@@ -230,7 +230,9 @@ erDiagram
     websites {
         int id PK
         int project_id FK
-        string url UK
+        string url UK "URL, or host for a ping"
+        enum check_type "check_type: http, ping"
+        int ping_count
         string method
         int expected_status
         int check_interval_seconds
@@ -250,6 +252,9 @@ erDiagram
         int slow_threshold_ms "null = server default"
         int slow_streak
         timestamptz last_slow_alert_at
+        int packet_loss_threshold_percent "null = server default"
+        int loss_streak
+        timestamptz last_loss_alert_at
         timestamptz ssl_expires_at
         timestamptz ssl_checked_at
         int ssl_alert_bucket "smallest days-left threshold warned"
@@ -289,6 +294,13 @@ erDiagram
         int connect_ms
         int tls_ms
         int first_byte_ms
+        int packets_sent "ping only"
+        int packets_received
+        float rtt_min_ms
+        float rtt_avg_ms
+        float rtt_max_ms
+        float jitter_ms
+        string ip_address "what the host resolved to"
     }
     website_check_hourly {
         int website_id PK
@@ -299,6 +311,8 @@ erDiagram
         bigint sum_ms
         int max_ms
         int_array histogram
+        int packets_sent "0 for HTTP"
+        int packets_received
     }
     website_events {
         int id PK
@@ -318,6 +332,7 @@ erDiagram
 - `user_role` — `Viewer`, `Admin`, `DevOps`, `Project Manager`, `Developer`
 - `website_status` — `unknown`, `up`, `down`
 - `website_environment` — `development`, `testing`, `uat`, `staging`, `production`
+- `check_type` — `http`, `ping`
 
 **`invitations` keeps history.** Nothing is deleted: an invitation is closed by
 stamping `accepted_at` or `revoked_at`, and `status` is derived (a row past
@@ -361,8 +376,8 @@ sequenceDiagram
         else acquired
             L->>PG: SELECT sites where interval elapsed
             par probe concurrently, one shared client
-                L->>W: HTTP request
-                W-->>L: status / timeout / connection error
+                L->>W: HTTP request, or ICMP echo requests
+                W-->>L: status / timeout / connection error / replies
             end
             loop each result, sequentially
                 L->>PG: INSERT website_checks
@@ -623,7 +638,7 @@ Worth knowing before this carries real load:
 | Add a notification kind | `NotificationKind`, an event in [`alerts/events.py`](../app/monitoring/alerts/events.py), and its entry in [`notifications/catalog.py`](../app/monitoring/notifications/catalog.py) |
 | Change the default wording | [`notifications/catalog.py`](../app/monitoring/notifications/catalog.py) |
 | Change how the monthly report is computed | `compute_site_stats()` in [`notifications/reports.py`](../app/monitoring/notifications/reports.py) |
-| Change how a site is probed | [`app/monitoring/websites/checker.py`](../app/monitoring/websites/checker.py) |
+| Change how a site is probed | [`app/monitoring/websites/checker.py`](../app/monitoring/websites/checker.py); pings in [`pinger.py`](../app/monitoring/websites/pinger.py) |
 | Add an alert channel | [`app/monitoring/alerts/`](../app/monitoring/alerts/) + `default_alerters()` in [`notifications/dispatcher.py`](../app/monitoring/notifications/dispatcher.py) |
 | Change the polling cadence | `MONITOR_TICK_SECONDS`, or per-site `check_interval_seconds` |
 | Add a table | The model module, then `alembic revision --autogenerate` |

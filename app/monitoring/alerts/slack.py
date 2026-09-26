@@ -40,6 +40,7 @@ _EMOJI = {
     NotificationKind.RECOVERED: ":white_check_mark:",
     NotificationKind.SSL_EXPIRING: ":lock:",
     NotificationKind.SLOW_RESPONSE: ":hourglass_flowing_sand:",
+    NotificationKind.PACKET_LOSS: ":signal_strength:",
     NotificationKind.MONTHLY_REPORT: ":bar_chart:",
 }
 

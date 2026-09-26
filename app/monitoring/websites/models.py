@@ -7,6 +7,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     Enum as SAEnum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -45,6 +46,25 @@ class WebsiteStatus(str, enum.Enum):
 website_status_enum = SAEnum(
     WebsiteStatus,
     name="website_status",
+    native_enum=True,
+    create_constraint=False,
+    validate_strings=True,
+    values_callable=lambda enum_cls: [member.value for member in enum_cls],
+)
+
+
+class CheckType(str, enum.Enum):
+    """How a site is checked. Fixed when it is created."""
+
+    #: Request `url` and judge the response.
+    HTTP = "http"
+    #: Send ICMP echo requests to the host in `url` and count the replies.
+    PING = "ping"
+
+
+check_type_enum = SAEnum(
+    CheckType,
+    name="check_type",
     native_enum=True,
     create_constraint=False,
     validate_strings=True,
@@ -109,7 +129,11 @@ def recipient_website_ids(user_id: int) -> Select:
 
 
 class Website(Base, TimestampMixin):
-    """A site to poll, together with the live state of its current outage."""
+    """A site to poll, together with the live state of its current outage.
+
+    Also a host to ping (`check_type` ping), which keeps its host name or IP
+    address in `url` and ignores the HTTP-only settings.
+    """
 
     __tablename__ = "websites"
 
@@ -118,9 +142,20 @@ class Website(Base, TimestampMixin):
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: The URL to request, or for a ping check the host name or IP address.
     url: Mapped[str] = mapped_column(String(2048), unique=True, nullable=False)
 
     # --- how to check ---------------------------------------------------
+    check_type: Mapped[CheckType] = mapped_column(
+        check_type_enum,
+        default=CheckType.HTTP,
+        server_default=text("'http'::check_type"),
+        nullable=False,
+    )
+    #: Ping checks: echo requests sent per check.
+    ping_count: Mapped[int] = mapped_column(
+        Integer, default=5, server_default=text("5"), nullable=False
+    )
     method: Mapped[str] = mapped_column(
         String(10), default="GET", server_default=text("'GET'"), nullable=False
     )
@@ -208,6 +243,19 @@ class Website(Base, TimestampMixin):
         Integer, default=0, server_default=text("0"), nullable=False
     )
     last_slow_alert_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Ping checks: a check that loses at least this share of its pings while
+    #: the host still answers counts as lossy. None uses the global
+    #: PACKET_LOSS_THRESHOLD_PERCENT.
+    packet_loss_threshold_percent: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    #: Consecutive lossy (but answered) checks; reset by any clean or failed one.
+    loss_streak: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    last_loss_alert_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     #: The certificate's notAfter, as last read. None for plain-HTTP sites or
@@ -338,7 +386,41 @@ class WebsiteCheck(Base):
     #: From the request being sent to the response headers arriving.
     first_byte_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # --- ping checks only; None on HTTP checks ------------------------------
+    # For a ping, `response_time_ms` is the average round trip, rounded, and
+    # `dns_ms` the time to resolve the host name.
+    #: Echo requests attempted, and those answered within the timeout. None
+    #: when nothing could be sent, e.g. the name did not resolve.
+    packets_sent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    packets_received: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Round trips of the answered requests; None when none were.
+    rtt_min_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rtt_avg_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rtt_max_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Mean difference between consecutive round trips; None under two replies.
+    jitter_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: The address pinged: the host itself, or what its name resolved to.
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     website: Mapped[Website] = relationship(back_populates="checks")
+
+    @property
+    def ping(self) -> dict | None:
+        """The ping figures as one group, for the API; None for an HTTP check
+        and for a ping that sent nothing."""
+        if self.packets_sent is None:
+            return None
+        sent, received = self.packets_sent, self.packets_received or 0
+        return {
+            "address": self.ip_address,
+            "sent": sent,
+            "received": received,
+            "loss_percent": round(100 * (sent - received) / sent, 1) if sent else 100.0,
+            "min_ms": self.rtt_min_ms,
+            "avg_ms": self.rtt_avg_ms,
+            "max_ms": self.rtt_max_ms,
+            "jitter_ms": self.jitter_ms,
+        }
 
     def __repr__(self) -> str:
         state = "up" if self.is_up else "down"
@@ -420,3 +502,11 @@ class WebsiteCheckHourly(Base):
     #: Count of timed checks per RESPONSE_BUCKETS_MS bucket. Sums across hours,
     #: which a stored p95 would not.
     histogram: Mapped[list[int]] = mapped_column(ARRAY(Integer), nullable=False)
+    #: Ping checks' echo requests, summed; 0 for HTTP checks. Packet loss is
+    #: read from these, so a lossy hour weighs by its packets.
+    packets_sent: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    packets_received: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )

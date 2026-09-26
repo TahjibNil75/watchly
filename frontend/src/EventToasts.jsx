@@ -5,7 +5,7 @@ import { dateTime, duration, timeAgo } from './format.js'
 import { SITE_EVENTS } from './useApi.js'
 
 // Toasts for what happens to the sites you can see: outages, recoveries, slow
-// spells, expiring certificates. Polls the event feed and remembers, per user
+// spells, packet loss, expiring certificates. Polls the event feed and remembers, per user
 // in this browser, the newest event already shown, so signing in catches up on
 // what happened while you were away and a reload replays nothing.
 
@@ -57,9 +57,14 @@ function describe(event) {
     case 'slow_response':
       return {
         tone: 'pending',
-        title: `${name} is responding slowly`,
+        title:
+          event.website.check_type === 'ping'
+            ? `${name} has high latency`
+            : `${name} is responding slowly`,
         detail: `${event.response_time_ms} ms, over its ${event.threshold_ms} ms threshold`,
       }
+    case 'packet_loss':
+      return { tone: 'pending', title: `${name} is losing packets`, detail: event.summary }
     case 'ssl_expiring': {
       const left = new Date(event.ssl_expires_at) - Date.now()
       if (left <= 0) {
