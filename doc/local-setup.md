@@ -355,7 +355,7 @@ docker compose logs api | grep -i smtp
 ```
 
 Set up [Mailpit](#see-alert-emails-locally) or a real provider (see *Email
-setup* in the [README](../Readme.md)).
+setup* in the [technical reference](reference.md#email-setup)).
 
 **A site on my machine always shows as down**
 

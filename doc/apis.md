@@ -516,7 +516,7 @@ Returns the site, the check, and which notification it raised (if any): `down`,
 `still_down`, `recovered`, `ssl_expiring`, `slow_response`, `packet_loss` or
 `dns_changed`.
 `200` · `403` · `404` · `503` a ping check, and this server is not allowed to
-send pings (see `PING_PRIVILEGED` in the README)
+send pings (see `PING_PRIVILEGED` in the [technical reference](reference.md#ping-checks))
 
 A website also takes an optional `slow_threshold_ms` (send `null` for the
 server default), an `environment` (send `null` to clear it; sites that predate
@@ -528,7 +528,7 @@ the field have none), and reports a read-only `ssl_expires_at` for HTTPS sites.
 
 `{kind}` is one of `down`, `still_down`, `recovered`, `ssl_expiring`,
 `slow_response`, `packet_loss`, `dns_changed`, `monthly_report`. Settings resolve project → global → built-in
-default, field by field; see the README for what each kind is.
+default, field by field; see the [technical reference](reference.md#what-else-watchly-tells-you-about) for what each kind is.
 
 Every setting comes back as:
 `kind`, `label`, `description`, `audience`, the effective `email_enabled`,
