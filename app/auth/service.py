@@ -8,7 +8,17 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import ColumnElement, delete, exists, func, or_, select, text, update
+from sqlalchemy import (
+    ColumnElement,
+    case,
+    delete,
+    exists,
+    func,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,6 +61,13 @@ class UserAlreadyExistsError(AuthError):
         super().__init__(f"A user with this {field} already exists.")
 
 
+class SignupClosedError(AuthError):
+    """ALLOW_PUBLIC_SIGNUP is off and the admin already exists."""
+
+    def __init__(self) -> None:
+        super().__init__("Sign-up is by invitation only. Ask an admin to invite you.")
+
+
 class InvalidCredentialsError(AuthError):
     """Wrong password, or no such user — deliberately indistinguishable."""
 
@@ -63,6 +80,17 @@ class InactiveUserError(AuthError):
 
     def __init__(self) -> None:
         super().__init__("This account has been suspended.")
+
+
+class AccountLockedError(AuthError):
+    """Too many wrong passwords in a row: sign-in is refused until `until`."""
+
+    def __init__(self, until: datetime) -> None:
+        self.until = until
+        super().__init__(
+            "Too many failed sign-ins. Try again later, or use forgot password "
+            "to get a temporary password."
+        )
 
 
 class InvalidRefreshTokenError(AuthError):
@@ -108,13 +136,19 @@ class AuthService:
         way uses up a pending temporary password.
 
         A wrong password counts against the account, and MAX_FAILED_LOGIN_ATTEMPTS
-        in a row suspend it; signing in resets the count.
+        in a row lock sign-in for LOGIN_LOCKOUT_MINUTES; signing in resets the
+        count. A temporary password still works while it is locked: it went only
+        to the account's mailbox, so the owner has a way in even while someone
+        else keeps tripping the lock.
 
         Raises:
             InvalidCredentialsError: no such user, or the password is wrong.
+            AccountLockedError: sign-in is locked, and no temporary password
+                was used.
             InactiveUserError: credentials are valid but the account is suspended.
         """
         user = await self.get_user_by_identifier(identifier)
+        now = datetime.now(UTC)
 
         # Always run bcrypt, even with no user, to keep the timing flat.
         password_ok = verify_password(
@@ -128,6 +162,10 @@ class AuthService:
         )
         if user is None:
             raise InvalidCredentialsError
+        # Refused whether or not the password is right, and without counting,
+        # so a locked account is no oracle for guessing its password.
+        if user.locked_until is not None and user.locked_until > now and not used_temporary:
+            raise AccountLockedError(user.locked_until)
         if not (password_ok or used_temporary):
             await self._record_failed_login(user)
             raise InvalidCredentialsError
@@ -149,42 +187,44 @@ class AuthService:
             await self.end_all_sessions(user.id)
         user.clear_temporary_password()
         user.failed_login_attempts = 0
-        user.last_activity = datetime.now(UTC)
+        user.locked_until = None
+        user.last_activity = now
         await self.session.commit()
         await self.session.refresh(user)
         return user
 
     async def _record_failed_login(self, user: User) -> None:
-        """Count a wrong password against `user`, suspending the account once
-        MAX_FAILED_LOGIN_ATTEMPTS are in a row. Commits.
+        """Count a wrong password against `user`, locking sign-in for
+        LOGIN_LOCKOUT_MINUTES once MAX_FAILED_LOGIN_ATTEMPTS are in a row, and
+        starting the count again. Commits.
 
-        Suspending works as it does from the API: sessions are revoked, and
-        only a user whose role may reinstate this one's can lift it.
+        The lock only stops sign-in. It does not suspend the account or end its
+        sessions: a stranger who knows the username could otherwise sign its
+        owner out, or shut them out until someone reinstated them.
         """
-        # Incremented in SQL, so simultaneous attempts cannot each read the
-        # same count and let a burst of guesses slip past the limit.
-        attempts = await self.session.scalar(
+        until = datetime.now(UTC) + timedelta(minutes=settings.LOGIN_LOCKOUT_MINUTES)
+        reached = User.failed_login_attempts + 1 >= settings.MAX_FAILED_LOGIN_ATTEMPTS
+        # One statement, so simultaneous attempts cannot each read the same
+        # count and let a burst of guesses slip past the limit: every SET sees
+        # the row as it was before this attempt.
+        locked_until = await self.session.scalar(
             update(User)
             .where(User.id == user.id)
-            .values(failed_login_attempts=User.failed_login_attempts + 1)
-            .returning(User.failed_login_attempts)
-        )
-        # Conditional on is_active in SQL too: of simultaneous attempts past the
-        # limit, only the one that actually flips it revokes and logs.
-        suspended = attempts >= settings.MAX_FAILED_LOGIN_ATTEMPTS and (
-            await self.session.scalar(
-                update(User)
-                .where(User.id == user.id, User.is_active.is_(True))
-                .values(is_active=False)
-                .returning(User.id)
+            .values(
+                failed_login_attempts=case(
+                    (reached, 0), else_=User.failed_login_attempts + 1
+                ),
+                locked_until=case((reached, until), else_=User.locked_until),
             )
+            .returning(User.locked_until)
         )
-        if suspended:
-            await self.end_all_sessions(user.id)
+        if locked_until == until:
             logger.warning(
-                "Suspended user %s after %d failed sign-ins in a row.",
+                "Locked sign-in for user %s for %d minutes after %d failed "
+                "sign-ins in a row.",
                 user.id,
-                attempts,
+                settings.LOGIN_LOCKOUT_MINUTES,
+                settings.MAX_FAILED_LOGIN_ATTEMPTS,
             )
         await self.session.commit()
 
@@ -221,6 +261,14 @@ class AuthService:
         await self.session.refresh(user)
         return user, password
 
+    async def signup_open(self) -> bool:
+        """Whether :meth:`signup` would accept someone now: always on a fresh
+        install, so the admin can sign up, and afterwards only while
+        ALLOW_PUBLIC_SIGNUP is on."""
+        return settings.ALLOW_PUBLIC_SIGNUP or not await self.session.scalar(
+            select(exists().select_from(User))
+        )
+
     async def signup(self, payload: SignupRequest) -> User:
         """Register a new account as a VIEWER — or as the ADMIN, when it is the
         first account on a fresh install (see :meth:`_is_first_account`).
@@ -229,8 +277,16 @@ class AuthService:
         :class:`~app.auth.schemas.SignupRequest`; only the hash is stored.
 
         Raises:
+            SignupClosedError: ALLOW_PUBLIC_SIGNUP is off and this would not
+                be the first account.
             UserAlreadyExistsError: the email or username is taken.
         """
+        first = await self._is_first_account()
+        # Before the checks below, so a closed signup does not tell a stranger
+        # which emails and usernames have accounts.
+        if not first and not settings.ALLOW_PUBLIC_SIGNUP:
+            raise SignupClosedError
+
         if await self.user_exists_by_email(payload.email):
             raise UserAlreadyExistsError("email", payload.email)
 
@@ -244,7 +300,7 @@ class AuthService:
             email=payload.email,
             full_name=payload.full_name,
             password_hash=generate_hash_password(payload.password),
-            role=UserRole.ADMIN if await self._is_first_account() else UserRole.VIEWER,
+            role=UserRole.ADMIN if first else UserRole.VIEWER,
             is_active=True,
         )
         self.session.add(user)
@@ -286,16 +342,29 @@ class AuthService:
     async def start_session(self, user: User) -> str:
         """Begin a new session for `user` and return its first refresh token.
 
-        Also sweeps out every user's expired tokens: they can no longer be
-        redeemed, so there is nothing left to catch them being reused for.
+        Also sweeps out every user's expired tokens, as the scheduler does on
+        each tick; this covers installs that run with the scheduler off.
         """
         now = datetime.now(UTC)
-        await self.session.execute(
-            delete(RefreshToken).where(RefreshToken.expires_at <= now)
-        )
+        await self._delete_expired_tokens(now)
         token = self._add_refresh_token(user.id, uuid.uuid4().hex, now)
         await self.session.commit()
         return token
+
+    async def purge_expired_sessions(self, now: datetime | None = None) -> int:
+        """Delete every user's expired refresh tokens. Called on every tick;
+        returns how many were deleted."""
+        deleted = await self._delete_expired_tokens(now or datetime.now(UTC))
+        await self.session.commit()
+        return deleted
+
+    async def _delete_expired_tokens(self, now: datetime) -> int:
+        # An expired token is refused before anything else is looked at, used
+        # or not, so its row has nothing left to catch it being reused for.
+        result = await self.session.execute(
+            delete(RefreshToken).where(RefreshToken.expires_at <= now)
+        )
+        return result.rowcount or 0
 
     async def rotate_refresh_token(self, token: str) -> tuple[User, str]:
         """Redeem `token`: use it up, and return its user and its successor.

@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../auth.jsx'
-import { ErrorBanner } from '../components.jsx'
+import { useAuth, useSignupOpen } from '../auth.jsx'
+import { ErrorBanner, Loading } from '../components.jsx'
 
 export default function Signup() {
   const { signup } = useAuth()
+  const open = useSignupOpen()
   const navigate = useNavigate()
   const [form, setForm] = useState({
     username: '',
@@ -33,6 +34,35 @@ export default function Signup() {
       setError(err)
       setBusy(false)
     }
+  }
+
+  if (open === null) {
+    return (
+      <div className="auth-screen">
+        <Loading />
+      </div>
+    )
+  }
+
+  if (!open) {
+    return (
+      <div className="auth-screen">
+        <div className="card auth-card">
+          <Link to="/" className="brand brand-lg">
+            <span className="brand-mark" aria-hidden="true" />
+            Watchly
+          </Link>
+          <h1>Invitation only</h1>
+          <p className="muted small">
+            This Watchly doesn&apos;t take sign-ups. Ask an admin to invite you; the email they
+            send has a link to create your account.
+          </p>
+          <p className="muted small center">
+            Already have an account? <Link to="/login">Sign in</Link>
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (

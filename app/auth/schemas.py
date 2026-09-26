@@ -81,5 +81,15 @@ class SignupResponse(AuthResponse):
     pass
 
 
+class SignupStatus(BaseModel):
+    open: bool = Field(
+        description=(
+            "Whether `POST /auth/signup` accepts new accounts. False once the "
+            "admin exists when `ALLOW_PUBLIC_SIGNUP` is off: people join by "
+            "invitation."
+        )
+    )
+
+
 class LoginResponse(AuthResponse):
     pass

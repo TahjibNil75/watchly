@@ -1,3 +1,6 @@
+import math
+from datetime import UTC, datetime
+
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -24,13 +27,16 @@ from app.auth.schemas import (
     LoginResponse,
     SignupRequest,
     SignupResponse,
+    SignupStatus,
     TokenResponse,
 )
 from app.auth.service import (
+    AccountLockedError,
     AuthService,
     InactiveUserError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
+    SignupClosedError,
     UserAlreadyExistsError,
 )
 from app.core.config import settings
@@ -72,7 +78,10 @@ async def issue_tokens(
     response_model=SignupResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Register a new account",
-    responses={409: {"description": "Email or username already registered"}},
+    responses={
+        403: {"description": "Signup is invite-only (`ALLOW_PUBLIC_SIGNUP` is off)"},
+        409: {"description": "Email or username already registered"},
+    },
 )
 async def signup(
     payload: SignupRequest,
@@ -83,9 +92,16 @@ async def signup(
     in the body, and the refresh token in an httpOnly cookie.
 
     The first account on a fresh install is created as `Admin` instead, so
-    whoever installs the app signs up to administer it."""
+    whoever installs the app signs up to administer it.
+
+    With `ALLOW_PUBLIC_SIGNUP` off, only that first account can sign up; after
+    it, people join by accepting an invitation."""
     try:
         user = await service.signup(payload)
+    except SignupClosedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        ) from exc
     except UserAlreadyExistsError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
@@ -97,6 +113,18 @@ async def signup(
     )
 
 
+@router.get(
+    "/signup",
+    response_model=SignupStatus,
+    summary="Whether public signup is open",
+)
+async def signup_status(
+    service: AuthService = Depends(get_auth_service),
+) -> SignupStatus:
+    """Tells the sign-in pages whether to offer "Create an account". Public."""
+    return SignupStatus(open=await service.signup_open())
+
+
 @router.post(
     "/login",
     response_model=LoginResponse,
@@ -105,6 +133,7 @@ async def signup(
     responses={
         401: {"description": "Incorrect username/email or password"},
         403: {"description": "Account is inactive"},
+        429: {"description": "Too many wrong passwords; sign-in is locked for now"},
     },
 )
 async def login(
@@ -118,6 +147,10 @@ async def login(
     A temporary password from `POST /auth/forgot-password` works here too. The
     user then comes back with `must_change_password: true`, and may do nothing
     but `POST /users/me/password` until they have chosen a new one.
+
+    `MAX_FAILED_LOGIN_ATTEMPTS` wrong passwords in a row lock sign-in for
+    `LOGIN_LOCKOUT_MINUTES` (`429`, with `Retry-After`), whatever password is
+    sent — except a temporary password, which still signs in.
     """
     try:
         user = await service.authenticate(payload.identifier, payload.password)
@@ -126,6 +159,13 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
             headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    except AccountLockedError as exc:
+        seconds = (exc.until - datetime.now(UTC)).total_seconds()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc),
+            headers={"Retry-After": str(max(1, math.ceil(seconds)))},
         ) from exc
     except InactiveUserError as exc:
         raise HTTPException(

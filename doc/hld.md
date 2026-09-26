@@ -139,7 +139,7 @@ workers and tests can use them.
 app/monitoring/
 ├── routes.py       aggregates the sub-routers
 ├── service.py      MonitoringService — the outage state machine, slow + SSL tracking
-├── scheduler.py    the background loop + advisory lock; also rolls up and purges checks, and triggers monthly reports
+├── scheduler.py    the background loop + advisory lock; also rolls up and purges checks, triggers monthly reports, and deletes expired refresh tokens
 ├── projects/       Project, membership, alert-channel config
 ├── websites/       Website, WebsiteCheck, the HTTP + certificate probe, the ICMP ping (pinger.py), the DNS lookup (dns_probe.py); hourly rollups + retention (history.py)
 ├── alerts/         what is sent and how each channel draws it

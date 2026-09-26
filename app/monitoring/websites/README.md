@@ -468,12 +468,15 @@ credentials.
 
 | method | path | status codes |
 | ------ | ---- | ------------ |
-| `POST` | `/auth/signup` | `201 409 422` |
+| `POST` | `/auth/signup` | `201 403 409 422` |
+| `GET` | `/auth/signup` | `200` |
 | `POST` | `/auth/login` | `200 401 403 422` |
 | `POST` | `/auth/forgot-password` | `202 422` |
 | `POST` | `/auth/confirm-email` | `200 403 404 409 410 422` |
 
 Signup always creates a `Viewer`; the role cannot be set from the payload.
+With `ALLOW_PUBLIC_SIGNUP=false` it answers `403` once the admin exists, and
+`GET /auth/signup` reports `{"open": false}`.
 Login accepts a username **or** an email in the `identifier` field. A suspended
 user is refused with `403` until reactivated.
 

@@ -41,15 +41,23 @@ class Settings(BaseSettings):
     #: another host.
     REFRESH_COOKIE_SECURE: bool = True
 
+    #: Let anyone who can reach the app sign up as a viewer. Off, the team is
+    #: invite-only: signup is refused once an account exists, so the first one
+    #: can still sign up and become the admin.
+    ALLOW_PUBLIC_SIGNUP: bool = True
     #: How long an emailed invitation link stays usable.
     INVITATION_EXPIRE_DAYS: int = Field(default=7, ge=1)
     #: How long the link confirming a new email address stays usable.
     EMAIL_CHANGE_EXPIRE_HOURS: int = Field(default=24, ge=1)
     #: How long a temporary password from "forgot password" can be used to sign in.
     TEMP_PASSWORD_EXPIRE_MINUTES: int = Field(default=60, ge=5)
-    #: Wrong passwords in a row at sign-in before the account is suspended. Only
-    #: a user allowed to reinstate it (see SUSPENDABLE_BY) can lift it.
+    #: Wrong passwords in a row at sign-in before sign-in is locked for
+    #: LOGIN_LOCKOUT_MINUTES. The lock lifts itself, so knowing someone's
+    #: username is not enough to shut them out for good.
     MAX_FAILED_LOGIN_ATTEMPTS: int = Field(default=5, ge=1)
+    #: How long sign-in stays locked after MAX_FAILED_LOGIN_ATTEMPTS. A
+    #: temporary password from "forgot password" still gets in meanwhile.
+    LOGIN_LOCKOUT_MINUTES: int = Field(default=15, ge=1)
 
     # --- Monitoring -----------------------------------------------------
     MONITORING_ENABLED: bool = True

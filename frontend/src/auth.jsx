@@ -55,3 +55,22 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext)
 }
+
+// Whether to offer "Create an account": false once the admin exists on an
+// invite-only install (ALLOW_PUBLIC_SIGNUP=false). null until the API answers;
+// if it can't be asked, assume open and let the form show the API's refusal.
+// eslint-disable-next-line react/only-export-components
+export function useSignupOpen() {
+  const [open, setOpen] = useState(null)
+  useEffect(() => {
+    let live = true
+    api
+      .signupStatus()
+      .then((status) => live && setOpen(status.open))
+      .catch(() => live && setOpen(true))
+    return () => {
+      live = false
+    }
+  }, [])
+  return open
+}

@@ -3,8 +3,8 @@
 Every endpoint in Watchly, with a one-line description.
 
 **Base URL:** `/api/v1` (health check is at the root)
-**Auth:** `Authorization: Bearer <access token>` on everything except signup,
-login, forgot password, confirming a new email address (`/auth/confirm-email`),
+**Auth:** `Authorization: Bearer <access token>` on everything except signup
+(and its status), login, forgot password, confirming a new email address (`/auth/confirm-email`),
 the two invitee endpoints (`/invitations/preview`, `/invitations/accept`) and
 `/health`.
 
@@ -21,7 +21,8 @@ together, see [`hld.md`](hld.md).
 
 | # | method | endpoint | what it does |
 | - | ------ | -------- | ------------ |
-| 1 | `POST` | `/auth/signup` | Register a new account as a `Viewer` (the first account on an empty database is the `Admin`). |
+| 1 | `POST` | `/auth/signup` | Register a new account as a `Viewer` (the first account on an empty database is the `Admin`). Refused once the admin exists when `ALLOW_PUBLIC_SIGNUP=false`. |
+| 1a | `GET` | `/auth/signup` | Whether signup is open, so the UI knows whether to offer it (public). |
 | 2 | `POST` | `/auth/login` | Log in with a username **or** email; get an access token and a refresh cookie. |
 | 3 | `POST` | `/auth/refresh` | Trade the refresh cookie for a new access token; the cookie is replaced every time. |
 | 4 | `POST` | `/auth/logout` | Revoke the session in the refresh cookie and clear it. |
@@ -82,7 +83,17 @@ Public. No token required.
 Register a new account. Requires `password` **and** `confirm_password`; the role
 is `Viewer` and cannot be set from the payload. The first account on an empty
 database is created as `Admin` instead; there is no seeded admin.
-`201` · `409` taken · `422` mismatch or invalid field
+With `ALLOW_PUBLIC_SIGNUP=false` the team is invite-only: that first account can
+still sign up, but every later signup gets `403`, and people join by
+[accepting an invitation](#post-apiv1invitationsaccept). The `403` comes before
+the checks for a taken email or username, so it reveals neither.
+`201` · `403` invite-only · `409` taken · `422` mismatch or invalid field
+
+### `GET /api/v1/auth/signup`
+`{"open": true}` while `POST /auth/signup` would accept someone: always on an
+empty database, and afterwards only with `ALLOW_PUBLIC_SIGNUP` on. No sign-in
+needed; the sign-in pages use it to hide "Create an account".
+`200`
 
 ### `POST /api/v1/auth/login`
 Authenticate with `identifier` (username **or** email) plus `password`, and
@@ -90,12 +101,17 @@ receive the user plus an access token; the refresh token is set as a cookie
 (see [the refresh cookie](#the-refresh-cookie)). A temporary password from
 forgot password works too, while it lasts: it becomes the password, and the
 user comes back with `must_change_password: true`.
-`MAX_FAILED_LOGIN_ATTEMPTS` (default 5) wrong passwords in a row suspend the
-account, and signing in resets the count. The attempt that suspends it still
-answers `401`, like any wrong password; only the right password gets the `403`.
-Someone allowed to reinstate the account has to
-[reactivate](#patch-apiv1usersuser_idreactivate) it.
+`MAX_FAILED_LOGIN_ATTEMPTS` (default 5) wrong passwords in a row lock sign-in
+for `LOGIN_LOCKOUT_MINUTES` (default 15), and signing in resets the count. The
+attempt that trips the lock still answers `401`, like any wrong password; after
+it, every attempt answers `429` with `Retry-After` until the lock runs out,
+whether the password is right or not, and does not count. A temporary password
+from [forgot password](#post-apiv1authforgot-password) still signs in, so the
+owner is never shut out by someone else guessing. The lock does not suspend the
+account or end its sessions. Someone allowed to reinstate the account can lift
+it early with [reactivate](#patch-apiv1usersuser_idreactivate).
 `200` · `401` wrong credentials or unknown user · `403` suspended · `422` invalid
+· `429` locked after too many wrong passwords
 
 ### `POST /api/v1/auth/forgot-password`
 Body: `{"email": "jane@example.com"}`. Emails that account a temporary password
@@ -210,8 +226,9 @@ already hold stops working on the next request.
 `200` · `403` insufficient rank or self · `404`
 
 ### `PATCH /api/v1/users/{user_id}/reactivate`
-Lift a suspension and restore login. Also clears `failed_login_attempts`, so
-this is how an account suspended for too many wrong passwords is unlocked.
+Lift a suspension and restore login. Also clears `failed_login_attempts` and
+`locked_until`, even on an active account, so it lifts a sign-in lockout from
+too many wrong passwords before it runs out.
 `200` · `403` · `404`
 
 **Who may suspend whom**

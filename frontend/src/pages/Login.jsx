@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { useAuth } from '../auth.jsx'
+import { useAuth, useSignupOpen } from '../auth.jsx'
 import { ErrorBanner } from '../components.jsx'
 
 export default function Login() {
   const { login } = useAuth()
+  const signupOpen = useSignupOpen()
   const navigate = useNavigate()
   const location = useLocation()
   const [identifier, setIdentifier] = useState('')
@@ -76,7 +77,13 @@ export default function Login() {
           <Link to="/forgot-password">Forgot your password?</Link>
         </p>
         <p className="muted small center">
-          No account? <Link to="/signup">Create one</Link>
+          {signupOpen === false ? (
+            'No account? Ask an admin to invite you.'
+          ) : (
+            <>
+              No account? <Link to="/signup">Create one</Link>
+            </>
+          )}
         </p>
       </form>
     </div>

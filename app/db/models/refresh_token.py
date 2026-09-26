@@ -27,7 +27,8 @@ class RefreshToken(TimestampMixin, Base):
     )
     family_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    #: Indexed for the sweep that deletes expired rows at each sign-in.
+    #: Indexed for the sweep that deletes expired rows on every scheduler tick
+    #: and at each sign-in.
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True, nullable=False
     )

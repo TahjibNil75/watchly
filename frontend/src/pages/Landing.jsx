@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useSignupOpen } from '../auth.jsx'
 import LiveDemo from '../LiveDemo.jsx'
 
 // What a signed-out visitor sees at the site's root: what Watchly does, and
@@ -172,12 +173,16 @@ function Points({ items }) {
 }
 
 function Actions() {
+  // Invite-only: signing in is the only way forward, so it takes the lead.
+  const signupOpen = useSignupOpen() !== false
   return (
     <div className="landing-actions">
-      <Link to="/signup" className="btn btn-primary btn-lg">
-        Create an account
-      </Link>
-      <Link to="/login" className="btn btn-lg">
+      {signupOpen && (
+        <Link to="/signup" className="btn btn-primary btn-lg">
+          Create an account
+        </Link>
+      )}
+      <Link to="/login" className={signupOpen ? 'btn btn-lg' : 'btn btn-primary btn-lg'}>
         Sign in
       </Link>
     </div>
@@ -197,14 +202,6 @@ export default function Landing() {
           <a href="#alerts">Alerts</a>
           <a href="#how">How it works</a>
         </nav>
-        <div className="landing-nav-actions">
-          <Link to="/login" className="btn btn-ghost btn-sm">
-            Sign in
-          </Link>
-          <Link to="/signup" className="btn btn-primary btn-sm landing-nav-signup">
-            Create account
-          </Link>
-        </div>
       </header>
 
       <main>
@@ -306,14 +303,6 @@ export default function Landing() {
             </ol>
           </section>
         </div>
-
-        <section className="landing-section landing-final">
-          <h2>Start watching your sites</h2>
-          <p className="muted">
-            Create an account, or sign in to the one your team set up for you.
-          </p>
-          <Actions />
-        </section>
       </main>
 
       <footer className="landing-footer">
@@ -322,10 +311,6 @@ export default function Landing() {
           Watchly
         </span>
         <span className="muted small">Uptime, ping and DNS monitoring.</span>
-        <span className="landing-footer-links small">
-          <Link to="/login">Sign in</Link>
-          <Link to="/signup">Create an account</Link>
-        </span>
       </footer>
     </div>
   )

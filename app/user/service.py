@@ -163,8 +163,8 @@ class UserService:
         any token the user already holds stops working on its next request.
         Their sessions are revoked too, so reinstating them does not bring a
         stolen refresh token back to life. Reinstating also clears the failed
-        sign-in count, so this is how an account locked by
-        MAX_FAILED_LOGIN_ATTEMPTS is unlocked.
+        sign-in count and any sign-in lockout, even for an active account, so
+        this lifts a lock from MAX_FAILED_LOGIN_ATTEMPTS before it runs out.
 
         Raises:
             UserNotFoundError: no such user.
@@ -183,17 +183,17 @@ class UserService:
             action = "suspend" if suspended else "reinstate"
             raise InsufficientRankError(actor.role, target.role, action)
 
-        should_be_active = not suspended
-        if target.is_active == should_be_active:
-            return target
-
-        target.is_active = should_be_active
         if suspended:
+            if not target.is_active:
+                return target
+            target.is_active = False
             await AuthService(self.session).end_all_sessions(target.id)
         else:
-            # A fresh start: otherwise one more wrong password would suspend an
-            # account locked by failed sign-ins all over again.
+            # A fresh start: otherwise one more wrong password would lock the
+            # account all over again.
+            target.is_active = True
             target.failed_login_attempts = 0
+            target.locked_until = None
         await self.session.commit()
         await self.session.refresh(target)
         return target

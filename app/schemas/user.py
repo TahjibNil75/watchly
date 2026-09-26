@@ -48,8 +48,16 @@ class UserRead(UserBase):
     failed_login_attempts: int = Field(
         default=0,
         description=(
-            "Wrong passwords at sign-in since the last successful one. At "
-            "`MAX_FAILED_LOGIN_ATTEMPTS` the account is suspended."
+            "Wrong passwords at sign-in since the last successful one or the "
+            "last lockout. At `MAX_FAILED_LOGIN_ATTEMPTS` sign-in is locked."
+        ),
+    )
+    locked_until: datetime | None = Field(
+        default=None,
+        description=(
+            "Sign-in is refused until then after too many wrong passwords, "
+            "except with a temporary password. Lifts by itself; in the past "
+            "or null means not locked."
         ),
     )
     created_at: datetime

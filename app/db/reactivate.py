@@ -1,9 +1,11 @@
 """Reinstate a suspended account from the server, bypassing the API's rules.
 
-Too many wrong passwords suspend an account, and only a user whose role may
-reinstate it can lift that through the API — for an admin, only another admin.
-When there is no such user (the only admin locked themselves out, say), this is
-the way back in. Anyone who can run it already holds the database.
+Only a user whose role may reinstate an account can lift its suspension
+through the API — for an admin, only another admin. When there is no such user
+(an admin suspended before wrong passwords stopped suspending accounts, say),
+this is the way back in. It also lifts a sign-in lockout from too many wrong
+passwords without waiting for it to run out. Anyone who can run it already
+holds the database.
 
 Run it directly:  python -m app.db.reactivate <username or email>
 """
@@ -34,6 +36,7 @@ async def reactivate(identifier: str) -> bool:
             return False
         user.is_active = True
         user.failed_login_attempts = 0
+        user.locked_until = None
         await session.commit()
         logger.info("Reactivated user %r.", user.username)
         return True

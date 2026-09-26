@@ -707,7 +707,7 @@ a:hover {
 .landing-nav-links {
   display: flex;
   gap: 22px;
-  margin-left: 12px;
+  margin-left: auto;
   font-size: 0.9rem;
 }
 .landing-nav-links a {
@@ -716,11 +716,6 @@ a:hover {
 .landing-nav-links a:hover {
   color: var(--text);
   text-decoration: none;
-}
-.landing-nav-actions {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
 }
 
 .landing-section {
@@ -808,14 +803,12 @@ a:hover {
   margin: 0 auto 40px;
   text-align: center;
 }
-.landing-head h2,
-.landing-final h2 {
+.landing-head h2 {
   margin-bottom: 10px;
   font-size: clamp(1.6rem, 3vw, 2.1rem);
   letter-spacing: -0.02em;
 }
-.landing-head p,
-.landing-final p {
+.landing-head p {
   margin: 0;
   font-size: 1.02rem;
 }
@@ -934,13 +927,6 @@ a:hover {
   background: var(--primary);
 }
 
-.landing-final {
-  text-align: center;
-}
-.landing-final .landing-actions {
-  justify-content: center;
-}
-
 .landing-footer {
   display: flex;
   flex-wrap: wrap;
@@ -948,11 +934,6 @@ a:hover {
   gap: 12px 20px;
   padding: 24px clamp(16px, 4vw, 48px);
   border-top: 1px solid var(--border);
-}
-.landing-footer-links {
-  display: flex;
-  gap: 18px;
-  margin-left: auto;
 }
 
 @media (max-width: 960px) {
@@ -979,20 +960,12 @@ a:hover {
   }
 }
 @media (max-width: 420px) {
-  /* The hero's own button is a scroll away at most. Qualified to outrank
-     .btn, which comes later in this file. */
-  .landing-nav-actions .landing-nav-signup {
-    display: none;
-  }
   /* Room for the demo's host names. */
   .landing-demo .live-row-head .badge-env {
     display: none;
   }
   .landing-actions .btn {
     flex: 1;
-  }
-  .landing-footer-links {
-    margin-left: 0;
   }
 }
 

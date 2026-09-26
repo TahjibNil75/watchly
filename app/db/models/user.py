@@ -52,10 +52,16 @@ class User(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
-    #: Wrong passwords at sign-in since the last successful one. Reaching
-    #: MAX_FAILED_LOGIN_ATTEMPTS suspends the account; reinstating it resets this.
+    #: Wrong passwords at sign-in since the last successful one or the last
+    #: lockout. Reaching MAX_FAILED_LOGIN_ATTEMPTS sets locked_until and starts
+    #: the count again.
     failed_login_attempts: Mapped[int] = mapped_column(
         Integer, default=0, server_default=text("0"), nullable=False
+    )
+    #: Sign-in is refused until then, except with a temporary password. Unlike
+    #: suspension it runs out by itself and leaves open sessions alone.
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     #: Stamped into every access token as `sv`; a token carrying an older value
     #: is refused. Bumped whenever all of the user's sessions end — a password

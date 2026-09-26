@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import { Empty, ErrorBanner, Loading, PageHeader } from '../components.jsx'
-import { timeAgo } from '../format.js'
+import { dateTime, timeAgo } from '../format.js'
 import { InvitationList, InviteForm } from '../Invitations.jsx'
 import { ROLES, canChangeRole, canInvite, canManageUsers, canSuspend } from '../roles.js'
 import { useApi } from '../useApi.js'
@@ -143,15 +143,19 @@ export default function Users() {
                       {u.is_active ? (
                         <span className="badge badge-up">active</span>
                       ) : (
-                        <>
-                          <span className="badge badge-down">suspended</span>
-                          {u.failed_login_attempts > 0 && (
-                            <div className="muted small">
-                              {u.failed_login_attempts} failed sign-in
-                              {u.failed_login_attempts === 1 ? '' : 's'}
-                            </div>
-                          )}
-                        </>
+                        <span className="badge badge-down">suspended</span>
+                      )}
+                      {u.locked_until && new Date(u.locked_until) > new Date() ? (
+                        <div className="muted small">
+                          sign-in locked until {dateTime(u.locked_until)}
+                        </div>
+                      ) : (
+                        u.failed_login_attempts > 0 && (
+                          <div className="muted small">
+                            {u.failed_login_attempts} failed sign-in
+                            {u.failed_login_attempts === 1 ? '' : 's'}
+                          </div>
+                        )
                       )}
                     </td>
                     <td className="nowrap">{timeAgo(u.last_activity)}</td>
