@@ -351,7 +351,7 @@ project.
 ### `GET /api/v1/monitoring/websites`
 List monitored sites with their current status, last check and outage state.
 Query: `limit` (1–100), `offset`, `status` (`unknown`/`up`/`down`),
-`is_enabled`, `project_id`, `check_type` (`http` or `ping`), `q` (name or URL
+`is_enabled`, `project_id`, `check_type` (`http`, `ping` or `dns`), `q` (name or URL
 contains, case-insensitive), `sort` (`id` default, `name`, or `status`: down
 sites first, then by name)
 `200`
@@ -365,10 +365,11 @@ every count.
 
 ### `GET /api/v1/monitoring/websites/events`
 The alert feed the app shows as toasts: each `down`, `recovered`,
-`slow_response`, `packet_loss` and `ssl_expiring` event on the sites you can
-see, newest first, with its `website` (`id`, `name`, `url`, `check_type`,
+`slow_response`, `packet_loss`, `dns_changed` and `ssl_expiring` event on the
+sites you can see, newest first, with its `website` (`id`, `name`, `url`, `check_type`,
 `environment`), `occurred_at`,
-the check's one-line `summary`, and the figures its kind uses
+the check's one-line `summary` (for `dns_changed`, the records now and before),
+and the figures its kind uses
 (`downtime_seconds`, `threshold_ms` with `response_time_ms`,
 `ssl_expires_at`). Recorded with the check that raised it, whether or not email
 or Slack is on for that kind; an outage appears once, when it starts. Kept for
@@ -379,19 +380,27 @@ have), `limit` (1–100, default 20)
 `200`
 
 ### `POST /api/v1/monitoring/websites`
-Start monitoring a URL, or pinging a host. Requires `project_id`; the project's
-members are alerted unless `inherit_project_recipients` is false.
+Start monitoring a URL, pinging a host, or watching a DNS record. Requires
+`project_id`; the project's members are alerted unless
+`inherit_project_recipients` is false.
 Body: `project_id`, `name`, `url`, and optionally `check_type` (`http`, the
-default, or `ping`: then `url` is a host name or IP address such as
-`203.0.113.10` or `server.example.com`, not a URL; fixed once created),
+default; `ping`: then `url` is a host name or IP address such as
+`203.0.113.10` or `server.example.com`, not a URL; or `dns`: then `url` is a
+domain name such as `example.com` or `_dmarc.example.com`; fixed once created),
 `ping_count` (1–20, default 5: echo requests per ping check),
 `packet_loss_threshold_percent` (1–99, `null` for the server default: a ping
 check that loses at least this share while the host answers counts as lossy),
+`dns_record_type` (`A`, the default, `AAAA`, `CNAME`, `MX` or `TXT`: the record a
+DNS check looks up), `dns_expected_values` (up to 20, e.g. `["203.0.113.10"]`,
+`["10 mx1.example.com"]` or a TXT value, quoted or not: any resolver answering
+otherwise makes the check down with `dns_mismatch`; empty, the check learns
+the records and sends `dns_changed` when they change),
 `environment` (`development`,
 `testing`, `uat`, `staging` or `production` — the web form requires it, the API
 does not, so existing scripts keep working), `method`, `expected_status`,
 `timeout_seconds` (for a ping, the wait for replies; default 2 instead of
-10), `check_interval_seconds` (≥30), `max_down_alerts`,
+10; for a DNS check, the wait for each resolver; default 5),
+`check_interval_seconds` (≥30), `max_down_alerts`,
 `retries_on_failure` (0–3, default 1: a failed check is repeated a few seconds
 later, and only the last result is recorded and alerted on),
 `must_contain` / `must_not_contain` (the body must have, or must not have, this
@@ -403,13 +412,17 @@ text — case-sensitive, first 1 MB; needs GET or POST; a failure has
 this channel instead of the project's), `slack_bot_token` (the site's own bot,
 for when the project has no Slack; needs `slack_channel_id`)
 `201` · `403` not your project · `404` no such project · `409` URL already
-monitored · `422` invalid field, unknown recipient id, the site would have
-no alert channel, its Slack settings post nowhere, a `url` that does not suit
-the `check_type`, or content rules on a HEAD/OPTIONS request or a ping
+monitored with this check type (for DNS, this record of the domain) · `422`
+invalid field, unknown recipient id, the site would have no alert channel, its
+Slack settings post nowhere, a `url` that does not suit the `check_type`, an
+expected value that does not suit the record type, or content rules on a
+HEAD/OPTIONS request, a ping or a DNS check
 
 ### `GET /api/v1/monitoring/websites/{website_id}`
 Return one site with its live state: `status`, `last_checked_at`, `down_since`,
-`consecutive_failures`, `down_alerts_sent` — and its alerting setup:
+`consecutive_failures`, `down_alerts_sent`; for a DNS check, `dns_record_type`,
+`dns_expected_values` and `dns_records` (what the resolvers last agreed on) —
+and its alerting setup:
 `recipients`, `alert_emails`, `inherit_project_recipients`, `alert_channels`,
 `slack_channel_id`, and `slack_token_hint` when the site has its own bot.
 `200` · `404` missing **or** not visible
@@ -421,9 +434,12 @@ removes it, token included; `slack_bot_token: null` goes back to the project's
 token), `retries_on_failure`, the content rules (`null` removes one), or disable
 the site without deleting it. A change that would leave the site with no alert
 channel is refused. `check_type` cannot change, and a new `url` must suit it.
+A DNS check's `dns_expected_values` replaces the whole list (`[]` unpins); a new
+`dns_record_type` or domain forgets the records learned so far, and a new
+record type clears the pinned values unless new ones are sent.
 `200` · `403` · `404` · `409` URL already monitored · `422` would leave no
-alert channel, Slack settings that post nowhere, or a `url` that does not suit
-the check type
+alert channel, Slack settings that post nowhere, a `url` that does not suit
+the check type, or expected values that do not suit the record type
 
 ### `DELETE /api/v1/monitoring/websites/{website_id}`
 Stop monitoring and delete the site's check history.
@@ -449,7 +465,13 @@ these fields existed have them null. A ping check has `ping` instead: the
 `address` pinged (what a host name resolved to), packets `sent` and `received`,
 `loss_percent`, and round trips `min_ms` / `avg_ms` / `max_ms` / `jitter_ms`;
 its `response_time_ms` is the average round trip, rounded, and `dns_ms` the
-name lookup.
+name lookup. A DNS check has `dns`: the `record_type`, the `expected` values
+pinned at the time, the `records` the resolvers agreed on (null when they
+disagreed or fewer than half answered), `consistent`, and each resolver's
+`answers` — `resolver`, `address`, `records`, `ttl`, `time_ms`, and `error` /
+`error_type` (`nxdomain`, `no_records`, `servfail`, `refused`, `timeout`,
+`network_error`, `dns_error`); its `response_time_ms` is the resolvers' average
+answer time.
 Query: `limit` (1–500)
 `200` · `404`
 
@@ -463,7 +485,8 @@ share of checks that succeeded; response times count successful checks only,
 as in the monthly report; the percentile is accurate to within about 25%.
 For a ping check the response time is the average round trip, and
 `packet_loss_percent` (whole range and per bucket; null for HTTP checks) the
-share of pings lost — also a CSV column for ping checks.
+share of pings lost — also a CSV column for ping checks. For a DNS check it is
+the resolvers' average answer time.
 `format=csv` downloads the series as a file instead (one row per bucket, blank
 figures for an empty one).
 `200` · `404` · `422` unknown range or format
@@ -472,7 +495,8 @@ figures for an empty one).
 Probe now, through the same state machine as a scheduled check, so it can raise
 and clear alerts. The fastest way to test a new site or your SMTP setup.
 Returns the site, the check, and which notification it raised (if any): `down`,
-`still_down`, `recovered`, `ssl_expiring`, `slow_response` or `packet_loss`.
+`still_down`, `recovered`, `ssl_expiring`, `slow_response`, `packet_loss` or
+`dns_changed`.
 `200` · `403` · `404` · `503` a ping check, and this server is not allowed to
 send pings (see `PING_PRIVILEGED` in the README)
 
@@ -485,7 +509,7 @@ the field have none), and reports a read-only `ssl_expires_at` for HTTPS sites.
 ## Monitoring — notifications
 
 `{kind}` is one of `down`, `still_down`, `recovered`, `ssl_expiring`,
-`slow_response`, `packet_loss`, `monthly_report`. Settings resolve project → global → built-in
+`slow_response`, `packet_loss`, `dns_changed`, `monthly_report`. Settings resolve project → global → built-in
 default, field by field; see the README for what each kind is.
 
 Every setting comes back as:

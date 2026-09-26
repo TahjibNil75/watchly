@@ -1,3 +1,4 @@
+import ipaddress
 import json
 from functools import lru_cache
 from typing import Annotated
@@ -140,6 +141,18 @@ class Settings(BaseSettings):
     #: net.ipv4.ping_group_range sysctl; docker-compose.yml opens it for the API.
     PING_PRIVILEGED: bool = False
 
+    # --- DNS checks -------------------------------------------------------
+    #: The resolvers every DNS check asks, as `Name=address` (or a bare
+    #: address), comma-separated. Each public one is its own anycast network,
+    #: so together they show whether the world sees the same records.
+    #: NoDecode: see ALERT_DEFAULT_EMAILS.
+    DNS_RESOLVERS: Annotated[list[str], NoDecode] = [
+        "Cloudflare=1.1.1.1",
+        "Google=8.8.8.8",
+        "Quad9=9.9.9.9",
+        "OpenDNS=208.67.222.222",
+    ]
+
     # --- Monthly uptime report --------------------------------------------
     MONTHLY_REPORTS_ENABLED: bool = True
     #: Day of the month to send the previous month's report. Capped at 28 so
@@ -172,6 +185,40 @@ class Settings(BaseSettings):
                 raise ValueError("SSL_EXPIRY_ALERT_DAYS entries must be 1 or more")
             return days
         return value
+
+    @field_validator("DNS_RESOLVERS", mode="before")
+    @classmethod
+    def _split_resolvers(cls, value: object) -> object:
+        """Accept `Cloudflare=1.1.1.1,8.8.8.8` as well as a JSON list; each
+        address must be an IP address, since there is nothing to resolve a
+        resolver's name with."""
+        if isinstance(value, str):
+            if value.strip().startswith("["):
+                value = json.loads(value)
+            else:
+                value = [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            if not value:
+                raise ValueError("DNS_RESOLVERS needs at least one resolver")
+            for item in value:
+                address = str(item).rpartition("=")[2].strip()
+                try:
+                    ipaddress.ip_address(address)
+                except ValueError:
+                    raise ValueError(
+                        f"DNS_RESOLVERS entry {item!r} is not `Name=IP address` or an IP address"
+                    ) from None
+        return value
+
+    @property
+    def dns_resolvers(self) -> list[tuple[str, str]]:
+        """DNS_RESOLVERS as (name, address) pairs; a bare address is its own name."""
+        pairs = []
+        for item in self.DNS_RESOLVERS:
+            name, _, address = item.rpartition("=")
+            address = address.strip()
+            pairs.append((name.strip() or address, address))
+        return pairs
 
     @property
     def database_url(self) -> str:

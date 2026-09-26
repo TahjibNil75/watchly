@@ -1,13 +1,14 @@
 import { useState } from 'react'
-import { CHECK_TYPES } from './checkTypes.js'
+import { CHECK_TYPES, RECORD_TYPES, recordType } from './checkTypes.js'
 import { ErrorBanner, UserChecklist } from './components.jsx'
 import { ENVIRONMENTS } from './environments.js'
 import { duration, parseEmails } from './format.js'
 
 const METHODS = ['GET', 'HEAD', 'POST', 'OPTIONS']
 const INTERVALS = [30, 60, 120, 300, 600, 900, 1800, 3600, 21600, 86400]
-// Each type's default timeout: a ping waits for echo replies, not pages.
-const TIMEOUTS = { http: 10, ping: 2 }
+// Each type's default timeout: a ping waits for echo replies, not pages, and
+// a resolver may have to recurse on a cache miss.
+const TIMEOUTS = { http: 10, ping: 2, dns: 5 }
 
 const BLANK = {
   project_id: '',
@@ -26,6 +27,9 @@ const BLANK = {
   must_not_contain: '',
   ping_count: 5,
   packet_loss_threshold_percent: '',
+  dns_record_type: 'A',
+  // One per line.
+  dns_expected_values: '',
   alert_emails: '',
   inherit_project_recipients: true,
   slack_channel_id: '',
@@ -44,6 +48,8 @@ function fromSite(site) {
     must_contain: site.must_contain ?? '',
     must_not_contain: site.must_not_contain ?? '',
     packet_loss_threshold_percent: site.packet_loss_threshold_percent ?? '',
+    dns_record_type: site.dns_record_type ?? 'A',
+    dns_expected_values: (site.dns_expected_values ?? []).join('\n'),
     environment: site.environment ?? '',
   }
 }
@@ -54,7 +60,7 @@ function withScheme(url) {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
 }
 
-// A pasted URL is a common slip for a ping; keep just its host.
+// A pasted URL is a common slip for a ping or a DNS check; keep just its host.
 function hostOf(text) {
   const trimmed = text.trim()
   if (!/^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)) return trimmed
@@ -67,6 +73,13 @@ function hostOf(text) {
 
 // Blank means "use the server-wide default".
 const orNull = (value) => (value === '' ? null : Number(value))
+
+// A textarea's non-blank lines.
+const lines = (text) =>
+  text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
 
 // What the Slack fields will do, given the project's own Slack setup.
 function slackHint(project, site) {
@@ -118,6 +131,8 @@ export default function WebsiteForm({
     setForm({ ...form, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
   const ping = form.check_type === 'ping'
+  const dns = form.check_type === 'dns'
+  const http = !ping && !dns
   // Switching type swaps in its default timeout, unless one was typed in.
   const pickType = (type) =>
     setForm({
@@ -151,7 +166,7 @@ export default function WebsiteForm({
     const payload = {
       name: form.name.trim(),
       environment: form.environment || null,
-      url: ping ? hostOf(form.url) : withScheme(form.url),
+      url: http ? withScheme(form.url) : hostOf(form.url),
       method: form.method,
       expected_status: Number(form.expected_status),
       timeout_seconds: Number(form.timeout_seconds),
@@ -159,15 +174,19 @@ export default function WebsiteForm({
       max_down_alerts: Number(form.max_down_alerts),
       slow_threshold_ms: orNull(form.slow_threshold_ms),
       retries_on_failure: Number(form.retries_on_failure),
-      // Blank removes the rule; a ping has no body to search.
-      must_contain: (!ping && form.must_contain) || null,
-      must_not_contain: (!ping && form.must_not_contain) || null,
+      // Blank removes the rule; a ping or a DNS check has no body to search.
+      must_contain: (http && form.must_contain) || null,
+      must_not_contain: (http && form.must_not_contain) || null,
       ping_count: Number(form.ping_count),
       packet_loss_threshold_percent: orNull(form.packet_loss_threshold_percent),
       alert_emails: parseEmails(form.alert_emails),
       inherit_project_recipients: form.inherit_project_recipients,
       // Clearing the channel removes the site's own Slack, token included.
       slack_channel_id: slackChannel || null,
+    }
+    if (dns) {
+      payload.dns_record_type = form.dns_record_type
+      payload.dns_expected_values = lines(form.dns_expected_values)
     }
     if (slackToken) payload.slack_bot_token = slackToken
     if (creating) {
@@ -190,7 +209,7 @@ export default function WebsiteForm({
     <form className="form" onSubmit={submit}>
       <ErrorBanner error={error} />
 
-      {/* Fixed once created: the two keep different history. */}
+      {/* Fixed once created: each keeps a different history. */}
       {creating && (
         <div className="choices" role="radiogroup" aria-label="What to check">
           {CHECK_TYPES.map((t) => (
@@ -244,21 +263,61 @@ export default function WebsiteForm({
           <input
             value={form.name}
             onChange={set('name')}
-            placeholder={ping ? 'Core router' : 'Marketing site'}
+            placeholder={ping ? 'Core router' : dns ? 'Mail servers (MX)' : 'Marketing site'}
             required
             maxLength={255}
           />
         </label>
         <label className="field">
-          <span>{ping ? 'Host or IP address' : 'URL'}</span>
+          <span>{ping ? 'Host or IP address' : dns ? 'Domain' : 'URL'}</span>
           <input
             value={form.url}
             onChange={set('url')}
-            placeholder={ping ? '203.0.113.10 or server.example.com' : 'https://example.com/'}
+            placeholder={
+              ping
+                ? '203.0.113.10 or server.example.com'
+                : dns
+                  ? 'example.com or _dmarc.example.com'
+                  : 'https://example.com/'
+            }
             required
           />
         </label>
       </div>
+
+      {dns && (
+        <div className="row-2">
+          <label className="field">
+            <span>Record type</span>
+            <select value={form.dns_record_type} onChange={set('dns_record_type')}>
+              {RECORD_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            <span className="muted small">
+              Looked up at several public resolvers at once, so a change seen by only some of them
+              shows.
+              {initial && form.dns_record_type !== initial.dns_record_type &&
+                ' Changing it forgets the records learned so far.'}
+            </span>
+          </label>
+          <label className="field">
+            <span>Expected values (optional)</span>
+            <textarea
+              rows={3}
+              value={form.dns_expected_values}
+              onChange={set('dns_expected_values')}
+              placeholder={`One per line, e.g. ${recordType(form.dns_record_type).example}`}
+            />
+            <span className="muted small">
+              Any other answer from any resolver counts as down. Leave blank to learn the records
+              and be alerted when they change.
+            </span>
+          </label>
+        </div>
+      )}
 
       <div className="row-3">
         <label className="field">
@@ -272,7 +331,13 @@ export default function WebsiteForm({
           </select>
         </label>
         <label className="field">
-          <span>{ping ? 'Reply timeout (seconds)' : 'Timeout (seconds)'}</span>
+          <span>
+            {ping
+              ? 'Reply timeout (seconds)'
+              : dns
+                ? 'Resolver timeout (seconds)'
+                : 'Timeout (seconds)'}
+          </span>
           <input
             type="number"
             min={1}
@@ -363,7 +428,44 @@ export default function WebsiteForm({
         </details>
       )}
 
-      {!ping && (
+      {dns && (
+        <details className="advanced">
+          <summary>DNS options</summary>
+          <div className="row-3">
+            <label className="field">
+              <span>Slow answer alert above (ms)</span>
+              <input
+                type="number"
+                min={1}
+                max={120000}
+                value={form.slow_threshold_ms}
+                onChange={set('slow_threshold_ms')}
+                placeholder="Server default"
+              />
+              <span className="muted small">
+                Alert when the resolvers&apos; average answer time stays above this.
+              </span>
+            </label>
+            <label className="field">
+              <span>Retries before failing</span>
+              <input
+                type="number"
+                min={0}
+                max={3}
+                value={form.retries_on_failure}
+                onChange={set('retries_on_failure')}
+                required
+              />
+              <span className="muted small">
+                When the record fails or is wrong, look again a few seconds later before
+                alerting. 0 alerts at once.
+              </span>
+            </label>
+          </div>
+        </details>
+      )}
+
+      {http && (
         <details className="advanced">
           <summary>Request options</summary>
           <div className="row-3">

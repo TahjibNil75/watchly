@@ -16,12 +16,13 @@ export function EnvironmentBadge({ environment }) {
   return <span className={`badge badge-env badge-env-${environment}`}>{label}</span>
 }
 
-// How a site is checked: HTTP or Ping.
+// How a site is checked: HTTP, Ping, or DNS with the record it watches.
 export function CheckTypeBadge({ site }) {
   const type = checkType(site.check_type)
   return (
     <span className={`badge badge-type badge-type-${type.value}`} title={type.description}>
       {type.short}
+      {site.dns_record_type && ` ${site.dns_record_type}`}
     </span>
   )
 }

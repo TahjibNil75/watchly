@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
     desc,
     func,
     select,
@@ -60,11 +61,33 @@ class CheckType(str, enum.Enum):
     HTTP = "http"
     #: Send ICMP echo requests to the host in `url` and count the replies.
     PING = "ping"
+    #: Ask several DNS resolvers for one record of the domain in `url`.
+    DNS = "dns"
 
 
 check_type_enum = SAEnum(
     CheckType,
     name="check_type",
+    native_enum=True,
+    create_constraint=False,
+    validate_strings=True,
+    values_callable=lambda enum_cls: [member.value for member in enum_cls],
+)
+
+
+class DnsRecordType(str, enum.Enum):
+    """The records a DNS check can watch."""
+
+    A = "A"
+    AAAA = "AAAA"
+    CNAME = "CNAME"
+    MX = "MX"
+    TXT = "TXT"
+
+
+dns_record_type_enum = SAEnum(
+    DnsRecordType,
+    name="dns_record_type",
     native_enum=True,
     create_constraint=False,
     validate_strings=True,
@@ -132,18 +155,32 @@ class Website(Base, TimestampMixin):
     """A site to poll, together with the live state of its current outage.
 
     Also a host to ping (`check_type` ping), which keeps its host name or IP
-    address in `url` and ignores the HTTP-only settings.
+    address in `url` and ignores the HTTP-only settings; or one DNS record of a
+    domain (`check_type` dns), which keeps the domain in `url`.
     """
 
     __tablename__ = "websites"
+    __table_args__ = (
+        # One check per target: a domain can still be pinged, and have each of
+        # its record types looked up, side by side. dns_record_type is null
+        # for the other types, which must count as equal here.
+        UniqueConstraint(
+            "url",
+            "check_type",
+            "dns_record_type",
+            name="uq_websites_target",
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    #: The URL to request, or for a ping check the host name or IP address.
-    url: Mapped[str] = mapped_column(String(2048), unique=True, nullable=False)
+    #: The URL to request, for a ping check the host name or IP address, or
+    #: for a DNS check the domain name.
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
 
     # --- how to check ---------------------------------------------------
     check_type: Mapped[CheckType] = mapped_column(
@@ -155,6 +192,16 @@ class Website(Base, TimestampMixin):
     #: Ping checks: echo requests sent per check.
     ping_count: Mapped[int] = mapped_column(
         Integer, default=5, server_default=text("5"), nullable=False
+    )
+    #: DNS checks: the record to look up; None for every other check type.
+    dns_record_type: Mapped[DnsRecordType | None] = mapped_column(
+        dns_record_type_enum, nullable=True
+    )
+    #: DNS checks: the records every resolver must return, normalized as
+    #: `dns_probe` writes them. Empty means none are pinned: the check then
+    #: learns the records and alerts when they change.
+    dns_expected_values: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), default=list, server_default=text("'{}'"), nullable=False
     )
     method: Mapped[str] = mapped_column(
         String(10), default="GET", server_default=text("'GET'"), nullable=False
@@ -272,6 +319,10 @@ class Website(Base, TimestampMixin):
     #: certificate (0 = expired). None once the certificate is healthy again,
     #: which is what re-arms the warnings after a renewal.
     ssl_alert_bucket: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: DNS checks: the records the resolvers last agreed on, what a change is
+    #: measured against. None before they first agree, and after the record
+    #: type or domain changes.
+    dns_records: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
 
     created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -402,6 +453,11 @@ class WebsiteCheck(Base):
     #: The address pinged: the host itself, or what its name resolved to.
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    #: DNS checks only: the record type, the expected values, and each
+    #: resolver's answer, as `dns_probe.DnsResult.as_dict()` writes them. For a
+    #: DNS check `response_time_ms` is the resolvers' average answer time.
+    dns: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     website: Mapped[Website] = relationship(back_populates="checks")
 
     @property
@@ -429,7 +485,8 @@ class WebsiteCheck(Base):
 
 class WebsiteEvent(Base):
     """Something a check found that people should hear about: an outage, a
-    recovery, a slow spell, an expiring certificate. The app's own feed.
+    recovery, a slow spell, an expiring certificate, changed DNS records. The
+    app's own feed.
 
     Written with the check that raised it, whether or not email or Slack is
     switched on for that kind, so the feed never depends on those settings.

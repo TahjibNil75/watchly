@@ -26,6 +26,7 @@ from app.monitoring.alerts.base import (
     uptime_tone,
 )
 from app.monitoring.websites.checker import CheckResult
+from app.monitoring.websites.dns_probe import format_records
 from app.monitoring.websites.pinger import format_rtt
 
 #: Sites listed in one report message; the rest are counted, not drawn.
@@ -111,6 +112,11 @@ class SiteEvent(Notification):
 
     def _identity_facts(self) -> list[tuple[str, str]]:
         site = self.website
+        if site.is_dns:
+            rows = [("Project", site.project_name), ("DNS check", site.name), ("Domain", site.url)]
+            if self.result.dns is not None:
+                rows.append(("Record", self.result.dns.record_type.value))
+            return rows
         if not site.is_ping:
             return [("Project", site.project_name), ("Website", site.name), ("URL", site.url)]
         rows = [("Project", site.project_name), ("Host", site.name), ("Address", site.url)]
@@ -142,6 +148,24 @@ class SiteEvent(Notification):
             rows.append(("Jitter", format_rtt(ping.jitter_ms)))
         return rows
 
+    def _dns_facts(self) -> list[tuple[str, str]]:
+        """What was expected, if anything, then each resolver's answer."""
+        dns = self.result.dns
+        if dns is None:
+            return []
+        rows = []
+        if dns.expected:
+            rows.append(("Expected", format_records(dns.record_type, dns.expected, limit=10)))
+        for a in dns.answers:
+            if a.records is None:
+                rows.append((a.label, a.error or "no answer"))
+                continue
+            text = format_records(dns.record_type, a.records, limit=10)
+            if a.ttl is not None:
+                text += f" · TTL {format_duration(a.ttl)}"
+            rows.append((a.label, f"{text} · {a.time_ms} ms"))
+        return rows
+
     def _response_facts(self) -> list[tuple[str, str]]:
         r = self.result
         rows: list[tuple[str, str]] = []
@@ -162,6 +186,11 @@ class SiteEvent(Notification):
             status_code = "—"
             avg = r.ping.avg_ms if r.ping else None
             response_time = format_rtt(avg) if avg is not None else "—"
+        elif self.website.is_dns:
+            status_code = "—"
+            response_time = (
+                f"{r.response_time_ms} ms" if r.response_time_ms is not None else "—"
+            )
         else:
             status_code = str(r.status_code) if r.status_code is not None else "no response"
             response_time = (
@@ -225,6 +254,7 @@ class SiteEvent(Notification):
                 if r.ping
                 else None
             ),
+            "dns": r.dns.as_dict() if r.dns else None,
         }
 
 
@@ -263,11 +293,11 @@ class OutageEvent(SiteEvent):
     def facts(self) -> list[tuple[str, str]]:
         """Ordered diagnostic rows."""
         r = self.result
-        ping = self.website.is_ping
+        ping, dns = self.website.is_ping, self.website.is_dns
         rows = self._identity_facts()
         rows.append(("Status", "UP" if r.is_up else "DOWN"))
         rows.append(("Checked at", _utc(r.checked_at)))
-        if not ping:
+        if not (ping or dns):
             rows.extend(self._response_facts()[:1])  # the HTTP status line
             if not r.is_up:
                 rows.append(("Expected status", str(self.website.expected_status)))
@@ -277,12 +307,15 @@ class OutageEvent(SiteEvent):
             rows.append(("Error type", r.error_type))
         if ping:
             rows.extend(self._ping_facts())
+        elif dns:
+            rows.extend(self._dns_facts())
         else:
             if r.response_time_ms is not None:
                 rows.append(("Response time", f"{r.response_time_ms} ms"))
             if split := _time_split(r):
                 rows.append(("Timing", " · ".join(f"{label} {ms} ms" for label, ms in split)))
-        rows.append(("Reply timeout" if ping else "Timeout", f"{self.website.timeout_seconds}s"))
+        timeout = "Reply timeout" if ping else "Resolver timeout" if dns else "Timeout"
+        rows.append((timeout, f"{self.website.timeout_seconds}s"))
         if r.final_url and r.redirected:
             rows.append(("Redirected to", r.final_url))
         if r.content_length is not None:
@@ -482,8 +515,11 @@ class SlowResponseEvent(SiteEvent):
     slow_checks: int
 
     def _slowest(self) -> str | None:
-        # A ping's time is all round trip; there are no steps to compare.
-        return None if self.website.is_ping else _slowest_step(self.result)
+        # A ping's time is all round trip, and a DNS check's all answer time;
+        # there are no steps to compare.
+        if self.website.is_ping or self.website.is_dns:
+            return None
+        return _slowest_step(self.result)
 
     def context(self) -> dict[str, str]:
         return {
@@ -494,10 +530,13 @@ class SlowResponseEvent(SiteEvent):
         }
 
     def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
-        ping = self.website.is_ping
+        ping, dns = self.website.is_ping, self.website.is_dns
         rows = self._identity_facts()
         if ping:
             rows.extend(self._ping_facts())
+        elif dns:
+            rows.append(("Average answer time", f"{self.result.response_time_ms} ms"))
+            rows.extend(self._dns_facts())
         else:
             rows.extend(self._response_facts()[::-1])  # response time first
         if slowest := self._slowest():
@@ -511,11 +550,17 @@ class SlowResponseEvent(SiteEvent):
         )
         cooldown = format_duration(settings.SLOW_ALERT_COOLDOWN_SECONDS)
         name = self.website.name
+        if ping:
+            kicker, title = "High latency", f"{name} has high latency"
+        elif dns:
+            kicker, title = "Slow DNS", f"{name} is resolving slowly"
+        else:
+            kicker, title = "Slow response", f"{name} is responding slowly"
         return Message(
             kind=self.kind,
             tone=Tone.WARNING,
-            kicker="High latency" if ping else "Slow response",
-            title=f"{name} has high latency" if ping else f"{name} is responding slowly",
+            kicker=kicker,
+            title=title,
             subject=subject,
             body=body,
             slack_body=slack_body,
@@ -600,6 +645,96 @@ class PacketLossEvent(SiteEvent):
             "packet_loss": {
                 "threshold_percent": self.threshold_percent,
                 "consecutive_lossy_checks": self.lossy_checks,
+            },
+        }
+
+
+@dataclass(kw_only=True)
+class DnsChangeEvent(SiteEvent):
+    """A DNS check with nothing pinned: every resolver now returns other records
+    than the ones they last agreed on."""
+
+    kind: ClassVar[NotificationKind] = NotificationKind.DNS_CHANGED
+
+    #: The records before and after, sorted as `dns_probe` writes them.
+    previous: list[str]
+    current: list[str]
+
+    @property
+    def record_type(self) -> str:
+        dns = self.result.dns
+        return dns.record_type.value if dns else "DNS"
+
+    @property
+    def added(self) -> list[str]:
+        return sorted(set(self.current) - set(self.previous))
+
+    @property
+    def removed(self) -> list[str]:
+        return sorted(set(self.previous) - set(self.current))
+
+    def _records(self, records: list[str], limit: int = 10) -> str:
+        return format_records(self.record_type, records, limit=limit)
+
+    @property
+    def change_summary(self) -> str:
+        """One line for the feed, e.g. `A records now 198.51.100.7 (were 203.0.113.10)`."""
+        return (
+            f"{self.record_type} records now {self._records(self.current, 3)} "
+            f"(were {self._records(self.previous, 3)})"
+        )
+
+    def context(self) -> dict[str, str]:
+        return {
+            **super().context(),
+            "record_type": self.record_type,
+            "records": self._records(self.current),
+            "previous_records": self._records(self.previous),
+            "added": self._records(self.added) if self.added else "—",
+            "removed": self._records(self.removed) if self.removed else "—",
+        }
+
+    def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
+        rows = self._identity_facts()
+        rows.append(("Now", self._records(self.current)))
+        rows.append(("Before", self._records(self.previous)))
+        if self.added:
+            rows.append(("Added", self._records(self.added)))
+        if self.removed:
+            rows.append(("Removed", self._records(self.removed)))
+        rows.extend(self._dns_facts())
+        rows.append(("Checked at", _utc(self.result.checked_at)))
+        return Message(
+            kind=self.kind,
+            tone=Tone.WARNING,
+            kicker="DNS change",
+            title=f"{self.record_type} records for {self.website.url} changed",
+            subject=subject,
+            body=body,
+            slack_body=slack_body,
+            facts=rows,
+            note=(
+                "Every resolver Watchly asks now returns these records. If you did not "
+                "make this change, check your DNS provider and registrar accounts at "
+                "once. Pin the expected values on this check to treat any other answer "
+                "as an outage."
+            ),
+            link=self._site_link(),
+        )
+
+    def payload(self, subject: str) -> dict:
+        return {
+            "event": self.kind.value,
+            "subject": subject,
+            "summary": self.change_summary,
+            "website": self._website_payload(),
+            "check": self._check_payload(),
+            "dns_change": {
+                "record_type": self.record_type,
+                "previous": self.previous,
+                "current": self.current,
+                "added": self.added,
+                "removed": self.removed,
             },
         }
 

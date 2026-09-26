@@ -2,7 +2,7 @@ import enum
 import ipaddress
 import re
 from datetime import datetime
-from typing import Self
+from typing import Annotated, Self
 
 from pydantic import (
     AnyHttpUrl,
@@ -19,17 +19,33 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from app.monitoring.projects.schemas import ProjectMemberRead, SlackSettings
-from app.monitoring.websites.models import CheckType, WebsiteEnvironment, WebsiteStatus
+from app.monitoring.websites.models import (
+    CheckType,
+    DnsRecordType,
+    WebsiteEnvironment,
+    WebsiteStatus,
+)
 
 HTTP_METHODS = frozenset({"GET", "HEAD", "POST", "OPTIONS"})
 
 #: A ping waits for echo replies, not pages, so its default timeout is short.
 PING_TIMEOUT_SECONDS = 2
+#: A resolver may have to recurse through slow name servers on a cache miss,
+#: so a DNS check waits longer than a ping, but not as long as for a page.
+DNS_TIMEOUT_SECONDS = 5
+#: Each check type's timeout when none is given; HTTP keeps the field default.
+_DEFAULT_TIMEOUTS = {CheckType.PING: PING_TIMEOUT_SECONDS, CheckType.DNS: DNS_TIMEOUT_SECONDS}
+#: Values a DNS check may pin; a record set rarely runs longer.
+MAX_DNS_VALUES = 20
+#: One pinned value; room for a DKIM key, which runs to several hundred.
+_DnsValue = Annotated[str, Field(max_length=4096)]
 
 _HTTP_URL = TypeAdapter(AnyHttpUrl)
 #: One DNS label. Underscores are not valid in host names, but turn up in
 #: internal ones often enough to allow.
 _HOST_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)$")
+#: A TXT value pasted as zone-file strings: `"v=spf1 …" "…"`.
+_QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
 def _blank_to_none(cls, value):
@@ -46,6 +62,32 @@ def http_url(value: str) -> str:
         raise PydanticCustomError("url_parsing", exc.errors()[0]["msg"]) from None
 
 
+def _host_name(value: str) -> str | None:
+    """A host name in lower case, with no trailing dot and an IDN in its ASCII
+    form; None when `value` is not a valid one."""
+    host = value.strip().rstrip(".").lower()
+    if not host.isascii():
+        try:
+            host = host.encode("idna").decode("ascii")
+        except UnicodeError:
+            return None
+    labels = host.split(".")
+    # A last label of only digits would make it an IP address, and this is not a valid one.
+    if len(host) > 253 or not all(map(_HOST_LABEL.match, labels)) or labels[-1].isdigit():
+        return None
+    return host
+
+
+def _ip_address(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """`value` as an IP address, an IPv6 one possibly in brackets; else None."""
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    try:
+        return ipaddress.ip_address(value)
+    except ValueError:
+        return None
+
+
 def ping_host(value: str) -> str:
     """A host name or IP address to ping: lower case, with no trailing dot, and
     an IPv6 address compressed and out of its brackets."""
@@ -56,31 +98,98 @@ def ping_host(value: str) -> str:
             "A ping needs a host name or IP address, not a URL: e.g. 203.0.113.10 "
             "or server.example.com.",
         )
-    if host.startswith("[") and host.endswith("]"):
-        host = host[1:-1]
-    try:
-        return ipaddress.ip_address(host).compressed
-    except ValueError:
-        pass
-    host = host.rstrip(".").lower()
-    if not host.isascii():
-        try:
-            host = host.encode("idna").decode("ascii")
-        except UnicodeError:
-            host = ""
-    labels = host.split(".")
-    # A last label of only digits would make it an IP address, and this is not a valid one.
-    if len(host) > 253 or not all(map(_HOST_LABEL.match, labels)) or labels[-1].isdigit():
+    if (address := _ip_address(host)) is not None:
+        return address.compressed
+    if (name := _host_name(host)) is None:
         raise PydanticCustomError(
             "ping_host",
             "Enter a valid host name or IP address: e.g. 203.0.113.10 or server.example.com.",
         )
+    return name
+
+
+def dns_name(value: str) -> str:
+    """A domain name to look up, e.g. `example.com` or `_dmarc.example.com`:
+    lower case, with no trailing dot."""
+    name = value.strip()
+    if "/" in name:
+        raise PydanticCustomError(
+            "dns_name", "A DNS check needs a domain name, not a URL: e.g. example.com."
+        )
+    if _ip_address(name) is not None:
+        raise PydanticCustomError(
+            "dns_name",
+            "A DNS check needs a domain name, not an IP address: e.g. example.com.",
+        )
+    if (host := _host_name(name)) is None:
+        raise PydanticCustomError(
+            "dns_name",
+            "Enter a valid domain name: e.g. example.com or _dmarc.example.com.",
+        )
     return host
+
+
+_TARGETS = {CheckType.HTTP: http_url, CheckType.PING: ping_host, CheckType.DNS: dns_name}
 
 
 def monitor_target(check_type: CheckType, value: str) -> str:
     """What `url` holds for this kind of check, validated and normalized."""
-    return ping_host(value) if check_type is CheckType.PING else http_url(value)
+    return _TARGETS[check_type](value)
+
+
+def _not_a(record_type: DnsRecordType, value: str, what: str) -> PydanticCustomError:
+    return PydanticCustomError(
+        "dns_value",
+        "{record_type} value '{value}' is not {what}.",
+        {"record_type": record_type.value, "value": value, "what": what},
+    )
+
+
+def dns_value(record_type: DnsRecordType, value: str) -> str:
+    """One expected value, written as `dns_probe.record_text` writes a record
+    a resolver returned, so the two compare as strings."""
+    text = value.strip()
+    match record_type:
+        case DnsRecordType.A | DnsRecordType.AAAA:
+            version = 4 if record_type is DnsRecordType.A else 6
+            address = _ip_address(text)
+            if address is None or address.version != version:
+                raise _not_a(record_type, text, f"an IPv{version} address")
+            return address.compressed
+        case DnsRecordType.CNAME:
+            if (host := _host_name(text)) is None:
+                raise _not_a(record_type, text, "a host name, e.g. example.net")
+            return host
+        case DnsRecordType.MX:
+            parts = text.split()
+            # "0 ." is a null MX (RFC 7505): the domain takes no mail.
+            host = parts[1] if len(parts) == 2 and parts[1] == "." else None
+            if len(parts) == 2 and host is None:
+                host = _host_name(parts[1])
+            if host is None or not parts[0].isdigit() or int(parts[0]) > 65_535:
+                raise _not_a(record_type, text, "a preference and a host, e.g. 10 mx1.example.com")
+            return f"{int(parts[0])} {host}"
+        case DnsRecordType.TXT:
+            # Pasted from a zone file or `dig`: one or more quoted strings,
+            # which a resolver hands back joined into one value.
+            strings = _QUOTED.findall(text)
+            if strings and not _QUOTED.sub("", text).strip():
+                text = "".join(re.sub(r"\\(.)", r"\1", part) for part in strings)
+            if not text:
+                raise PydanticCustomError("dns_value", "A TXT value cannot be empty.")
+            return text
+    raise PydanticCustomError("dns_value", "Unsupported record type.")
+
+
+def dns_values(record_type: DnsRecordType, values: list[str]) -> list[str]:
+    """Expected values, normalized, without blanks or repeats, and sorted as
+    `dns_probe` sorts the records a resolver returns."""
+    normalized = sorted({dns_value(record_type, value) for value in values if value.strip()})
+    if record_type is DnsRecordType.CNAME and len(normalized) > 1:
+        raise PydanticCustomError(
+            "dns_value", "A name has at most one CNAME record: give a single value."
+        )
+    return normalized
 
 
 class WebsiteBase(BaseModel):
@@ -89,7 +198,8 @@ class WebsiteBase(BaseModel):
         default=CheckType.HTTP,
         description=(
             "`http` requests `url`; `ping` sends ICMP echo requests to the host "
-            "name or IP address in `url`. Fixed once the site is created."
+            "name or IP address in `url`; `dns` looks up one record of the domain "
+            "in `url` at several resolvers. Fixed once the site is created."
         ),
     )
     name: str = Field(min_length=1, max_length=255)
@@ -97,8 +207,9 @@ class WebsiteBase(BaseModel):
         min_length=1,
         max_length=2048,
         description=(
-            "The http(s) URL to request, or for a ping check the host name or "
-            "IP address, e.g. `203.0.113.10` or `server.example.com`."
+            "The http(s) URL to request; for a ping check the host name or IP "
+            "address, e.g. `203.0.113.10` or `server.example.com`; for a DNS "
+            "check the domain name, e.g. `example.com` or `_dmarc.example.com`."
         ),
     )
     method: str = "GET"
@@ -109,7 +220,8 @@ class WebsiteBase(BaseModel):
         le=120,
         description=(
             "Per request; for a ping check, how long to wait for each reply "
-            f"(default {PING_TIMEOUT_SECONDS})."
+            f"(default {PING_TIMEOUT_SECONDS}); for a DNS check, for each "
+            f"resolver's answer (default {DNS_TIMEOUT_SECONDS})."
         ),
     )
     check_interval_seconds: int = Field(default=300, ge=30, le=86_400)
@@ -149,7 +261,8 @@ class WebsiteBase(BaseModel):
         le=120_000,
         description=(
             "Alert when successful responses stay slower than this; for a ping "
-            "check, the average round trip. Leave null to use the server-wide "
+            "check, the average round trip; for a DNS check, the resolvers' "
+            "average answer time. Leave null to use the server-wide "
             "SLOW_RESPONSE_THRESHOLD_MS."
         ),
     )
@@ -164,6 +277,23 @@ class WebsiteBase(BaseModel):
             "Ping checks: alert when the host answers but keeps losing at least "
             "this share of pings. Leave null to use the server-wide "
             "PACKET_LOSS_THRESHOLD_PERCENT."
+        ),
+    )
+    dns_record_type: DnsRecordType | None = Field(
+        default=None,
+        description=(
+            "DNS checks: the record to look up, `A` when omitted. Ignored for other "
+            "check types."
+        ),
+    )
+    dns_expected_values: list[_DnsValue] = Field(
+        default_factory=list,
+        max_length=MAX_DNS_VALUES,
+        description=(
+            "DNS checks: the records every resolver must return, e.g. `203.0.113.10` "
+            "for A, `10 mx1.example.com` for MX, or a TXT value; any other answer "
+            "is an outage. Leave empty to have the check learn the records and "
+            "alert when they change."
         ),
     )
     alert_emails: list[EmailStr] = Field(
@@ -215,9 +345,18 @@ class WebsiteBase(BaseModel):
         return upper
 
     @model_validator(mode="after")
-    def _ping_timeout(self) -> Self:
-        if self.check_type is CheckType.PING and "timeout_seconds" not in self.model_fields_set:
-            self.timeout_seconds = PING_TIMEOUT_SECONDS
+    def _per_check_type(self) -> Self:
+        default = _DEFAULT_TIMEOUTS.get(self.check_type)
+        if default and "timeout_seconds" not in self.model_fields_set:
+            self.timeout_seconds = default
+        if self.check_type is CheckType.DNS:
+            self.dns_record_type = self.dns_record_type or DnsRecordType.A
+            self.dns_expected_values = dns_values(self.dns_record_type, self.dns_expected_values)
+        else:
+            # Only a DNS check has a record type; one on another type would
+            # also slip it past the one-check-per-target rule.
+            self.dns_record_type = None
+            self.dns_expected_values = []
         return self
 
     _bot_token = field_validator("slack_bot_token")(
@@ -258,7 +397,10 @@ class WebsiteUpdate(BaseModel):
         default=None,
         min_length=1,
         max_length=2048,
-        description="A URL, or for a ping check a host name or IP address.",
+        description=(
+            "A URL; for a ping check a host name or IP address; for a DNS check a "
+            "domain name."
+        ),
     )
     method: str | None = None
     expected_status: int | None = Field(default=None, ge=100, le=599)
@@ -288,6 +430,18 @@ class WebsiteUpdate(BaseModel):
         ge=1,
         le=99,
         description="Send null to go back to the server-wide default.",
+    )
+    dns_record_type: DnsRecordType | None = Field(
+        default=None,
+        description=(
+            "DNS checks only. Changing it starts learning the records afresh, and "
+            "clears dns_expected_values unless new ones are sent."
+        ),
+    )
+    dns_expected_values: list[_DnsValue] | None = Field(
+        default=None,
+        max_length=MAX_DNS_VALUES,
+        description="DNS checks only. Replaces the whole list; send [] to unpin.",
     )
     alert_emails: list[EmailStr] | None = Field(
         default=None, description="Replaces the whole list when supplied."
@@ -344,6 +498,46 @@ class PingCheckRead(BaseModel):
     )
 
 
+class DnsAnswerRead(BaseModel):
+    """What one resolver answered."""
+
+    resolver: str = Field(description="The resolver's name, e.g. `Cloudflare`.")
+    address: str = Field(description="The resolver's IP address.")
+    records: list[str] | None = Field(
+        description="The records it returned, sorted; null when it returned none."
+    )
+    ttl: int | None = Field(description="Seconds it may serve these from its cache.")
+    time_ms: int | None = Field(description="How long it took to answer; null when it did not.")
+    error: str | None = None
+    error_type: str | None = Field(
+        default=None,
+        description=(
+            "`nxdomain`, `no_records`, `servfail`, `refused`, `timeout`, "
+            "`network_error` or `dns_error`; null when it returned the record."
+        ),
+    )
+
+
+class DnsCheckRead(BaseModel):
+    """What one DNS check's resolvers answered."""
+
+    record_type: DnsRecordType
+    expected: list[str] = Field(description="The values pinned at the time; empty when none were.")
+    records: list[str] | None = Field(
+        description=(
+            "The records the resolvers agreed on; null when they disagreed or "
+            "fewer than half returned the record."
+        )
+    )
+    consistent: bool = Field(
+        description=(
+            "Every resolver that returned the record returned the same set, and "
+            "none said there is none. Timeouts and failures do not count against it."
+        )
+    )
+    answers: list[DnsAnswerRead]
+
+
 class WebsiteCheckRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -358,7 +552,8 @@ class WebsiteCheckRead(BaseModel):
         default=None,
         description=(
             "Why the check failed, e.g. `dns_error`, `connect_timeout`, `tls_error`, "
-            "`unexpected_status`, or for a ping `no_reply`; null when it succeeded."
+            "`unexpected_status`, for a ping `no_reply`, or for a DNS check "
+            "`nxdomain` or `dns_mismatch`; null when it succeeded."
         ),
     )
     final_url: str | None
@@ -384,6 +579,13 @@ class WebsiteCheckRead(BaseModel):
             "is then the average round trip, rounded."
         ),
     )
+    dns: DnsCheckRead | None = Field(
+        default=None,
+        description=(
+            "DNS checks: each resolver's answer. `response_time_ms` is then the "
+            "resolvers' average answer time."
+        ),
+    )
 
 
 class WebsiteRead(BaseModel):
@@ -396,6 +598,15 @@ class WebsiteRead(BaseModel):
     url: str
     ping_count: int
     packet_loss_threshold_percent: int | None = None
+    dns_record_type: DnsRecordType | None = None
+    dns_expected_values: list[str] = Field(default_factory=list)
+    dns_records: list[str] | None = Field(
+        default=None,
+        description=(
+            "DNS checks: the records the resolvers last agreed on, what a change "
+            "is measured against; null until they first agree."
+        ),
+    )
     method: str
     expected_status: int
     timeout_seconds: int
@@ -462,7 +673,10 @@ class WebsiteEventRead(BaseModel):
     id: int
     website: WebsiteEventSite
     kind: str = Field(
-        description="`down`, `recovered`, `slow_response`, `packet_loss` or `ssl_expiring`."
+        description=(
+            "`down`, `recovered`, `slow_response`, `packet_loss`, `dns_changed` or "
+            "`ssl_expiring`."
+        )
     )
     occurred_at: datetime
     summary: str = Field(
@@ -563,6 +777,6 @@ class CheckNowResponse(BaseModel):
     alert_sent: str | None = Field(
         default=None, description=(
             "Which notification the check raised, if any: down, still_down, "
-            "recovered, ssl_expiring, slow_response or packet_loss."
+            "recovered, ssl_expiring, slow_response, packet_loss or dns_changed."
         )
     )

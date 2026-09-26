@@ -57,6 +57,7 @@ flowchart LR
 
     DB[("PostgreSQL 16")]
     TARGETS["Monitored websites"]
+    RESOLVERS["Public DNS resolvers"]
     SMTP["SMTP provider"]
     SLACK["Slack Web API"]
     HOOK["Generic webhook"]
@@ -66,6 +67,7 @@ flowchart LR
     LOOP --> SVC
     SVC --> DB
     LOOP -->|"HTTP probe / ICMP ping"| TARGETS
+    LOOP -->|"DNS queries"| RESOLVERS
     SVC --> SMTP
     SVC --> SLACK
     SVC --> HOOK
@@ -139,7 +141,7 @@ app/monitoring/
 ├── service.py      MonitoringService — the outage state machine, slow + SSL tracking
 ├── scheduler.py    the background loop + advisory lock; also rolls up and purges checks, and triggers monthly reports
 ├── projects/       Project, membership, alert-channel config
-├── websites/       Website, WebsiteCheck, the HTTP + certificate probe, the ICMP ping (pinger.py); hourly rollups + retention (history.py)
+├── websites/       Website, WebsiteCheck, the HTTP + certificate probe, the ICMP ping (pinger.py), the DNS lookup (dns_probe.py); hourly rollups + retention (history.py)
 ├── alerts/         what is sent and how each channel draws it
 │   ├── base.py     NotificationKind, Message (channel-neutral), Alerter interface
 │   ├── events.py   OutageEvent, SslExpiryEvent, SlowResponseEvent, ReportEvent
@@ -230,9 +232,12 @@ erDiagram
     websites {
         int id PK
         int project_id FK
-        string url UK "URL, or host for a ping"
-        enum check_type "check_type: http, ping"
+        string url UK "URL, host for a ping, or domain; unique per check_type + dns_record_type"
+        enum check_type "check_type: http, ping, dns"
         int ping_count
+        enum dns_record_type "dns only: A, AAAA, CNAME, MX, TXT"
+        text_array dns_expected_values "empty = learn, alert on change"
+        text_array dns_records "what the resolvers last agreed on"
         string method
         int expected_status
         int check_interval_seconds
@@ -301,6 +306,7 @@ erDiagram
         float rtt_max_ms
         float jitter_ms
         string ip_address "what the host resolved to"
+        jsonb dns "dns only: each resolver's answer"
     }
     website_check_hourly {
         int website_id PK
@@ -332,7 +338,8 @@ erDiagram
 - `user_role` — `Viewer`, `Admin`, `DevOps`, `Project Manager`, `Developer`
 - `website_status` — `unknown`, `up`, `down`
 - `website_environment` — `development`, `testing`, `uat`, `staging`, `production`
-- `check_type` — `http`, `ping`
+- `check_type` — `http`, `ping`, `dns`
+- `dns_record_type` — `A`, `AAAA`, `CNAME`, `MX`, `TXT`
 
 **`invitations` keeps history.** Nothing is deleted: an invitation is closed by
 stamping `accepted_at` or `revoked_at`, and `status` is derived (a row past
@@ -376,8 +383,8 @@ sequenceDiagram
         else acquired
             L->>PG: SELECT sites where interval elapsed
             par probe concurrently, one shared client
-                L->>W: HTTP request, or ICMP echo requests
-                W-->>L: status / timeout / connection error / replies
+                L->>W: HTTP request, ICMP echo requests, or DNS queries to each resolver
+                W-->>L: status / timeout / connection error / replies / answers
             end
             loop each result, sequentially
                 L->>PG: INSERT website_checks
@@ -638,7 +645,7 @@ Worth knowing before this carries real load:
 | Add a notification kind | `NotificationKind`, an event in [`alerts/events.py`](../app/monitoring/alerts/events.py), and its entry in [`notifications/catalog.py`](../app/monitoring/notifications/catalog.py) |
 | Change the default wording | [`notifications/catalog.py`](../app/monitoring/notifications/catalog.py) |
 | Change how the monthly report is computed | `compute_site_stats()` in [`notifications/reports.py`](../app/monitoring/notifications/reports.py) |
-| Change how a site is probed | [`app/monitoring/websites/checker.py`](../app/monitoring/websites/checker.py); pings in [`pinger.py`](../app/monitoring/websites/pinger.py) |
+| Change how a site is probed | [`app/monitoring/websites/checker.py`](../app/monitoring/websites/checker.py); pings in [`pinger.py`](../app/monitoring/websites/pinger.py), DNS lookups in [`dns_probe.py`](../app/monitoring/websites/dns_probe.py) |
 | Add an alert channel | [`app/monitoring/alerts/`](../app/monitoring/alerts/) + `default_alerters()` in [`notifications/dispatcher.py`](../app/monitoring/notifications/dispatcher.py) |
 | Change the polling cadence | `MONITOR_TICK_SECONDS`, or per-site `check_interval_seconds` |
 | Add a table | The model module, then `alembic revision --autogenerate` |

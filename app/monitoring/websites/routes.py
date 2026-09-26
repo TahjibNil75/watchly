@@ -123,7 +123,9 @@ async def list_websites(
     sort: WebsiteSort = Query(
         WebsiteSort.ID, description="`status` puts down sites first, then sorts by name."
     ),
-    check_type: CheckType | None = Query(None, description="Only HTTP sites, or only pinged hosts."),
+    check_type: CheckType | None = Query(
+        None, description="Only HTTP sites, only pinged hosts, or only DNS checks."
+    ),
     actor: User = Depends(get_current_user),
     service: WebsiteService = Depends(get_website_service),
 ) -> WebsiteListResponse:
@@ -163,7 +165,9 @@ async def summarize_websites(
     q: str | None = Query(
         None, max_length=200, description="Only sites whose name or URL contains this."
     ),
-    check_type: CheckType | None = Query(None, description="Only HTTP sites, or only pinged hosts."),
+    check_type: CheckType | None = Query(
+        None, description="Only HTTP sites, only pinged hosts, or only DNS checks."
+    ),
     actor: User = Depends(get_current_user),
     service: WebsiteService = Depends(get_website_service),
 ) -> WebsiteSummary:
@@ -177,7 +181,10 @@ async def summarize_websites(
 @router.get(
     "/events",
     response_model=WebsiteEventList,
-    summary="Recent outages, recoveries, slow spells, packet loss and expiring certificates",
+    summary=(
+        "Recent outages, recoveries, slow spells, packet loss, DNS changes and "
+        "expiring certificates"
+    ),
 )
 async def list_events(
     after_id: int | None = Query(
@@ -208,8 +215,9 @@ async def list_events(
         422: {
             "description": (
                 "Unknown recipient id, no alert channel, Slack settings that "
-                "post nowhere, a URL that does not suit the check type, or content "
-                "rules on a HEAD/OPTIONS request or a ping"
+                "post nowhere, a URL that does not suit the check type, DNS expected "
+                "values that do not suit the record type, or content rules on a "
+                "HEAD/OPTIONS request, a ping or a DNS check"
             )
         },
     },
@@ -221,7 +229,10 @@ async def create_website(
     projects: ProjectService = Depends(get_project_service),
 ) -> WebsiteRead:
     """With `check_type: "ping"`, `url` is a host name or IP address to send
-    ICMP echo requests to, `ping_count` of them per check.
+    ICMP echo requests to, `ping_count` of them per check. With
+    `check_type: "dns"`, `url` is a domain name whose `dns_record_type` record
+    is looked up at every resolver in DNS_RESOLVERS; pin `dns_expected_values`
+    to treat any other answer as an outage.
 
     The site emails its project's members and extra_emails, plus its own
     `recipient_ids` (users) and `alert_emails` (addresses). Set
@@ -274,8 +285,9 @@ async def read_website(
         422: {
             "description": (
                 "The change would leave no alert channel, Slack settings that "
-                "post nowhere, a URL that does not suit the check type, or content "
-                "rules on a HEAD/OPTIONS request or a ping"
+                "post nowhere, a URL that does not suit the check type, DNS expected "
+                "values that do not suit the record type, or content rules on a "
+                "HEAD/OPTIONS request, a ping or a DNS check"
             )
         },
     },
@@ -290,7 +302,9 @@ async def update_website(
     """`alert_emails` replaces the whole list; site users are managed through
     `/recipients`. `slack_channel_id: null` removes the site's own Slack,
     token included; `slack_bot_token: null` goes back to the project's token.
-    The check type cannot change: `url` must suit the one the site has."""
+    The check type cannot change: `url` must suit the one the site has. A DNS
+    check's new `dns_record_type` clears its expected values unless new ones
+    come with it."""
     await _get_for_write(service, projects, website_id, actor)
     try:
         return WebsiteRead.model_validate(await service.update(website_id, payload))
@@ -412,7 +426,8 @@ async def website_stats(
     last one is still filling. Uptime is the share of checks that succeeded, and
     response times count successful checks only, as in the monthly report. For a
     ping check, response time is the average round trip, and
-    `packet_loss_percent` the share of pings lost."""
+    `packet_loss_percent` the share of pings lost; for a DNS check, it is the
+    resolvers' average answer time."""
     try:
         website = await service.get_visible(website_id, actor)
     except WebsiteNotFoundError as exc:

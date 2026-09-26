@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
-import { isPing, rtt } from '../checkTypes.js'
+import { isDns, isPing, recordText, rtt } from '../checkTypes.js'
 import {
   CheckTypeBadge,
   Empty,
@@ -24,12 +24,44 @@ import WebsiteForm from '../WebsiteForm.jsx'
 const CHECKS_SHOWN = 60
 
 // A failed connection has no response, so its recorded time (often 0) means
-// nothing. A ping's time is its average round trip, when anything came back.
+// nothing. A ping's time is its average round trip, when anything came back,
+// and a DNS check's the resolvers' average answer time.
 const responseTime = (c) =>
-  c.ping ? c.ping.avg_ms : c.status_code != null ? c.response_time_ms : null
+  c.ping
+    ? c.ping.avg_ms
+    : c.dns || c.status_code != null
+      ? c.response_time_ms
+      : null
 
 // Up, but some pings went unanswered.
 const lossy = (c) => c.is_up && c.ping?.loss_percent > 0
+
+// Up, but the resolvers do not all give the same answer.
+const split = (c) => c.is_up && c.dns?.consistent === false
+
+const degraded = (c) => lossy(c) || split(c)
+
+// "203.0.113.10, 203.0.113.11", TXT values quoted.
+const recordsText = (type, records) => records.map((r) => recordText(type, r)).join(', ')
+
+// What one resolver answered, in one line.
+const answerText = (type, a) => (a.records ? recordsText(type, a.records) : a.error)
+
+// Which resolvers' answers stand out: for a pinned check, any answer but the
+// pinned values; otherwise any answer but the most common one.
+function oddAnswers(d) {
+  const key = (a) => (a.records ? a.records.join('\n') : a.error_type)
+  const answered = d.answers.filter((a) => a.records)
+  const denies = (a) => answered.length > 0 && ['nxdomain', 'no_records'].includes(a.error_type)
+  if (d.expected.length) {
+    const want = d.expected.join('\n')
+    return new Set(d.answers.filter((a) => (a.records && key(a) !== want) || denies(a)))
+  }
+  const counts = new Map()
+  for (const a of answered) counts.set(key(a), (counts.get(key(a)) ?? 0) + 1)
+  const common = [...counts].sort((x, y) => y[1] - x[1])[0]?.[0]
+  return new Set(d.answers.filter((a) => (a.records && key(a) !== common) || denies(a)))
+}
 
 // "3/5 replies · 40% lost", or "5/5 replies".
 const packets = (p) =>
@@ -62,15 +94,15 @@ function CheckStrip({ checks }) {
       {ordered.map((c) => (
         <span
           key={c.id}
-          className={`strip-bar ${lossy(c) ? 'is-degraded' : c.is_up ? 'is-up' : 'is-down'}`}
+          className={`strip-bar ${degraded(c) ? 'is-degraded' : c.is_up ? 'is-up' : 'is-down'}`}
           style={{ height: `${c.is_up ? 25 + (75 * (responseTime(c) ?? 0)) / slowest : 100}%` }}
           title={`${dateTime(c.checked_at)} · ${c.is_up ? 'up' : 'down'}${
             responseTime(c) != null
               ? ` · ${c.ping ? rtt(responseTime(c)) : `${responseTime(c)} ms`}`
               : ''
           }${lossy(c) ? ` · ${c.ping.loss_percent}% packet loss` : ''}${
-            c.error ? ` · ${c.error}` : ''
-          }`}
+            split(c) ? ' · resolvers disagree' : ''
+          }${c.error ? ` · ${c.error}` : ''}`}
         />
       ))}
     </div>
@@ -106,10 +138,35 @@ function PingCells({ check: c, host }) {
   )
 }
 
+// A DNS check's row: the records the resolvers agreed on instead of an HTTP
+// status, their average answer time instead of a response time.
+function DnsCells({ check: c }) {
+  const d = c.dns
+  const byResolver = d?.answers
+    .map((a) => `${a.resolver}: ${answerText(d.record_type, a)}`)
+    .join('\n')
+  return (
+    <>
+      <td className={split(c) ? 'text-pending' : undefined} title={byResolver}>
+        <div className="truncate">
+          {d?.records
+            ? recordsText(d.record_type, d.records)
+            : d && !d.consistent
+              ? 'resolvers disagree'
+              : '—'}
+        </div>
+      </td>
+      <td className="nowrap">{c.response_time_ms != null ? `${c.response_time_ms} ms` : '—'}</td>
+      <td className="muted small">{c.error ?? ''}</td>
+    </>
+  )
+}
+
 function Checks({ checks, site }) {
   const [expanded, setExpanded] = useState(false)
   if (!checks.length) return <Empty>No checks yet. The first one runs within a minute.</Empty>
   const ping = isPing(site)
+  const dns = isDns(site)
 
   return (
     <>
@@ -120,8 +177,8 @@ function Checks({ checks, site }) {
             <tr>
               <th>When</th>
               <th>Result</th>
-              <th>{ping ? 'Packets' : 'HTTP'}</th>
-              <th>{ping ? 'Round trip' : 'Response'}</th>
+              <th>{ping ? 'Packets' : dns ? 'Records' : 'HTTP'}</th>
+              <th>{ping ? 'Round trip' : dns ? 'Answer time' : 'Response'}</th>
               <th>Error</th>
             </tr>
           </thead>
@@ -136,6 +193,8 @@ function Checks({ checks, site }) {
                 </td>
                 {ping ? (
                   <PingCells check={c} host={site.url} />
+                ) : dns ? (
+                  <DnsCells check={c} />
                 ) : (
                   <>
                     <td>{c.status_code ?? '—'}</td>
@@ -163,6 +222,56 @@ function Checks({ checks, site }) {
         </button>
       )}
     </>
+  )
+}
+
+// What each resolver answered at the latest check.
+function Resolvers({ check }) {
+  const d = check?.dns
+  if (!d) return null
+  const odd = oddAnswers(d)
+  return (
+    <section className="card">
+      <h2>Resolvers</h2>
+      <p className="muted small">
+        What each resolver answered at the latest check, {timeAgo(check.checked_at)}.
+        {!d.consistent &&
+          ' They disagree: a change may still be propagating, or some of them are being served other records.'}
+      </p>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Resolver</th>
+              <th>Answer</th>
+              <th>TTL</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.answers.map((a) => (
+              <tr key={a.address}>
+                <td className="nowrap">
+                  <strong>{a.resolver}</strong>
+                  {a.resolver !== a.address && <div className="muted small">{a.address}</div>}
+                </td>
+                <td className={odd.has(a) ? (d.expected.length ? 'text-down' : 'text-pending') : undefined}>
+                  {a.records
+                    ? a.records.map((r) => (
+                        <div key={r} className="record">
+                          {recordText(d.record_type, r)}
+                        </div>
+                      ))
+                    : a.error}
+                </td>
+                <td className="num nowrap">{a.ttl != null ? duration(a.ttl) : '—'}</td>
+                <td className="num nowrap">{a.time_ms != null ? `${a.time_ms} ms` : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 
@@ -202,6 +311,7 @@ export default function WebsiteDetail() {
 
   const s = site.data
   const ping = isPing(s)
+  const dns = isDns(s)
 
   async function run(action) {
     setBusy(true)
@@ -226,7 +336,13 @@ export default function WebsiteDetail() {
         ? `down · ${c.error ?? `HTTP ${c.status_code}`}`
         : c.ping
           ? `up · ${packets(c.ping)}, ${rtt(c.ping.avg_ms)} average round trip`
-          : `up · HTTP ${c.status_code} in ${c.response_time_ms} ms`
+          : c.dns
+            ? `up · ${
+                c.dns.records
+                  ? `${c.dns.record_type} ${recordsText(c.dns.record_type, c.dns.records)}`
+                  : 'resolvers disagree'
+              }, ${c.response_time_ms} ms average answer`
+            : `up · HTTP ${c.status_code} in ${c.response_time_ms} ms`
       setNotice(`Checked just now: ${detail}${result.alert_sent ? ` · "${result.alert_sent}" alert sent` : ''}`)
     })
 
@@ -275,6 +391,10 @@ export default function WebsiteDetail() {
         subtitle={
           ping ? (
             <code>{s.url}</code>
+          ) : dns ? (
+            <>
+              <code>{s.url}</code> · {s.dns_record_type} record
+            </>
           ) : (
             <a href={s.url} target="_blank" rel="noreferrer">
               {s.url}
@@ -312,7 +432,7 @@ export default function WebsiteDetail() {
 
       {editing && (
         <section className="card">
-          <h2>{ping ? 'Edit host' : 'Edit website'}</h2>
+          <h2>{ping ? 'Edit host' : dns ? 'Edit DNS check' : 'Edit website'}</h2>
           <WebsiteForm
             initial={s}
             project={project.data}
@@ -362,6 +482,33 @@ export default function WebsiteDetail() {
                   </dd>
                 </div>
               </>
+            ) : dns ? (
+              <>
+                <div>
+                  <dt>Check</dt>
+                  <dd>{s.dns_record_type} record lookup</dd>
+                </div>
+                <div>
+                  <dt>Resolver timeout</dt>
+                  <dd>{s.timeout_seconds}s</dd>
+                </div>
+                <div>
+                  <dt>Expected</dt>
+                  <dd>
+                    {s.dns_expected_values.length
+                      ? recordsText(s.dns_record_type, s.dns_expected_values)
+                      : 'nothing pinned: alerts when the records change'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Last agreed</dt>
+                  <dd className="truncate">
+                    {s.dns_records
+                      ? recordsText(s.dns_record_type, s.dns_records)
+                      : 'not learned yet'}
+                  </dd>
+                </div>
+              </>
             ) : (
               <>
                 <div>
@@ -397,10 +544,12 @@ export default function WebsiteDetail() {
               </div>
             )}
             <div>
-              <dt>{ping ? 'Latency alert above' : 'Slow after'}</dt>
+              <dt>
+                {ping ? 'Latency alert above' : dns ? 'Slow answer alert above' : 'Slow after'}
+              </dt>
               <dd>{s.slow_threshold_ms ? `${s.slow_threshold_ms} ms` : 'server default'}</dd>
             </div>
-            {!ping && (
+            {!ping && !dns && (
               <div>
                 <dt>SSL certificate</dt>
                 <dd>
@@ -484,7 +633,9 @@ export default function WebsiteDetail() {
         </section>
       </div>
 
-      <SiteHistory websiteId={s.id} ping={ping} />
+      {dns && !checks.loading && <Resolvers check={checks.data?.[0]} />}
+
+      <SiteHistory websiteId={s.id} ping={ping} dns={dns} />
 
       <section className="card">
         <h2>Recent checks</h2>

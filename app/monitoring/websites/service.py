@@ -15,6 +15,7 @@ from app.monitoring.projects.models import Project, visible_project_ids
 from app.monitoring.projects.service import resolve_users
 from app.monitoring.websites.models import (
     CheckType,
+    DnsRecordType,
     Website,
     WebsiteCheck,
     WebsiteEvent,
@@ -26,6 +27,7 @@ from app.monitoring.websites.schemas import (
     WebsiteSort,
     WebsiteSummary,
     WebsiteUpdate,
+    dns_values,
     monitor_target,
 )
 
@@ -41,9 +43,10 @@ class WebsiteNotFoundError(WebsiteError):
 
 
 class DuplicateWebsiteError(WebsiteError):
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, record_type: DnsRecordType | None = None) -> None:
         self.url = url
-        super().__init__(f"{url} is already being monitored.")
+        what = f"The {record_type.value} record of {url}" if record_type else url
+        super().__init__(f"{what} is already being monitored.")
 
 
 class WebsiteNotAlertableError(WebsiteError):
@@ -83,16 +86,18 @@ class WebsiteContentRuleError(WebsiteError):
 
 
 class WebsiteTargetError(WebsiteError):
-    """A `url` that does not suit the site's check type."""
+    """A `url` that does not suit the site's check type, or DNS expected values
+    that do not suit its record type."""
 
 
 def content_rule_problem(website: Website) -> WebsiteContentRuleError | None:
     """Why the site's content rules could never be checked, if they could not."""
     if not (website.must_contain or website.must_not_contain):
         return None
-    if website.check_type is CheckType.PING:
+    if website.check_type is not CheckType.HTTP:
+        what = "A ping" if website.check_type is CheckType.PING else "A DNS check"
         return WebsiteContentRuleError(
-            "A ping has no response body to search: remove must_contain / "
+            f"{what} has no response body to search: remove must_contain / "
             "must_not_contain."
         )
     if website.method in {"HEAD", "OPTIONS"}:
@@ -250,9 +255,16 @@ class WebsiteService:
         """Register a site under `project`, which the caller has already been
         checked against."""
         url = str(payload.url)
-        existing = await self.session.scalar(select(Website).where(Website.url == url))
+        record_type = payload.dns_record_type
+        existing = await self.session.scalar(
+            select(Website).where(
+                Website.url == url,
+                Website.check_type == payload.check_type,
+                Website.dns_record_type.is_not_distinct_from(record_type),
+            )
+        )
         if existing is not None:
-            raise DuplicateWebsiteError(url)
+            raise DuplicateWebsiteError(url, record_type)
 
         recipients = await resolve_users(self.session, payload.recipient_ids)
         website = Website(
@@ -281,7 +293,7 @@ class WebsiteService:
             await self._commit_if_alertable(website, check_slack=True)
         except IntegrityError as exc:
             await self.session.rollback()
-            raise DuplicateWebsiteError(url) from exc
+            raise DuplicateWebsiteError(url, record_type) from exc
         await self.session.refresh(website)
         return website
 
@@ -296,9 +308,20 @@ class WebsiteService:
                 changes["url"] = monitor_target(website.check_type, changes["url"])
             except ValueError as exc:
                 raise WebsiteTargetError(f"url: {exc}") from exc
+        if website.check_type is CheckType.DNS:
+            self._dns_changes(website, changes)
+        else:
+            changes.pop("dns_record_type", None)
+            changes.pop("dns_expected_values", None)
         if "alert_emails" in changes and changes["alert_emails"] is not None:
             changes["alert_emails"] = [str(e) for e in changes["alert_emails"]]
-        for not_null in ("inherit_project_recipients", "retries_on_failure", "ping_count"):
+        for not_null in (
+            "inherit_project_recipients",
+            "retries_on_failure",
+            "ping_count",
+            "dns_record_type",
+            "dns_expected_values",
+        ):
             if changes.get(not_null) is None:
                 # Optional in the payload but NOT NULL in the table.
                 changes.pop(not_null, None)
@@ -323,17 +346,44 @@ class WebsiteService:
             website.ssl_expires_at = None
             website.ssl_checked_at = None
             website.ssl_alert_bucket = None
+        if website.check_type is CheckType.DNS and (
+            changes.get("url", website.url) != website.url
+            or changes.get("dns_record_type", website.dns_record_type)
+            != website.dns_record_type
+        ):
+            # The records learned were another record's: learn this one's
+            # afresh rather than report the difference as a change.
+            website.dns_records = None
 
         for field, value in changes.items():
             setattr(website, field, value)
 
+        # Read before a rollback expires them.
+        url, record_type = website.url, website.dns_record_type
         try:
             await self._commit_if_alertable(website, check_slack=slack_changed)
         except IntegrityError as exc:
             await self.session.rollback()
-            raise DuplicateWebsiteError(str(changes.get("url", website.url))) from exc
+            raise DuplicateWebsiteError(url, record_type) from exc
         await self.session.refresh(website)
         return website
+
+    @staticmethod
+    def _dns_changes(website: Website, changes: dict) -> None:
+        """Validate a DNS check's record type and expected values together, in
+        place: what an expected value may be depends on the record type."""
+        record_type = changes.get("dns_record_type") or website.dns_record_type
+        type_changed = record_type != website.dns_record_type
+        values = changes.get("dns_expected_values")
+        if values is None:
+            if not type_changed:
+                return
+            # Values pinned for another record type say nothing about this one.
+            values = []
+        try:
+            changes["dns_expected_values"] = dns_values(record_type, values)
+        except ValueError as exc:
+            raise WebsiteTargetError(f"dns_expected_values: {exc}") from exc
 
     async def add_recipients(self, website_id: int, user_ids: list[int]) -> Website:
         """Idempotent for anyone already a recipient."""

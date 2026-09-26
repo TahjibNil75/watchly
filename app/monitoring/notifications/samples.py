@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.monitoring.alerts.base import Notification, NotificationKind, WebsiteSnapshot
 from app.monitoring.alerts.events import (
+    DnsChangeEvent,
     OutageEvent,
     PacketLossEvent,
     ReportEvent,
@@ -18,7 +19,8 @@ from app.monitoring.alerts.events import (
     SslExpiryEvent,
 )
 from app.monitoring.websites.checker import CheckResult, Timings
-from app.monitoring.websites.models import CheckType
+from app.monitoring.websites.dns_probe import DnsResult, ResolverAnswer
+from app.monitoring.websites.models import CheckType, DnsRecordType
 from app.monitoring.websites.pinger import PingStats
 
 _PROJECT = "Acme Corp"
@@ -153,6 +155,43 @@ def sample_event(kind: NotificationKind) -> Notification:
                 result=lossy,
                 threshold_percent=20,
                 lossy_checks=3,
+                recipients=recipients,
+            )
+        case NotificationKind.DNS_CHANGED:
+            record = replace(
+                site,
+                name="Acme apex A record",
+                url="acme.example",
+                timeout_seconds=5,
+                check_type=CheckType.DNS,
+            )
+            now_serving = ["198.51.100.7"]
+            answers = [
+                ResolverAnswer(
+                    resolver=name,
+                    address=address,
+                    records=now_serving,
+                    ttl=300,
+                    time_ms=ms,
+                )
+                for name, address, ms in (
+                    ("Cloudflare", "1.1.1.1", 9),
+                    ("Google", "8.8.8.8", 31),
+                    ("Quad9", "9.9.9.9", 14),
+                    ("OpenDNS", "208.67.222.222", 42),
+                )
+            ]
+            changed = CheckResult(
+                is_up=True,
+                checked_at=now,
+                response_time_ms=24,
+                dns=DnsResult(name=record.url, record_type=DnsRecordType.A, answers=answers),
+            )
+            return DnsChangeEvent(
+                website=record,
+                result=changed,
+                previous=["203.0.113.10"],
+                current=now_serving,
                 recipients=recipients,
             )
         case NotificationKind.MONTHLY_REPORT:

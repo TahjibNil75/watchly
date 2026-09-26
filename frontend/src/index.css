@@ -1151,9 +1151,15 @@ tbody tr:hover td {
 .strip-bar.is-down {
   background: var(--down);
 }
-/* Up, but some pings went unanswered. */
+/* Up, but some pings went unanswered, or the resolvers disagree. */
 .strip-bar.is-degraded {
   background: var(--pending);
+}
+/* One DNS record: long TXT values (SPF, DKIM keys) wrap rather than widen the table. */
+.record {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
 }
 .num {
   text-align: right;

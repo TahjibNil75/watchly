@@ -1,8 +1,9 @@
-"""Performs a single probe of a website: an HTTP request, or for a ping check
-a round of ICMP echo requests (see `pinger.py`).
+"""Performs a single probe of a website: an HTTP request, for a ping check a
+round of ICMP echo requests (see `pinger.py`), or for a DNS check a record
+looked up at several resolvers (see `dns_probe.py`).
 
 Every failure mode — DNS, TLS, connect, timeout, unexpected status, a silent
-host — comes back as a :class:`CheckResult`. This module never raises for a
+host, a record that is missing or wrong — comes back as a :class:`CheckResult`. This module never raises for a
 site being down; that is a normal outcome, not an error. The one exception is
 `IcmpUnavailableError`: this server being unable to ping at all says nothing
 about the host.
@@ -26,7 +27,8 @@ from cryptography import x509
 from cryptography.x509.oid import NameOID
 
 from app.core.config import settings
-from app.monitoring.websites.models import CheckType, Website
+from app.monitoring.websites.dns_probe import DnsResult, configured_resolvers, lookup
+from app.monitoring.websites.models import CheckType, DnsRecordType, Website
 from app.monitoring.websites.pinger import PingStats, ping
 
 logger = logging.getLogger(__name__)
@@ -249,12 +251,16 @@ class CheckResult:
     cert: CertInfo | None = None
     #: Set only on ping checks that got as far as sending.
     ping: PingStats | None = None
+    #: Set on every DNS check: what each resolver answered.
+    dns: DnsResult | None = None
 
     @property
     def summary(self) -> str:
         """One-line human description, used as the alert headline."""
         if self.is_up and self.ping is not None:
             return self.ping.summary
+        if self.is_up and self.dns is not None:
+            return self.dns.summary
         if self.is_up:
             return f"HTTP {self.status_code} in {self.response_time_ms} ms"
         if self.status_code is not None:
@@ -373,10 +379,10 @@ async def check_website(
     one-off blip neither counts as a failed check nor raises an alert.
 
     A caller running many checks should pass one shared `new_client()`, so
-    connections are reused; a ping check does not use it. When the site's
+    connections are reused; ping and DNS checks do not use it. When the site's
     certificate is due for a read, the same call also fills `result.cert`.
     """
-    probe = _ping_probe if website.check_type is CheckType.PING else _http_probe
+    probe = _PROBES[website.check_type]
     result = await probe(website, client)
     for _ in range(website.retries_on_failure):
         if result.is_up:
@@ -436,6 +442,31 @@ async def _ping_probe(
         error_type=outcome.error_type,
         timings=Timings(dns_ms=outcome.dns_ms),
         ping=stats,
+    )
+
+
+async def _dns_probe(
+    website: Website, client: httpx.AsyncClient | None = None
+) -> CheckResult:
+    """Look up the record of the domain in `website.url` at every configured
+    resolver. See `dns_probe` for when that counts as up."""
+    checked_at = datetime.now(UTC)
+    outcome = await lookup(
+        website.url,
+        website.dns_record_type or DnsRecordType.A,
+        resolvers=configured_resolvers(settings.dns_resolvers),
+        timeout=website.timeout_seconds,
+        expected=website.dns_expected_values,
+    )
+    if not outcome.is_up:
+        logger.info("DNS check failed for %s: %s", website.url, outcome.error)
+    return CheckResult(
+        is_up=outcome.is_up,
+        checked_at=checked_at,
+        response_time_ms=outcome.response_time_ms,
+        error=outcome.error,
+        error_type=outcome.error_type,
+        dns=outcome,
     )
 
 
@@ -509,3 +540,10 @@ async def _http_probe(
         _stopwatch.reset(token)
         if owns_client:
             await client.aclose()
+
+
+_PROBES = {
+    CheckType.HTTP: _http_probe,
+    CheckType.PING: _ping_probe,
+    CheckType.DNS: _dns_probe,
+}

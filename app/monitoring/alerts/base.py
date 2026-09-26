@@ -28,6 +28,8 @@ class NotificationKind(str, enum.Enum):
     SLOW_RESPONSE = "slow_response"
     #: A pinged host answers, but keeps losing packets over its threshold.
     PACKET_LOSS = "packet_loss"
+    #: A DNS check's records changed at every resolver.
+    DNS_CHANGED = "dns_changed"
     #: Once a month, per project: how every site did.
     MONTHLY_REPORT = "monthly_report"
 
@@ -133,9 +135,14 @@ class WebsiteSnapshot:
         return self.check_type is CheckType.PING
 
     @property
+    def is_dns(self) -> bool:
+        return self.check_type is CheckType.DNS
+
+    @property
     def noun(self) -> str:
-        """What alerts call it: a site, or for a ping check a host."""
-        return "host" if self.is_ping else "site"
+        """What alerts call it: a site, for a ping check a host, and for a DNS
+        check the record."""
+        return {CheckType.PING: "host", CheckType.DNS: "record"}.get(self.check_type, "site")
 
     @classmethod
     def of(cls, website: Website) -> "WebsiteSnapshot":

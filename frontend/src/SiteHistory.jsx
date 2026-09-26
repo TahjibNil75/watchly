@@ -305,8 +305,9 @@ function HistoryTable({ stats, ping }) {
 }
 
 // `ping`: the site is a pinged host, so its times are round trips and it has
-// packet loss to show.
-export default function SiteHistory({ websiteId, ping = false }) {
+// packet loss to show. `dns`: a DNS check, whose times are the resolvers'
+// average answer time.
+export default function SiteHistory({ websiteId, ping = false, dns = false }) {
   const [range, setRange] = useState('24h')
   const [downloadError, setDownloadError] = useState(null)
   // The rollup behind these moves once a minute, with the scheduler.
@@ -354,7 +355,7 @@ export default function SiteHistory({ websiteId, ping = false }) {
               <strong>{percent(s.uptime_percent)}</strong>
             </div>
             <div>
-              <span>{ping ? 'Avg round trip' : 'Avg response'}</span>
+              <span>{ping ? 'Avg round trip' : dns ? 'Avg answer time' : 'Avg response'}</span>
               <strong>{ms(s.avg_response_ms)}</strong>
             </div>
             <div>
@@ -396,7 +397,9 @@ export default function SiteHistory({ websiteId, ping = false }) {
               <p className="muted small">
                 {ping
                   ? 'Times are UTC. Round trips are each check’s average, over checks that got a reply, in whole milliseconds; '
-                  : 'Times are UTC. Response times count successful checks only; '}
+                  : dns
+                    ? 'Times are UTC. Answer times are each check’s average over its resolvers, for successful checks only; '
+                    : 'Times are UTC. Response times count successful checks only; '}
                 the 95th percentile is read from response-time buckets, so it is accurate to within
                 about 25%.
               </p>

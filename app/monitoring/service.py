@@ -24,9 +24,13 @@ Softer signals ride on the same checks, none of which is an outage:
            PACKET_LOSS_ALERT_COOLDOWN_SECONDS
     ssl    the certificate crosses a SSL_EXPIRY_ALERT_DAYS threshold -> one
            alert per threshold, and one if it expires; renewing re-arms them
+    dns    a DNS check with nothing pinned: the resolvers agree on records
+           other than the ones they last agreed on -> one alert per change
 
 A pinged host is UP while any of its pings is answered; one that answers none
-is DOWN, and goes through the same outage alerts as a website.
+is DOWN, and goes through the same outage alerts as a website. A DNS check is
+DOWN when most resolvers cannot resolve its record, or any returns something
+other than its pinned values; see `dns_probe`.
 """
 
 import asyncio
@@ -35,6 +39,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -46,6 +51,7 @@ from app.monitoring.alerts.base import (
     WebsiteSnapshot,
 )
 from app.monitoring.alerts.events import (
+    DnsChangeEvent,
     OutageEvent,
     PacketLossEvent,
     SiteEvent,
@@ -86,6 +92,7 @@ FEED_KINDS = frozenset(
         NotificationKind.RECOVERED,
         NotificationKind.SLOW_RESPONSE,
         NotificationKind.PACKET_LOSS,
+        NotificationKind.DNS_CHANGED,
         NotificationKind.SSL_EXPIRING,
     }
 )
@@ -124,7 +131,12 @@ def feed_entry(event: SiteEvent) -> WebsiteEvent:
         website_id=event.website.id,
         kind=event.kind.value,
         occurred_at=event.result.checked_at,
-        summary=event.result.summary,
+        # A change is about the records before and after, not the latest check.
+        summary=(
+            event.change_summary
+            if isinstance(event, DnsChangeEvent)
+            else event.result.summary
+        ),
         response_time_ms=event.result.response_time_ms,
     )
     if isinstance(event, OutageEvent) and event.is_recovery:
@@ -203,6 +215,7 @@ class MonitoringService:
             rtt_max_ms=ping.max_ms if ping else None,
             jitter_ms=ping.jitter_ms if ping else None,
             ip_address=ping.address if ping else None,
+            dns=result.dns.as_dict() if result.dns else None,
         )
         self.session.add(check)
 
@@ -265,6 +278,7 @@ class MonitoringService:
 
         self._track_slowness(website, result, events)
         self._track_packet_loss(website, result, events)
+        self._track_dns_records(website, result, events)
         self._track_certificate(website, result, events)
         # The app's own feed, in the same commit as the state it describes.
         for event in events:
@@ -435,6 +449,39 @@ class MonitoringService:
             )
         )
 
+    def _track_dns_records(
+        self, website: Website, result: CheckResult, events: list[Notification]
+    ) -> None:
+        """Remember the records the resolvers agree on, and alert when they
+        agree on different ones.
+
+        Waiting for them to agree keeps one change to one alert: while it
+        propagates, resolvers still serving the old records from cache
+        disagree with the rest, which is not yet a change. With values pinned,
+        a different answer is an outage instead, so this stays quiet; the
+        records are still remembered, for the page and for unpinning later.
+        """
+        if result.dns is None:
+            return
+        current = result.dns.records
+        if current is None:
+            return
+        previous = website.dns_records
+        website.dns_records = current
+        # The first agreement is what later ones are measured against.
+        if previous is None or previous == current or website.dns_expected_values:
+            return
+        events.append(
+            DnsChangeEvent(
+                website=WebsiteSnapshot.of(website),
+                result=result,
+                previous=previous,
+                current=current,
+                recipients=self.recipients_for(website),
+                slack=self.slack_target_for(website),
+            )
+        )
+
     def _track_certificate(
         self, website: Website, result: CheckResult, events: list[Notification]
     ) -> None:
@@ -521,5 +568,20 @@ class MonitoringService:
                         "Unexpected error checking %s", website.url, exc_info=result
                     )
                     continue
+                if await self._changed_since_loaded(website):
+                    # Edited, checked by hand or deleted while this probe ran:
+                    # the result is of settings the site no longer has (a DNS
+                    # check's old pins or record type, say), and recording it
+                    # would alert about them. The next check uses the new ones.
+                    logger.info("%s changed during its check; result dropped.", website.url)
+                    continue
                 outcomes.append(await self.record_result(website, result))
         return outcomes
+
+    async def _changed_since_loaded(self, website: Website) -> bool:
+        """Whether the row was updated or deleted since `website` was read.
+        Every update stamps `updated_at`."""
+        current = await self.session.scalar(
+            select(Website.updated_at).where(Website.id == website.id)
+        )
+        return current != website.updated_at

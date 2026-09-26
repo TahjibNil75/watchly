@@ -92,7 +92,7 @@ export default function Dashboard() {
     <>
       <PageHeader
         title="Websites"
-        subtitle="Live status of every site and pinged host you can see. Refreshes every 30 seconds."
+        subtitle="Live status of every site, pinged host and DNS record you can see. Refreshes every 30 seconds."
       >
         {creator && (
           <Link to="/websites/new" className="btn btn-primary">

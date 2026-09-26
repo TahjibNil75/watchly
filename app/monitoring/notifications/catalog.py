@@ -12,10 +12,11 @@ from app.monitoring.alerts.base import NotificationKind
 _SITE = {
     "project": "Project name",
     "website": "Website name",
-    "url": "Website URL, or the host of a ping check",
-    "status_code": "HTTP status of the latest check, “no response”, or “—” for a ping check",
+    "url": "Website URL, the host of a ping check, or the domain of a DNS check",
+    "status_code": "HTTP status of the latest check, “no response”, or “—” for a ping or "
+    "DNS check",
     "response_time": "Response time of the latest check, e.g. “212 ms”; for a ping check "
-    "the average round trip",
+    "the average round trip, for a DNS check the resolvers’ average answer time",
     "checked_at": "When the latest check ran (UTC)",
     "summary": "One-line result of the latest check, e.g. “HTTP 503 Service Unavailable”",
     "dashboard_url": "Link to this website in Watchly (empty if ALERT_DASHBOARD_URL is unset)",
@@ -52,6 +53,15 @@ _LOSS = {
     "packet_loss": "Share of pings the latest check lost, e.g. “40%”",
     "threshold": "The packet-loss threshold, e.g. “20%”",
     "lossy_checks": "Consecutive lossy checks that triggered this alert",
+}
+
+_DNS_CHANGE = {
+    **_SITE,
+    "record_type": "The record watched: A, AAAA, CNAME, MX or TXT",
+    "records": "The records every resolver returns now, e.g. “198.51.100.7”",
+    "previous_records": "The records they returned before",
+    "added": "Records that are new, or “—”",
+    "removed": "Records that are gone, or “—”",
 }
 
 _REPORT = {
@@ -152,6 +162,22 @@ CATALOG: dict[NotificationKind, KindInfo] = {
                 "still up."
             ),
             placeholders=_LOSS,
+        ),
+        KindInfo(
+            kind=NotificationKind.DNS_CHANGED,
+            label="DNS records changed",
+            description="A DNS check with no expected values: every resolver now returns "
+            "different records than before. (With expected values, a different answer "
+            "is an outage instead.)",
+            audience="Same as “Site down”.",
+            default_subject="[DNS CHANGED] {{project}} / {{website}}: {{record_type}} records "
+            "for {{url}} changed",
+            default_body=(
+                "The {{record_type}} records for {{url}} are now {{records}} (were "
+                "{{previous_records}}). If you did not make this change, check your DNS "
+                "provider and registrar accounts."
+            ),
+            placeholders=_DNS_CHANGE,
         ),
         KindInfo(
             kind=NotificationKind.MONTHLY_REPORT,

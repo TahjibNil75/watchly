@@ -506,8 +506,9 @@ grant), and the invitee's page is `/accept-invite?token=…`.
 ## Uptime monitoring
 
 The core feature: poll each registered site on its own interval, and email the
-right people the moment it stops answering. A site is either a URL to request
-over HTTP(S) or a host to **ping** (see [Ping checks](#ping-checks)).
+right people the moment it stops answering. A site is a URL to request over
+HTTP(S), a host to **ping** (see [Ping checks](#ping-checks)), or one **DNS
+record** of a domain (see [DNS checks](#dns-checks)).
 
 ### Projects come first
 
@@ -678,6 +679,45 @@ API container. Elsewhere, open it for the API's group, or set
 ping at all, ping checks are skipped and logged rather than reported as down,
 and "Check now" answers `503`.
 
+### DNS checks
+
+A site with `check_type: "dns"` watches one record of the domain in `url` —
+`dns_record_type` `A` (the default), `AAAA`, `CNAME`, `MX` or `TXT`; e.g.
+`example.com`, or `_dmarc.example.com` for a DMARC policy. Each check asks every
+resolver in `DNS_RESOLVERS` at once — by default Cloudflare (1.1.1.1), Google
+(8.8.8.8), Quad9 (9.9.9.9) and OpenDNS (208.67.222.222), each its own anycast
+network with its own caches — and waits up to `timeout_seconds` (default 5) for
+each. They are asked from the Watchly server, so this compares four independent
+resolver networks, not four regions of the world.
+
+- **Down** when the record does not resolve at most resolvers: `error_type`
+  `nxdomain` (the name does not exist), `no_records` (it has no record of that
+  type), `servfail` (also what validating resolvers answer for broken DNSSEC),
+  `refused`, `timeout` or `network_error`. One resolver failing while the rest
+  answer is recorded, not alerted.
+- **Pinned values**: set `dns_expected_values` (e.g. `203.0.113.10`,
+  `10 mx1.example.com`, or a TXT value, quoted or not) and any resolver
+  answering anything else — other records, or that there are none — makes the
+  check **down** with `dns_mismatch`. That catches a hijack or a poisoned cache
+  seen by one resolver only, and tracks a change you make: update the values,
+  and the check is down until every resolver serves the new records; the
+  recovery says propagation is complete.
+- **Nothing pinned**: the check learns the records the resolvers first agree
+  on, and sends a **DNS records changed** alert when they agree on different
+  ones — whether you changed them or someone with access to your DNS provider or
+  registrar did. It waits for them to agree, so a change still propagating
+  (resolvers serving the old records from cache, for up to their TTL) is one
+  alert, not one per check. While they disagree, the site's page shows it in
+  amber.
+- The **response time** is the resolvers' average answer time, so charts, the
+  slow alert and the monthly report work unchanged. Every check keeps each
+  resolver's answer, TTL and time; the site's page shows the latest.
+
+A domain can be pinged and have each of its record types watched side by side;
+each record of a domain is watched once. The addresses of most names behind a
+CDN or cloud load balancer rotate, and differ by resolver: watch their `CNAME`
+instead, or switch the DNS change alert off for the project.
+
 ### What else Watchly tells you about
 
 Beyond "down / still down / back up", each of these is its own notification
@@ -688,6 +728,7 @@ kind, on by default and switchable per project:
 | **SSL certificate expiring** | an HTTPS site's certificate has 14, 7, 3 or 1 days left (`SSL_EXPIRY_ALERT_DAYS`), and once more if it expires | once per threshold; renewing the certificate re-arms them |
 | **Slow response** | a *successful* response is slower than the site's threshold for `SLOW_RESPONSE_CHECKS` (3) checks in a row | then quiet for `SLOW_ALERT_COOLDOWN_SECONDS` (6 h) |
 | **Packet loss** | a pinged host answers, but loses at least its threshold of pings for `PACKET_LOSS_CHECKS` (3) checks in a row | then quiet for `PACKET_LOSS_ALERT_COOLDOWN_SECONDS` (6 h) |
+| **DNS records changed** | a DNS check with no expected values: every resolver now returns other records than they last agreed on | once per change |
 | **Monthly uptime report** | the 1st of each month, 06:00 UTC, for the month before | once per project per month |
 
 The certificate is read every `SSL_CHECK_INTERVAL_SECONDS` (6 h) with
@@ -821,12 +862,16 @@ Two operational notes:
 
 - State is committed **before** alerts are sent, so a slow or broken mail server
   can never cause the same alert to be re-sent on the next tick.
+- A site edited, checked by hand or deleted while its scheduled probe runs has
+  that probe's result dropped, not recorded: it was taken with settings the
+  site no longer has, such as a DNS check's old expected values, and would
+  alert about them. The next check uses the new settings.
 - `website_checks` grows one row per site per interval. Each tick sums it into
   `website_check_hourly` (kept, and what charts read) and then deletes checks
   older than `CHECK_RETENTION_DAYS` (default 90, minimum 35), a few batches per
   tick. It never deletes a check not yet rolled up, nor one last month's report
   may still need.
-- Each outage, recovery, slow spell, packet-loss spell and expiring certificate is also written to
+- Each outage, recovery, slow spell, packet-loss spell, DNS change and expiring certificate is also written to
   `website_events`, in the same commit as the state it describes, whether or
   not any channel is on for it. The app polls it for its toasts. Events are
   purged after `CHECK_RETENTION_DAYS` too.

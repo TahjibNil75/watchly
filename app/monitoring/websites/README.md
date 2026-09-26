@@ -1,7 +1,7 @@
 # Website monitoring
 
-How a URL gets watched (or a host pinged), how an outage turns into email, and
-every API in the project as it stands today.
+How a URL gets watched (or a host pinged, or a domain's DNS records looked up),
+how an outage turns into email, and every API in the project as it stands today.
 
 ---
 
@@ -25,7 +25,7 @@ Project ──┬── members (users)  ─┐  inherited unless the site sets
 | -------------------- | ---------------------------------------------------------- |
 | `projects`           | a client or product; owner, members, extra alert addresses |
 | `project_members`    | which users are responsible for which project              |
-| `websites`           | one URL (or host to ping), how to check it, and its live outage state |
+| `websites`           | one URL (or host to ping, or domain to look up), how to check it, and its live outage state |
 | `website_recipients` | which users are alerted about one particular site          |
 | `website_checks`     | the result of every poll — the evidence behind each alert, including why it failed and where its time went; purged after `CHECK_RETENTION_DAYS` |
 | `website_check_hourly` | each site's checks summed per UTC hour — what charts and long-range uptime read; kept |
@@ -40,8 +40,9 @@ Deleting a project deletes its websites, which deletes their check history.
 | ------------- | ---------------------------------------------------------------- |
 | `models.py`   | `Website` (config + live state) and `WebsiteCheck` (poll history) |
 | `schemas.py`  | request/response contracts and their validation rules            |
-| `checker.py`  | the HTTP probe (and, every few hours, the certificate read) — turns a URL into a `CheckResult`; hands ping checks to `pinger.py` |
+| `checker.py`  | the HTTP probe (and, every few hours, the certificate read) — turns a URL into a `CheckResult`; hands ping checks to `pinger.py` and DNS checks to `dns_probe.py` |
 | `pinger.py`   | the ICMP probe — pings a host a few times and reports replies, round trips and packet loss |
+| `dns_probe.py` | the DNS probe — asks several resolvers for one record and judges whether they agree with each other and with the pinned values |
 | `service.py`  | CRUD, filtering, and "which sites are due for a check"           |
 | `history.py`  | hourly rollups, the stats read from them, and purging old checks |
 | `routes.py`   | the HTTP endpoints below                                          |
@@ -154,6 +155,55 @@ can be opened at all, `pinger` raises `IcmpUnavailableError`: that is this
 server's problem, not the host's, so the scheduler logs it and records nothing
 (no false outage), and `POST .../check` answers `503` with the fix.
 
+### DNS checks
+
+A site with `check_type` `dns` keeps a domain name in `url` (`dns_name()` in
+`schemas.py`: a host name, never an IP address or a URL; underscores allowed,
+for names like `_dmarc.example.com`) and the record to watch in
+`dns_record_type`: `A`, `AAAA`, `CNAME`, `MX` or `TXT`. `check_website` hands
+it to `dns_probe.lookup()`, which queries every resolver in `DNS_RESOLVERS`
+directly and at once — UDP, then TCP when the answer is truncated — with
+`timeout_seconds` (default 5) for each, following a CNAME chain to the type
+asked for as a stub resolver does.
+
+Records are compared as text, each written one way whether a resolver returned
+it (`dns_probe.record_text`) or a person pinned it (`schemas.dns_value`): an
+address compressed, a name in lower case without its final dot, an MX value as
+`preference host`, a TXT value with its strings joined and unquoted. A record
+set is sorted, so the order a resolver lists it in does not matter.
+
+`dns_probe.judge` decides the check:
+
+1. **Down** when fewer than half the resolvers return the record. The
+   `error_type` is the most common failure among them, ties going to the most
+   telling.
+2. **Down** with `dns_mismatch` when `dns_expected_values` are pinned and any
+   resolver returns other records, or answers `nxdomain` / `no_records`.
+   Timeouts and failures at a minority of resolvers are tolerated.
+3. Otherwise **up**, though the resolvers may still disagree (`consistent`
+   false), which the UI shows as degraded.
+
+| error_type      | meaning                                                   |
+| --------------- | --------------------------------------------------------- |
+| `nxdomain`      | the name does not exist                                   |
+| `no_records`    | the name exists, but has no record of this type           |
+| `servfail`      | the resolver failed — also its answer for broken DNSSEC   |
+| `refused`       | the resolver refused to answer                            |
+| `timeout`       | no answer within `timeout_seconds`                        |
+| `network_error` | this server could not reach the resolver                  |
+| `dns_error`     | a malformed answer, a CNAME chain that never ends, or another rcode |
+| `dns_mismatch`  | a resolver's answer contradicts the pinned values         |
+
+Each `website_checks` row keeps the whole outcome in the `dns` JSONB column —
+record type, pinned values, the agreed `records`, `consistent`, and every
+resolver's `records`, `ttl`, `time_ms` and error — and `response_time_ms` is the
+resolvers' average answer time, so rollups, charts, the slow alert and the
+monthly report work unchanged.
+
+`websites.url` is unique per `(url, check_type, dns_record_type)`, with the
+record type null for other checks and `NULLS NOT DISTINCT`, so a domain can be
+pinged and have each of its records watched at once.
+
 ---
 
 ## 4. When alerts fire
@@ -182,6 +232,16 @@ at least `packet_loss_threshold_percent` of them (`PACKET_LOSS_THRESHOLD_PERCENT
 alert goes out once, then nothing for `PACKET_LOSS_ALERT_COOLDOWN_SECONDS` —
 the same shape as the slow-response alert, which for a ping watches the average
 round trip.
+
+A DNS check with nothing pinned remembers, in `websites.dns_records`, the
+records the resolvers last agreed on (`DnsResult.records`: the same set from
+every resolver that returned one, and at least half did). When they agree on
+different ones, a **DNS records changed** alert goes out once, with what was
+added and removed. A check whose resolvers disagree changes nothing, so a
+change still propagating is one alert when it completes, not one per check. A
+pinned check still remembers the records, but a different answer is an outage
+there, so no change alert fires. Changing the domain or the record type forgets
+them, and a new record type clears the pinned values unless new ones are sent.
 
 In Slack, one outage is one thread: the down alert is posted to the channel,
 the still-down alerts reply under it, and the recovery replies there too while
@@ -389,7 +449,7 @@ List filters: `limit` (1–100), `offset`, `is_active`, `owner_id`.
 | `POST` | `/monitoring/websites/{website_id}/check` | `200 403 404 422` |
 
 List filters: `limit` (1–100), `offset`, `status` (`unknown`/`up`/`down`),
-`is_enabled`, `project_id`, `check_type` (`http`/`ping`), `q` (name or URL),
+`is_enabled`, `project_id`, `check_type` (`http`/`ping`/`dns`), `q` (name or URL),
 `sort` (`id`, `name`, `status`). The summary takes `project_id`, `check_type`
 and `q`. History takes `limit` (1–500), newest
 first; stats take `range` (`24h`, `7d`, `30d`, `90d`) and `format` (`json`, or
@@ -484,6 +544,7 @@ curl -s "$BASE/monitoring/websites/$SID/checks?limit=10" \
 | `PACKET_LOSS_THRESHOLD_PERCENT` | `20` | share of pings lost that makes a check lossy; `0` turns packet-loss alerts off |
 | `PACKET_LOSS_CHECKS` | `3` | lossy checks in a row before alerting |
 | `PACKET_LOSS_ALERT_COOLDOWN_SECONDS` | `21600` | quiet time after a packet-loss alert |
+| `DNS_RESOLVERS` | Cloudflare, Google, Quad9, OpenDNS | the resolvers every DNS check asks, as `Name=IP address`, comma-separated |
 | `ALERTS_ENABLED` | `true` | master switch for all channels |
 | `ALERT_DEFAULT_EMAILS` | — | comma-separated, added to every alert |
 | `SMTP_HOST` … | — | any provider: SES, Resend, Mailgun, Postmark |
