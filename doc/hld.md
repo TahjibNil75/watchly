@@ -559,6 +559,12 @@ It is separate from `can_change_role` on purpose: re-roling asks what the target
 *is*, inviting asks what is being *granted*. Adding a role to `INVITABLE_BY` is
 all it takes to let it invite; the endpoint guard is derived from the keys.
 
+**The first account is the admin.** Nothing is seeded: a signup on an empty
+`users` table is created as `Admin`, and every later one as `Viewer`.
+Simultaneous first signups are serialized by a transaction-scoped advisory
+lock, so exactly one of them wins. Until that account exists, anyone who can
+reach the app can claim it.
+
 **Nobody can change or suspend their own account.** That single rule is what
 makes lockout impossible through the API: the actor is always an active
 administrator and never the target, so no action can leave you with zero
@@ -609,7 +615,8 @@ uses `datetime.UTC`; developed and tested on 3.14), and outbound HTTPS to the
 monitored sites and alert providers.
 
 `docker-compose.yml` brings up Postgres for local work. Startup order:
-`alembic upgrade head` → `python -m app.db.seed` → run the app.
+`alembic upgrade head` → run the app → sign up. The first account on an empty
+database becomes the admin.
 
 **Configuration is entirely environment variables** (`app/core/config.py`, via
 pydantic-settings). The app logs a warning at startup if `SECRET_KEY` is still

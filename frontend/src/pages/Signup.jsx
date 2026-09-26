@@ -45,6 +45,7 @@ export default function Signup() {
         <h1>Create an account</h1>
         <p className="muted small">
           New accounts start as viewers. An admin can add you to projects or change your role.
+          On a fresh install, the first account becomes the admin.
         </p>
         <ErrorBanner error={error} />
         <label className="field">

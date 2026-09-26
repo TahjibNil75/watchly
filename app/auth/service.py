@@ -8,7 +8,7 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import ColumnElement, delete, func, or_, select, update
+from sqlalchemy import ColumnElement, delete, exists, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,10 @@ _DUMMY_PASSWORD_HASH = generate_hash_password("timing-attack-placeholder")
 #: A second "forgot password" this soon after the first is ignored, so the form
 #: cannot be used to flood someone's inbox. The first password still works.
 _RESEND_COOLDOWN = timedelta(minutes=1)
+
+#: Arbitrary but fixed application-wide key for the lock that lets only one
+#: signup on an empty database become the admin. Distinct from the scheduler's.
+_FIRST_ACCOUNT_LOCK_KEY = 0x7A7C_4144
 
 
 class AuthError(Exception):
@@ -218,7 +222,8 @@ class AuthService:
         return user, password
 
     async def signup(self, payload: SignupRequest) -> User:
-        """Register a new account as a VIEWER.
+        """Register a new account as a VIEWER — or as the ADMIN, when it is the
+        first account on a fresh install (see :meth:`_is_first_account`).
 
         `password` / `confirm_password` are already checked to match by
         :class:`~app.auth.schemas.SignupRequest`; only the hash is stored.
@@ -239,7 +244,7 @@ class AuthService:
             email=payload.email,
             full_name=payload.full_name,
             password_hash=generate_hash_password(payload.password),
-            role=UserRole.VIEWER,
+            role=UserRole.ADMIN if await self._is_first_account() else UserRole.VIEWER,
             is_active=True,
         )
         self.session.add(user)
@@ -254,7 +259,27 @@ class AuthService:
             raise UserAlreadyExistsError(field, getattr(payload, field)) from exc
 
         await self.session.refresh(user)
+        if user.role is UserRole.ADMIN:
+            logger.info("First account %r signed up and is the admin.", user.username)
         return user
+
+    async def _is_first_account(self) -> bool:
+        """True when no account exists yet, so the one being signed up installs
+        the app and becomes its admin.
+
+        Once any account exists this is one cheap read. On an empty table it
+        takes a transaction-scoped advisory lock, held until the signup commits
+        or rolls back, and looks again: of signups racing on a fresh install,
+        only the first to commit finds the table empty, and the rest wait for it
+        and come out as viewers.
+        """
+        any_user = select(exists().select_from(User))
+        if await self.session.scalar(any_user):
+            return False
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"), {"key": _FIRST_ACCOUNT_LOCK_KEY}
+        )
+        return not await self.session.scalar(any_user)
 
     # -- sessions (refresh tokens) ------------------------------------------
 

@@ -3,7 +3,7 @@ import json
 from functools import lru_cache
 from typing import Annotated
 
-from pydantic import EmailStr, Field, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -50,12 +50,6 @@ class Settings(BaseSettings):
     #: Wrong passwords in a row at sign-in before the account is suspended. Only
     #: a user allowed to reinstate it (see SUSPENDABLE_BY) can lift it.
     MAX_FAILED_LOGIN_ATTEMPTS: int = Field(default=5, ge=1)
-
-    # Bootstrap admin, created by app/db/seed.py
-    FIRST_ADMIN_USERNAME: str = "admin"
-    FIRST_ADMIN_EMAIL: EmailStr = "admin@gmail.com"
-    FIRST_ADMIN_FULL_NAME: str = "Admin User"
-    FIRST_ADMIN_PASSWORD: str = "Admin@123"
 
     # --- Monitoring -----------------------------------------------------
     MONITORING_ENABLED: bool = True

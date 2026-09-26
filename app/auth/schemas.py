@@ -4,7 +4,8 @@ from app.schemas.user import UserRead
 
 
 class SignupRequest(BaseModel):
-    """Signup payload. `role` is not accepted here — every signup is a viewer."""
+    """Signup payload. `role` is not accepted here — every signup is a viewer,
+    except the first account on a fresh install, which is the admin."""
 
     model_config = ConfigDict(
         json_schema_extra={

@@ -80,7 +80,10 @@ async def signup(
     service: AuthService = Depends(get_auth_service),
 ) -> SignupResponse:
     """Create a user with the `Viewer` role and sign them in: an access token
-    in the body, and the refresh token in an httpOnly cookie."""
+    in the body, and the refresh token in an httpOnly cookie.
+
+    The first account on a fresh install is created as `Admin` instead, so
+    whoever installs the app signs up to administer it."""
     try:
         user = await service.signup(payload)
     except UserAlreadyExistsError as exc:

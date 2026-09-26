@@ -17,8 +17,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # FastAPI + the monitoring scheduler. Runs migrations and seeds the admin on
-  # every start (both idempotent).
+  # FastAPI + the monitoring scheduler. Runs migrations on every start
+  # (idempotent).
   api:
     build: .
     container_name: watchly-api

@@ -63,7 +63,6 @@ app/
   db/
     base.py          # DeclarativeBase + TimestampMixin
     session.py       # async engine, session factory, get_db dependency
-    seed.py          # idempotent admin seeder
     models/
       user.py        # User model + UserRole enum
       invitation.py  # Invitation model + status
@@ -74,7 +73,7 @@ app/
 alembic/             # migration environment (async)
 alembic.ini
 docker-compose.yml   # PostgreSQL 16 + API + web UI
-Dockerfile           # API image (migrates and seeds on start)
+Dockerfile           # API image (migrates on start)
 docker/              # container entrypoint
 ```
 
@@ -96,9 +95,10 @@ docker compose up -d --build
 | `api` | http://localhost:8000/docs | FastAPI + the monitoring scheduler |
 | `db`  | `localhost:5432` | PostgreSQL 16, data in the `watchly_pgdata` volume |
 
-The API container runs `alembic upgrade head` and seeds the admin every time
-it starts. Both steps are idempotent, so sign in at http://localhost:8080 as
-`admin` / `Admin@123`.
+The API container runs `alembic upgrade head` every time it starts; it is
+idempotent. Then open http://localhost:8080 and sign up: on a fresh install
+the first account becomes the admin (see
+[The first account is the admin](#the-first-account-is-the-admin)).
 
 A `.env` file is optional. Without one, the defaults from `app/core/config.py`
 apply (and the API warns that `SECRET_KEY` is the default). With one, every
@@ -126,11 +126,10 @@ Start only PostgreSQL:
 docker compose up -d db
 ```
 
-Run migrations, then seed the admin user:
+Run migrations:
 
 ```bash
 alembic upgrade head
-python -m app.db.seed
 ```
 
 Run the API:
@@ -158,24 +157,28 @@ It serves on http://localhost:5173 and proxies API calls to port 8000. See
 - [`app/monitoring/websites/README.md`](app/monitoring/websites/README.md) —
   how the monitoring pipeline works end to end
 
-## Seeded admin
+## The first account is the admin
 
-| field    | value             |
-| -------- | ----------------- |
-| username | `admin`           |
-| email    | `admin@gmail.com` |
-| password | `Admin@123`       |
-| role     | `Admin`           |
+No admin account is created for you. The first account to sign up on an empty
+database becomes the `Admin`; every later signup is a `Viewer`. If two people
+sign up at the same moment on a fresh install, only one of them becomes the
+admin.
 
-Overridable via the `FIRST_ADMIN_*` variables in `.env`. `seed_admin()` is
-idempotent — it skips if the username or email already exists.
+Until that first account exists, **anyone who can reach the app can claim
+admin** by signing up. Sign up yourself right after the first start, before
+the instance is reachable by anyone else.
+
+An existing database keeps the accounts it already has, so upgrading does not
+change who the admin is.
 
 ## Auth
 
 ### `POST /api/v1/auth/signup`
 
-Registers an account. The role is **always** `Viewer` — it is not accepted from
-the payload, so it cannot be escalated by the client.
+Registers an account. The role is `Viewer` — it is not accepted from the
+payload, so it cannot be escalated by the client. The one exception is the
+first account on an empty database, which is created as `Admin` (see
+[The first account is the admin](#the-first-account-is-the-admin)).
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/auth/signup \
@@ -242,7 +245,7 @@ revokes the whole session, since someone else must hold a copy.
 
 ```bash
 curl -c jar -b jar -X POST http://127.0.0.1:8000/api/v1/auth/login \
-  -H 'Content-Type: application/json' -d '{"identifier":"admin","password":"Admin@123"}'
+  -H 'Content-Type: application/json' -d '{"identifier":"jane","password":"Str0ng@Pass"}'
 curl -c jar -b jar -X POST http://127.0.0.1:8000/api/v1/auth/refresh
 ```
 

@@ -500,10 +500,12 @@ user is refused with `403` until reactivated.
 
 ## 8. Worked example
 
+Signed in as the admin — the first account signed up on the install:
+
 ```bash
 BASE=http://127.0.0.1:8000/api/v1
 TOKEN=$(curl -s -X POST $BASE/auth/login -H 'Content-Type: application/json' \
-  -d '{"identifier":"admin","password":"Admin@123"}' | jq -r .tokens.access_token)
+  -d '{"identifier":"<admin username>","password":"<password>"}' | jq -r .tokens.access_token)
 
 # 1. a project, its responsible members, and a client contact
 PID=$(curl -s -X POST $BASE/monitoring/projects \

@@ -21,7 +21,7 @@ together, see [`hld.md`](hld.md).
 
 | # | method | endpoint | what it does |
 | - | ------ | -------- | ------------ |
-| 1 | `POST` | `/auth/signup` | Register a new account; always created as a `Viewer`. |
+| 1 | `POST` | `/auth/signup` | Register a new account as a `Viewer` (the first account on an empty database is the `Admin`). |
 | 2 | `POST` | `/auth/login` | Log in with a username **or** email; get an access token and a refresh cookie. |
 | 3 | `POST` | `/auth/refresh` | Trade the refresh cookie for a new access token; the cookie is replaced every time. |
 | 4 | `POST` | `/auth/logout` | Revoke the session in the refresh cookie and clear it. |
@@ -80,7 +80,8 @@ Public. No token required.
 
 ### `POST /api/v1/auth/signup`
 Register a new account. Requires `password` **and** `confirm_password`; the role
-is always `Viewer` and cannot be set from the payload.
+is `Viewer` and cannot be set from the payload. The first account on an empty
+database is created as `Admin` instead; there is no seeded admin.
 `201` · `409` taken · `422` mismatch or invalid field
 
 ### `POST /api/v1/auth/login`

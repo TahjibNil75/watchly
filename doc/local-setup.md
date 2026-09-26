@@ -39,13 +39,10 @@ cp .env.example .env
 ```
 
 You can skip this file and the app will still start on built-in defaults. It's
-worth making now, for three reasons:
+worth making now, for two reasons:
 
 - **`SECRET_KEY`** signs login tokens. Replace the placeholder with the output
   of `openssl rand -hex 32`.
-- **`FIRST_ADMIN_*`** sets the admin account. It is only read the first time
-  the database is created, so change the password **before** step 3 if you
-  don't want `Admin@123`.
 - **`SMTP_*`** controls whether alert emails go out. Leave it blank for now.
   [See alert emails locally](#see-alert-emails-locally) sets it up.
 
@@ -61,8 +58,8 @@ docker compose up -d --build
 The first run downloads base images and builds two images, which takes a few
 minutes. Later starts take seconds.
 
-On every start the API container applies database migrations and creates the
-admin account if it doesn't exist. You never run these by hand in Docker.
+On every start the API container applies database migrations. You never run
+them by hand in Docker.
 
 ### 4. Check it's up
 
@@ -85,10 +82,14 @@ curl http://localhost:8080/health
 # {"status":"ok","monitoring":"on"}
 ```
 
-### 5. Sign in
+### 5. Create the admin account
 
-Open **http://localhost:8080** and sign in with `admin` / `Admin@123` (or
-whatever you set in `FIRST_ADMIN_*`).
+Open **http://localhost:8080** and click **Create an account**. There is no
+built-in admin: on an empty database, the first account to sign up becomes
+the admin, and every later one is a viewer.
+
+Do this straight away. Until that first account exists, anyone who can reach
+the app can sign up and take the admin role.
 
 | what | where |
 | ---- | ----- |
@@ -117,7 +118,7 @@ Here's a quick tour that exercises the whole monitoring loop.
    **down**, the outage banner appears, and a `down` alert is recorded. That
    alert is emailed only once SMTP is set up.
 5. **Add a teammate.** In a private window, sign up a second account at
-   http://localhost:8080/signup. Every new account is a *viewer* and sees
+   http://localhost:8080/signup. Every account after the first is a *viewer* and sees
    nothing yet. Back as admin, change their role on the **Users** page, or add
    them as a project member so they see that project's sites.
 
@@ -226,7 +227,6 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 alembic upgrade head           # create or update the tables
-python -m app.db.seed          # create the admin, if missing
 
 uvicorn app.main:app --reload
 ```
@@ -264,7 +264,7 @@ apply on start. If you develop on the host instead, run
 `cd frontend && npm install`.
 
 **To start over from an empty database**, run `docker compose down -v`, then
-`docker compose up -d`. The admin account is recreated from `FIRST_ADMIN_*`.
+`docker compose up -d`. Then sign up again; the first account becomes the admin.
 
 ---
 
@@ -284,12 +284,20 @@ POSTGRES_PORT=5433
 If you change `POSTGRES_PORT` and develop the API on the host, the host API
 follows it automatically, because it reads the same variable.
 
-**I changed `POSTGRES_PASSWORD` or `FIRST_ADMIN_PASSWORD` and nothing happened**
+**I changed `POSTGRES_PASSWORD` and nothing happened**
 
-Both only apply when the database volume is first created. PostgreSQL keeps
-its original credentials, and the seeder skips an admin that already exists.
-Either change the admin's password in the app (**Profile** in the sidebar), or
-reset with `docker compose down -v` (this deletes all data).
+It only applies when the database volume is first created; PostgreSQL keeps
+its original credentials. Reset with `docker compose down -v` (this deletes
+all data).
+
+**I signed up, but my account is a viewer, not the admin**
+
+Only the first account on an empty database becomes the admin, so another
+account already existed. A database from an older version still has the
+seeded `admin` account (password `Admin@123` unless you changed it): sign in
+as that admin and change your role on the **Users** page. To start over
+instead, run `docker compose down -v` (this deletes all data) and sign up
+again.
 
 **"This account has been suspended" when signing in as the admin**
 
@@ -298,8 +306,8 @@ account, and only another admin can reactivate an admin. Unlock it from the
 server instead:
 
 ```bash
-python -m app.db.reactivate admin                       # API on the host
-docker compose exec api python -m app.db.reactivate admin   # API in Docker
+python -m app.db.reactivate <username>                       # API on the host
+docker compose exec api python -m app.db.reactivate <username>   # API in Docker
 ```
 
 **The UI shows `502 Bad Gateway`, or "API unreachable" in the sidebar**

@@ -23,8 +23,8 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173 and sign in. The seeded admin is `admin` /
-`Admin@123`.
+Open http://localhost:5173 and sign in. On an empty database, sign up
+instead: the first account becomes the admin.
 
 The API has no CORS middleware, so in development Vite proxies `/api` and
 `/health` to `http://127.0.0.1:8000`. To point at a different backend, copy
