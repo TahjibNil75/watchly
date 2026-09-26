@@ -26,10 +26,10 @@ export default function ForgotPassword() {
   return (
     <div className="auth-screen">
       <form className="card auth-card" onSubmit={submit}>
-        <div className="brand brand-lg">
+        <Link to="/" className="brand brand-lg">
           <span className="brand-mark" aria-hidden="true" />
           Watchly
-        </div>
+        </Link>
         <h1>Forgot your password?</h1>
         {done ? (
           <div className="banner banner-info" role="status">

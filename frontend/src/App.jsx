@@ -8,6 +8,7 @@ import ChoosePassword from './pages/ChoosePassword.jsx'
 import ConfirmEmail from './pages/ConfirmEmail.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
+import Landing from './pages/Landing.jsx'
 import Login from './pages/Login.jsx'
 import NewWebsite from './pages/NewWebsite.jsx'
 import Notifications from './pages/Notifications.jsx'
@@ -41,6 +42,9 @@ export default function App() {
   if (!user) {
     return (
       <Routes>
+        {/* The site's root introduces Watchly; any other page asks to sign in,
+            then returns there. */}
+        <Route index element={<Landing />} />
         <Route element={<AuthLayout />}>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />

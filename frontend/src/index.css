@@ -680,6 +680,331 @@ a:hover {
   }
 }
 
+/* ---------- Landing ---------- */
+
+/* What a signed-out visitor sees at the root (Landing.jsx). Its demo board is
+   the sign-in page's, styled by the .live-* rules above. */
+.landing {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.landing main {
+  flex: 1;
+}
+.landing-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px clamp(16px, 4vw, 48px);
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.landing-nav-links {
+  display: flex;
+  gap: 22px;
+  margin-left: 12px;
+  font-size: 0.9rem;
+}
+.landing-nav-links a {
+  color: var(--muted);
+}
+.landing-nav-links a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+.landing-nav-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.landing-section {
+  width: 100%;
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: clamp(56px, 8vw, 96px) clamp(16px, 4vw, 48px);
+}
+/* Clear of the sticky nav when reached from its links. */
+.landing-section[id] {
+  scroll-margin-top: 48px;
+}
+
+.landing-hero-wrap {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--primary) 4%, var(--bg));
+  border-bottom: 1px solid var(--border);
+}
+.landing-hero-wrap::before {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(35% 40% at 20% 30%, color-mix(in srgb, var(--primary) 14%, transparent), transparent 70%),
+    radial-gradient(30% 35% at 80% 70%, color-mix(in srgb, var(--up) 11%, transparent), transparent 70%);
+  animation: drift 18s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+.landing-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  align-items: center;
+  gap: clamp(32px, 5vw, 72px);
+}
+.landing-hero-text > * {
+  animation: auth-rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  animation-delay: calc(var(--stagger, 0) * 70ms);
+}
+.landing-hero-text > :nth-child(2) { --stagger: 1; }
+.landing-hero-text > :nth-child(3) { --stagger: 2; }
+.landing-hero-text > :nth-child(4) { --stagger: 3; }
+.landing-hero-text > :nth-child(5) { --stagger: 4; }
+.landing-hero h1 {
+  display: block;
+  margin: 18px 0 16px;
+  font-size: clamp(2.1rem, 4.6vw, 3.2rem);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+}
+.landing-lead {
+  margin: 0;
+  max-width: 48ch;
+  font-size: 1.1rem;
+}
+.landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 28px;
+}
+.landing-actions .btn-primary {
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+.landing-actions .btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--primary) 70%, transparent);
+  text-decoration: none;
+}
+.landing-note {
+  margin: 14px 0 0;
+}
+.landing-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.landing-head {
+  max-width: 640px;
+  margin: 0 auto 40px;
+  text-align: center;
+}
+.landing-head h2,
+.landing-final h2 {
+  margin-bottom: 10px;
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  letter-spacing: -0.02em;
+}
+.landing-head p,
+.landing-final p {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.landing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.landing-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.landing-card {
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.landing-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 36px -20px rgb(16 24 40 / 0.35);
+}
+.landing-card h3,
+.landing-feature h3,
+.landing-steps h3 {
+  margin: 16px 0 6px;
+  font-size: 1.05rem;
+}
+.landing-card p,
+.landing-feature p,
+.landing-steps p {
+  margin: 0;
+}
+.landing-card > p {
+  margin-bottom: 14px;
+}
+.landing-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+.landing-icon .icon {
+  width: 22px;
+  height: 22px;
+}
+.landing-points {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.92rem;
+}
+.landing-points li {
+  display: flex;
+  gap: 10px;
+}
+.landing-points li::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 0.6em;
+  border-radius: 50%;
+  background: var(--up);
+}
+
+/* A full-width stripe behind every other section. */
+.landing-band {
+  background: var(--surface);
+  border-block: 1px solid var(--border);
+}
+.landing-features {
+  gap: 28px 32px;
+}
+.landing-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.landing-feature h3 {
+  margin-top: 8px;
+}
+
+.landing-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.landing-steps li {
+  position: relative;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+.landing-step-num {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-weight: 700;
+  color: var(--primary-text);
+  background: var(--primary);
+}
+
+.landing-final {
+  text-align: center;
+}
+.landing-final .landing-actions {
+  justify-content: center;
+}
+
+.landing-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  padding: 24px clamp(16px, 4vw, 48px);
+  border-top: 1px solid var(--border);
+}
+.landing-footer-links {
+  display: flex;
+  gap: 18px;
+  margin-left: auto;
+}
+
+@media (max-width: 960px) {
+  .landing-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .landing-hero-text {
+    max-width: 640px;
+  }
+  .landing-grid,
+  .landing-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .landing-grid-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .landing-nav-links {
+    display: none;
+  }
+}
+@media (min-width: 640px) and (max-width: 960px) {
+  .landing-features {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 420px) {
+  /* The hero's own button is a scroll away at most. Qualified to outrank
+     .btn, which comes later in this file. */
+  .landing-nav-actions .landing-nav-signup {
+    display: none;
+  }
+  /* Room for the demo's host names. */
+  .landing-demo .live-row-head .badge-env {
+    display: none;
+  }
+  .landing-actions .btn {
+    flex: 1;
+  }
+  .landing-footer-links {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero-wrap::before,
+  .landing *,
+  .landing *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 /* ---------- Toasts ---------- */
 
 /* Site alerts in the app (EventToasts.jsx), and the demo's on the sign-in page. */
@@ -886,6 +1211,10 @@ a.toast-body:hover strong {
 .btn-sm {
   padding: 4px 10px;
   font-size: 0.85rem;
+}
+.btn-lg {
+  padding: 11px 20px;
+  font-size: 1rem;
 }
 .btn-block {
   width: 100%;

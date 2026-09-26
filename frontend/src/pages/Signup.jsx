@@ -38,10 +38,10 @@ export default function Signup() {
   return (
     <div className="auth-screen">
       <form className="card auth-card" onSubmit={submit}>
-        <div className="brand brand-lg">
+        <Link to="/" className="brand brand-lg">
           <span className="brand-mark" aria-hidden="true" />
           Watchly
-        </div>
+        </Link>
         <h1>Create an account</h1>
         <p className="muted small">
           New accounts start as viewers. An admin can add you to projects or change your role.

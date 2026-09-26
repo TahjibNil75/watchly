@@ -30,10 +30,10 @@ export default function Login() {
   return (
     <div className="auth-screen">
       <form className="card auth-card" onSubmit={submit}>
-        <div className="brand brand-lg">
+        <Link to="/" className="brand brand-lg">
           <span className="brand-mark" aria-hidden="true" />
           Watchly
-        </div>
+        </Link>
         <h1>Sign in</h1>
         <ErrorBanner error={error} />
         <label className="field">
