@@ -56,7 +56,7 @@ class WebsiteNotAlertableError(WebsiteError):
         super().__init__(
             f"{website.name!r} would have no alert channel. Add recipient_ids or "
             "alert_emails, set inherit_project_recipients back to true, or "
-            f"set up Slack on this site or on project {website.project.name!r}."
+            f"set up Slack or Telegram on this site or on project {website.project.name!r}."
         )
 
 
@@ -77,6 +77,27 @@ def slack_problem(website: Website) -> WebsiteSlackError | None:
         return WebsiteSlackError(
             "slack_channel_id needs a bot token: add slack_bot_token to this "
             f"site, or configure Slack on project {website.project.name!r}."
+        )
+    return None
+
+
+class WebsiteTelegramError(WebsiteError):
+    """The site's own Telegram settings could not deliver anything."""
+
+
+def telegram_problem(website: Website) -> WebsiteTelegramError | None:
+    """Why the site's own Telegram settings would send nowhere, if they would."""
+    if website.telegram_bot_token and not website.telegram_chat_id:
+        return WebsiteTelegramError(
+            "telegram_bot_token needs telegram_chat_id: a site's own bot sends "
+            "to the site's own chat."
+        )
+    if website.telegram_chat_id and not (
+        website.telegram_bot_token or website.project.telegram_bot_token
+    ):
+        return WebsiteTelegramError(
+            "telegram_chat_id needs a bot token: add telegram_bot_token to this "
+            f"site, or configure Telegram on project {website.project.name!r}."
         )
     return None
 
@@ -113,13 +134,19 @@ class WebsiteService:
         self.session = session
 
     async def _commit_if_alertable(
-        self, website: Website, *, check_slack: bool = False
+        self,
+        website: Website,
+        *,
+        check_slack: bool = False,
+        check_telegram: bool = False,
     ) -> None:
         """Commit a change unless it leaves the site unable to alert anyone,
-        with content rules on a bodiless method, or — with `check_slack` — with
-        Slack settings that post nowhere."""
+        with content rules on a bodiless method, or — with `check_slack` and
+        `check_telegram` — with Slack or Telegram settings that post nowhere."""
         # Build the error before rolling back, which expires `website`.
         error = slack_problem(website) if check_slack else None
+        if error is None and check_telegram:
+            error = telegram_problem(website)
         if error is None:
             error = content_rule_problem(website)
         if error is None and not website.alert_channels:
@@ -275,6 +302,7 @@ class WebsiteService:
                     "recipient_ids",
                     "project_id",
                     "slack_bot_token",
+                    "telegram_bot_token",
                 }
             ),
             url=url,
@@ -284,13 +312,20 @@ class WebsiteService:
                 if payload.slack_bot_token
                 else None
             ),
+            telegram_bot_token=(
+                encrypt_secret(payload.telegram_bot_token)
+                if payload.telegram_bot_token
+                else None
+            ),
             project=project,
             created_by_id=created_by_id,
         )
         website.recipients = recipients
         self.session.add(website)
         try:
-            await self._commit_if_alertable(website, check_slack=True)
+            await self._commit_if_alertable(
+                website, check_slack=True, check_telegram=True
+            )
         except IntegrityError as exc:
             await self.session.rollback()
             raise DuplicateWebsiteError(url, record_type) from exc
@@ -339,6 +374,18 @@ class WebsiteService:
             "slack_channel_id" in changes
             and changes["slack_channel_id"] != website.slack_channel_id
         )
+        if "telegram_chat_id" in changes and not changes["telegram_chat_id"]:
+            changes["telegram_chat_id"] = None
+            # Like Slack: the site's own bot only ever sends to the site's own
+            # chat, so removing the chat removes the token with it.
+            if not changes.get("telegram_bot_token"):
+                changes["telegram_bot_token"] = None
+        if changes.get("telegram_bot_token"):
+            changes["telegram_bot_token"] = encrypt_secret(changes["telegram_bot_token"])
+        telegram_changed = "telegram_bot_token" in changes or (
+            "telegram_chat_id" in changes
+            and changes["telegram_chat_id"] != website.telegram_chat_id
+        )
 
         if "url" in changes and changes["url"] != website.url:
             # The certificate state describes the old host. Clearing it makes
@@ -361,7 +408,9 @@ class WebsiteService:
         # Read before a rollback expires them.
         url, record_type = website.url, website.dns_record_type
         try:
-            await self._commit_if_alertable(website, check_slack=slack_changed)
+            await self._commit_if_alertable(
+                website, check_slack=slack_changed, check_telegram=telegram_changed
+            )
         except IntegrityError as exc:
             await self.session.rollback()
             raise DuplicateWebsiteError(url, record_type) from exc

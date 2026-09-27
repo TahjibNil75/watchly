@@ -6,8 +6,9 @@ import { parseEmails } from './format.js'
  * Create mode when `initial` is absent (adds the member picker and extra
  * addresses); edit mode otherwise, where members and addresses are managed on
  * the project page instead. Every project needs at least one alert channel —
- * members or extra emails for email, and/or a Slack bot token plus channel —
- * and the API explains what's missing if the form is submitted without one.
+ * members or extra emails for email, a Slack bot token plus channel, and/or a
+ * Telegram bot token plus chat — and the API explains what's missing if the
+ * form is submitted without one.
  */
 export default function ProjectForm({ initial, users = [], onSubmit, onCancel, submitLabel }) {
   const creating = !initial
@@ -19,6 +20,9 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
     slack_bot_token: '',
     slack_channel_id: initial?.slack_channel_id ?? '',
     slack_enabled: initial?.slack_enabled ?? true,
+    telegram_bot_token: '',
+    telegram_chat_id: initial?.telegram_chat_id ?? '',
+    telegram_enabled: initial?.telegram_enabled ?? true,
   })
   const [memberIds, setMemberIds] = useState([])
   const [error, setError] = useState(null)
@@ -30,6 +34,8 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
   function buildPayload() {
     const token = form.slack_bot_token.trim()
     const channel = form.slack_channel_id.trim()
+    const tgToken = form.telegram_bot_token.trim()
+    const tgChat = form.telegram_chat_id.trim()
     const payload = {
       name: form.name.trim(),
       description: form.description.trim() || null,
@@ -41,14 +47,22 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
         payload.slack_bot_token = token || null
         payload.slack_channel_id = channel || null
       }
+      if (tgToken || tgChat) {
+        payload.telegram_bot_token = tgToken || null
+        payload.telegram_chat_id = tgChat || null
+      }
       return payload
     }
     payload.is_active = form.is_active
-    // The stored token is never sent back to us, so a blank field means "keep it".
+    // The stored tokens are never sent back to us, so a blank field means "keep it".
     if (token) payload.slack_bot_token = token
     // Clearing the channel turns Slack off; the API drops the token with it.
     if (channel !== (initial.slack_channel_id ?? '')) payload.slack_channel_id = channel || null
     if (initial.slack_token_hint) payload.slack_enabled = form.slack_enabled
+    // Telegram works the same way: clearing the chat drops the token with it.
+    if (tgToken) payload.telegram_bot_token = tgToken
+    if (tgChat !== (initial.telegram_chat_id ?? '')) payload.telegram_chat_id = tgChat || null
+    if (initial.telegram_token_hint) payload.telegram_enabled = form.telegram_enabled
     return payload
   }
 
@@ -140,6 +154,54 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
             </label>
             <p className="muted small">
               Leave the token blank to keep the stored one. Clear the channel id to remove Slack.
+            </p>
+          </>
+        )}
+      </fieldset>
+
+      <fieldset className="fieldset">
+        <legend>Telegram alerts (optional)</legend>
+        <div className="row-2">
+          <label className="field">
+            <span>Bot token</span>
+            <input
+              type="password"
+              value={form.telegram_bot_token}
+              onChange={set('telegram_bot_token')}
+              placeholder={
+                initial?.telegram_token_hint
+                  ? `Stored: ${initial.telegram_token_hint}`
+                  : '123456789:AA…'
+              }
+              autoComplete="off"
+            />
+          </label>
+          <label className="field">
+            <span>Chat id</span>
+            <input
+              value={form.telegram_chat_id}
+              onChange={set('telegram_chat_id')}
+              placeholder="-1001234567890 or @channel"
+              maxLength={64}
+            />
+          </label>
+        </div>
+        <p className="muted small">
+          Create a bot with @BotFather and add it to the group, or to the channel as an admin
+          that can post.
+        </p>
+        {!creating && initial.telegram_token_hint && (
+          <>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.telegram_enabled}
+                onChange={set('telegram_enabled')}
+              />
+              <span>Send Telegram alerts (untick to mute without losing the settings)</span>
+            </label>
+            <p className="muted small">
+              Leave the token blank to keep the stored one. Clear the chat id to remove Telegram.
             </p>
           </>
         )}

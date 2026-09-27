@@ -27,7 +27,8 @@ deliberately, because the workload is small and bounded.
                           ┌─────────▼────────┐     │  alerts
                           │   PostgreSQL     │     ├──────────────▶ SMTP  (SES, Resend, …)
                           │  users, projects │     ├──────────────▶ Slack (chat.postMessage)
-                          │  websites, checks│     └──────────────▶ Webhook (generic JSON)
+                          │  websites, checks│     ├──────────────▶ Telegram (Bot API sendMessage)
+                          └──────────────────┘     └──────────────▶ Webhook (generic JSON)
                           └──────────────────┘
 ```
 
@@ -37,7 +38,7 @@ deliberately, because the workload is small and bounded.
 | **Watchly** | The single deployable. Serves `/api/v1`, polls sites, sends alerts. |
 | **PostgreSQL** | The only persistent store. Also the coordination lock for multi-worker deployments. |
 | **Monitored websites** | Third-party targets. Watchly only ever sends them an HTTP request. |
-| **SMTP / Slack / Webhook** | Outbound alert channels. Each fails independently. |
+| **SMTP / Slack / Telegram / Webhook** | Outbound alert channels. Each fails independently. |
 
 ---
 
@@ -60,6 +61,7 @@ flowchart LR
     RESOLVERS["Public DNS resolvers"]
     SMTP["SMTP provider"]
     SLACK["Slack Web API"]
+    TELEGRAM["Telegram Bot API"]
     HOOK["Generic webhook"]
 
     UI -->|"JWT bearer"| API
@@ -70,6 +72,7 @@ flowchart LR
     LOOP -->|"DNS queries"| RESOLVERS
     SVC --> SMTP
     SVC --> SLACK
+    SVC --> TELEGRAM
     SVC --> HOOK
     LOOP -.->|"pg_try_advisory_lock"| DB
 ```
@@ -147,6 +150,7 @@ app/monitoring/
 │   ├── events.py   OutageEvent, SslExpiryEvent, SlowResponseEvent, ReportEvent
 │   ├── email.py    SMTP: HTML + text layouts
 │   ├── slack.py    Block Kit; per-project (or per-site) bot token + channel
+│   ├── telegram.py Telegram HTML; per-project (or per-site) bot token + chat
 │   └── webhook.py  generic JSON POST
 └── notifications/  who wants what, in which words
     ├── catalog.py      kinds, placeholders, built-in wording
@@ -222,6 +226,9 @@ erDiagram
         text slack_bot_token "Fernet ciphertext"
         string slack_channel_id
         bool slack_enabled
+        text telegram_bot_token "Fernet ciphertext"
+        string telegram_chat_id
+        bool telegram_enabled
         bool is_active
     }
     project_members {
@@ -246,6 +253,8 @@ erDiagram
         bool inherit_project_recipients "false = site list only"
         string slack_channel_id "overrides project"
         text slack_bot_token "Fernet ciphertext, null = project's"
+        string telegram_chat_id "overrides project"
+        text telegram_bot_token "Fernet ciphertext, null = project's"
         enum status "website_status"
         enum environment "website_environment, null = unset"
         timestamptz last_checked_at
@@ -254,6 +263,8 @@ erDiagram
         int down_alerts_sent
         string slack_thread_ts "outage's first Slack message"
         string slack_thread_channel
+        bigint telegram_thread_message_id "outage's first Telegram message"
+        string telegram_thread_chat
         int slow_threshold_ms "null = server default"
         int slow_streak
         timestamptz last_slow_alert_at
@@ -270,6 +281,7 @@ erDiagram
         string kind "down, ssl_expiring, monthly_report ..."
         bool email_enabled "null = inherit"
         bool slack_enabled "null = inherit"
+        bool telegram_enabled "null = inherit"
         string subject "null = inherit"
         text body "null = inherit"
     }
@@ -360,7 +372,8 @@ rather than a Postgres enum so a new kind needs no `ALTER TYPE`.
 
 **The live outage state lives on `websites`**, not in memory: `status`,
 `down_since`, `consecutive_failures`, `down_alerts_sent` and the outage's Slack
-thread (`slack_thread_ts`, `slack_thread_channel`). A restart mid-outage
+thread (`slack_thread_ts`, `slack_thread_channel`) and Telegram reply chain
+(`telegram_thread_message_id`, `telegram_thread_chat`). A restart mid-outage
 picks up exactly where it left off, and every worker sees the same state.
 
 ---
@@ -435,13 +448,14 @@ nothing further until the next outage.
 In Slack the whole outage is **one thread**: the down alert is a new message,
 the still-down alerts reply under it, and the recovery replies too, with
 "also send to channel" so the channel sees it. (The `SLACK_WEBHOOK_URL`
-fallback cannot thread and posts each alert to the channel.)
+fallback cannot thread and posts each alert to the channel.) In Telegram the
+still-down alerts and the recovery reply to the down alert.
 
 ### 5.3 Who gets the alert
 
 ```mermaid
 flowchart LR
-    E["notification raised"] --> T{"kind switched on<br/>for this project?<br/>(email / slack, per kind)"}
+    E["notification raised"] --> T{"kind switched on<br/>for this project?<br/>(email / slack / telegram,<br/>per kind)"}
     T --> R{"resolve recipients"}
     R -->|"unless the site sets<br/>inherit_project_recipients = false"| P["project"]
     P --> M["project members<br/>suspended users skipped"]
@@ -456,14 +470,18 @@ flowchart LR
     S -->|"site token + site channel, else<br/>site or project channel + project token"| SL["SlackAlerter → chat.postMessage"]
     S -->|"none configured"| FB["SLACK_WEBHOOK_URL fallback, if set"]
 
+    E --> TG{"telegram target?"}
+    TG -->|"site token + site chat, else<br/>site or project chat + project token"| TGA["TelegramAlerter → sendMessage"]
+    TG -->|"none configured"| TFB["TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID<br/>fallback, if set"]
+
     E --> WH["WebhookAlerter → ALERT_WEBHOOK_URL"]
 ```
 
-**Every project must have at least one channel** — email or Slack, or both.
+**Every project must have at least one channel** — email, Slack, Telegram, or any mix.
 Enforced at create *and* on every later change, so a project cannot be quietly
 silenced by clearing its last recipient or removing its last member. **Every
 site must too**: a site that stops inheriting its project's recipients needs
-recipients of its own (or Slack), and cannot drop its last one.
+recipients of its own (or Slack or Telegram), and cannot drop its last one.
 
 Channels fail independently: an alerter that throws is logged and the others
 still run.
@@ -587,7 +605,7 @@ manages only the ones they created, and the sites under them.
 | ------- | -------- |
 | **Passwords** | bcrypt via the `bcrypt` package directly. `passlib` is unusable on Python 3.13+ — it imports the removed `crypt` module. |
 | **Account enumeration** | Login runs bcrypt against a dummy hash when no user matches, so timing does not reveal which accounts exist (measured 1.02 ratio). `is_active` is checked only after the password is proven. |
-| **Stored secrets** | Slack bot tokens (project and site) are Fernet-encrypted at rest and write-only in the API — reads return a masked hint. Key from `SLACK_TOKEN_ENCRYPTION_KEY`, falling back to `SECRET_KEY`. |
+| **Stored secrets** | Slack and Telegram bot tokens (project and site) are Fernet-encrypted at rest and write-only in the API — reads return a masked hint. Key from `SLACK_TOKEN_ENCRYPTION_KEY`, falling back to `SECRET_KEY`. |
 | **Brute force** | `MAX_FAILED_LOGIN_ATTEMPTS` wrong passwords in a row suspend the account; the count is incremented in SQL so parallel guesses cannot race past it. The suspending attempt answers `401` like any other, so it reveals nothing. The price: anyone who knows a username can lock that account out. |
 | **Forgot password** | Always answers `202` with the same text and sends the email after responding, so it does not reveal which addresses have accounts. The temporary password sits beside the real one, which keeps working until the temporary one is used — asking cannot lock anyone out. Signing in with it confines the account to `POST /users/me/password` (`must_change_password`). |
 | **Password leakage** | FastAPI's default 422 body echoes the offending input. A custom handler redacts password fields. |
@@ -636,7 +654,7 @@ Worth knowing before this carries real load:
 | **No alert retry** | A failed delivery is logged, not queued. The next follow-up alert is the recovery mechanism. |
 | **No audit trail** | Nothing records who changed a role, suspended an account or edited a project. The main gap in the permissions story. |
 | **Password change keeps other sessions** | Changing a password, or signing in with a temporary one, revokes no refresh tokens, so a stolen one keeps working until it goes unused for 7 days. |
-| **Key rotation** | Changing `SECRET_KEY` invalidates every access token (sessions recover through a refresh) *and* makes stored Slack tokens unreadable. `decrypt_secret` degrades quietly; the tokens must be re-entered. |
+| **Key rotation** | Changing `SECRET_KEY` invalidates every access token (sessions recover through a refresh) *and* makes stored Slack and Telegram tokens unreadable. `decrypt_secret` degrades quietly; the tokens must be re-entered. |
 
 ---
 
@@ -648,7 +666,7 @@ Worth knowing before this carries real load:
 | Understand monitoring in depth | [`app/monitoring/websites/README.md`](../app/monitoring/websites/README.md) |
 | Change who can do what | [`app/core/permissions.py`](../app/core/permissions.py) |
 | Change when alerts fire | `record_result()` in [`app/monitoring/service.py`](../app/monitoring/service.py) |
-| Change what an email or Slack message looks like | `render_html()` in [`alerts/email.py`](../app/monitoring/alerts/email.py), `build_blocks()` in [`alerts/slack.py`](../app/monitoring/alerts/slack.py) |
+| Change what an email, Slack or Telegram message looks like | `render_html()` in [`alerts/email.py`](../app/monitoring/alerts/email.py), `build_blocks()` in [`alerts/slack.py`](../app/monitoring/alerts/slack.py), `build_text()` in [`alerts/telegram.py`](../app/monitoring/alerts/telegram.py) |
 | Add a notification kind | `NotificationKind`, an event in [`alerts/events.py`](../app/monitoring/alerts/events.py), and its entry in [`notifications/catalog.py`](../app/monitoring/notifications/catalog.py) |
 | Change the default wording | [`notifications/catalog.py`](../app/monitoring/notifications/catalog.py) |
 | Change how the monthly report is computed | `compute_site_stats()` in [`notifications/reports.py`](../app/monitoring/notifications/reports.py) |

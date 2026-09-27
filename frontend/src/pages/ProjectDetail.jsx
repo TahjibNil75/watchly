@@ -290,6 +290,16 @@ export default function ProjectDetail() {
                     : 'not set up'}
               </dd>
             </div>
+            <div>
+              <dt>Telegram</dt>
+              <dd>
+                {p.telegram_configured
+                  ? `${p.telegram_chat_id} (${p.telegram_token_hint})`
+                  : p.telegram_token_hint
+                    ? 'muted'
+                    : 'not set up'}
+              </dd>
+            </div>
             {owner && (
               <div>
                 <dt>Owner</dt>

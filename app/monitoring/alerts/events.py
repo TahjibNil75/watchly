@@ -18,6 +18,7 @@ from app.monitoring.alerts.base import (
     SiteRow,
     SlackTarget,
     Stat,
+    TelegramTarget,
     Tone,
     WebsiteSnapshot,
     format_duration,
@@ -102,6 +103,7 @@ class SiteEvent(Notification):
     result: CheckResult
     recipients: tuple[str, ...] = ()
     slack: SlackTarget | None = None
+    telegram: TelegramTarget | None = None
 
     @property
     def project_id(self) -> int:
@@ -779,6 +781,7 @@ class ReportEvent(Notification):
     sites_without_data: int = 0
     recipients: tuple[str, ...] = ()
     slack: SlackTarget | None = None
+    telegram: TelegramTarget | None = None
 
     @property
     def month_label(self) -> str:

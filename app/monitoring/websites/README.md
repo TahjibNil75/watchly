@@ -246,25 +246,28 @@ them, and a new record type clears the pinned values unless new ones are sent.
 In Slack, one outage is one thread: the down alert is posted to the channel,
 the still-down alerts reply under it, and the recovery replies there too while
 also showing in the channel. The thread's `ts` is kept on the website
-(`slack_thread_ts`, `slack_thread_channel`) until the recovery.
+(`slack_thread_ts`, `slack_thread_channel`) until the recovery. Telegram does
+the same with replies: the still-down alerts and the recovery reply to the down
+alert, whose id is kept in `telegram_thread_message_id` and
+`telegram_thread_chat`.
 
 ---
 
 ## 5. Who receives an alert
 
-**Every project must have at least one channel — email, Slack, or both.** It is
-chosen when the project is created and enforced on every later change: you
-cannot clear the last email recipient while Slack is unset, remove the last
-member, or drop Slack while it is the only channel. There are no separate
+**Every project must have at least one channel — email, Slack, Telegram, or
+any mix.** It is chosen when the project is created and enforced on every later
+change: you cannot clear the last email recipient while no chat channel is set,
+remove the last member, or drop Slack or Telegram while it is the only channel. There are no separate
 endpoints for configuring a channel; it is all part of the project payload.
 
 `GET /monitoring/projects/{id}` reports what is set as `alert_channels`, e.g.
-`["email"]` or `["email", "slack"]`.
+`["email"]` or `["email", "slack", "telegram"]`.
 
 Sites inherit their project's channels and need nothing of their own — but
 each can have its own recipients, and **a site must keep at least one
 channel too**: one that stops inheriting the project's recipients needs a
-recipient or address of its own (or Slack), and its last one cannot be
+recipient or address of its own (or Slack or Telegram), and its last one cannot be
 removed. `GET /monitoring/websites/{id}` reports the site's `alert_channels`.
 
 ### Email
@@ -294,8 +297,8 @@ curl -X PATCH $BASE/monitoring/websites/$SID -H "Authorization: Bearer $TOKEN" \
 ```
 
 Recipients go in first: opting out while the site has none of its own is
-refused with `422` (unless Slack is set up), since nobody would be
-emailed. Slack is unaffected by the flag.
+refused with `422` (unless Slack or Telegram is set up), since nobody would be
+emailed. Slack and Telegram are unaffected by the flag.
 
 Subjects are project-qualified:
 
@@ -349,6 +352,56 @@ what decides success. Common refusals are translated: `not_in_channel` becomes
 
 `SLACK_WEBHOOK_URL` still works as a global firehose for projects with no Slack
 of their own.
+
+### Telegram
+
+Optional, and set up exactly like Slack: each project carries **its own bot
+token and chat id**, a site may override the chat while reusing the project's
+bot, or bring **a bot of its own** — which works even when the project has no
+Telegram.
+
+| level | field | effect |
+| ----- | ----- | ------ |
+| project | `telegram_bot_token` | the bot to send as; encrypted at rest |
+| project | `telegram_chat_id` | default chat for all the project's sites |
+| project | `telegram_enabled` | mute the project's Telegram without discarding the settings |
+| site | `telegram_chat_id` | that one site sends here instead |
+| site | `telegram_bot_token` | that one site sends as this bot; needs the site's `telegram_chat_id`, and ignores the project's mute |
+
+The same rules as Slack apply: a site's chat needs a bot from somewhere, its
+own bot needs its own chat, and `PATCH` with `telegram_chat_id: null` removes
+the site's Telegram, token included.
+
+Setting it up:
+
+1. Message **@BotFather**, send `/newbot`, and copy the token it gives you
+   (`123456789:AA…`).
+2. Add the bot to the group that should get alerts — or, for a channel, add it
+   as an administrator that can post messages. For alerts to one person, they
+   open the bot and press **Start** first; Telegram will not let a bot start a
+   conversation.
+3. Find the chat id: send a message in the group, then open
+   `https://api.telegram.org/bot<token>/getUpdates` and read `chat.id` (groups
+   and channels are negative, e.g. `-1001234567890`). A public channel can use
+   `@channelname` instead.
+4. `PATCH /monitoring/projects/{id}` with `telegram_bot_token` and
+   `telegram_chat_id` — or the same two fields on
+   `POST`/`PATCH /monitoring/websites` for one site. The project and website
+   forms have a **Telegram alerts (optional)** section for the same.
+
+Messages use Telegram's HTML formatting and are trimmed to its 4096-character
+limit (trailing facts first, such as the HTTP headers). Should Telegram ever
+reject the formatting, the alert is resent as plain text. Common refusals are
+translated in the log: `chat not found` becomes "no such chat, or the bot is
+not in it — add the bot to the group or channel…", and a group that became a
+supergroup names its new chat id.
+
+**The token is write-only**, like Slack's: encrypted with the same key, never
+returned, and shown as a masked `telegram_token_hint` such as
+`123456789:…wxyz`. It is part of every Bot API URL, so it is masked in logs too.
+
+`TELEGRAM_BOT_TOKEN` with `TELEGRAM_CHAT_ID` is an optional global firehose for
+projects with no Telegram of their own, like `SLACK_WEBHOOK_URL`.
 
 Each alert carries HTTP status and reason, expected vs actual, error class
 (`dns_error`, `connect_timeout`, `tls_error`, `unexpected_status`, …), response

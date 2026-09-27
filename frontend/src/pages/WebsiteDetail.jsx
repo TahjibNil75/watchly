@@ -606,6 +606,15 @@ export default function WebsiteDetail() {
                 </dd>
               </div>
             )}
+            {(s.telegram_chat_id || s.alert_channels.includes('telegram')) && (
+              <div>
+                <dt>Telegram</dt>
+                <dd>
+                  {s.telegram_chat_id ?? "project's chat"} ·{' '}
+                  {s.telegram_token_hint ? `own bot (${s.telegram_token_hint})` : "project's bot"}
+                </dd>
+              </div>
+            )}
           </dl>
           <h3>Site recipients</h3>
           <p className="muted small">

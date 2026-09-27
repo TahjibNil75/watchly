@@ -242,7 +242,8 @@ class Website(Base, TimestampMixin):
         ARRAY(String(255)), default=list, server_default=text("'{}'"), nullable=False
     )
     #: Also email the project's members and extra_emails. Off means only this
-    #: site's own recipients hear about it. Slack is unaffected either way.
+    #: site's own recipients hear about it. Slack and Telegram are unaffected
+    #: either way.
     inherit_project_recipients: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
@@ -253,6 +254,12 @@ class Website(Base, TimestampMixin):
     #: with the site's own channel; lets a site post to Slack when its project
     #: has none, or to another workspace.
     slack_bot_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Send this site's Telegram alerts to its own chat instead of the
+    #: project's. Uses the project's bot unless the site has one of its own.
+    telegram_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: The site's own Telegram bot token, encrypted at rest. Always paired with
+    #: the site's own chat, like its Slack token.
+    telegram_bot_token: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # --- live state -------------------------------------------------------
     status: Mapped[WebsiteStatus] = mapped_column(
@@ -280,6 +287,12 @@ class Website(Base, TimestampMixin):
     #: follow-ups and the recovery reply in its thread. Cleared on recovery.
     slack_thread_ts: Mapped[str | None] = mapped_column(String(32), nullable=True)
     slack_thread_channel: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    #: The current outage's first Telegram message, and the chat it is in:
+    #: follow-ups and the recovery reply to it. Cleared on recovery.
+    telegram_thread_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    telegram_thread_chat: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # --- site problems short of down --------------------------------------
     #: A response slower than this counts as slow. None uses the global
@@ -381,6 +394,20 @@ class Website(Base, TimestampMixin):
         return mask_secret(decrypt_secret(self.slack_bot_token))
 
     @property
+    def has_telegram_alerting(self) -> bool:
+        """A token and a chat resolve, from the site or else its project.
+        Like Slack's, the mute switch does not count here."""
+        if self.telegram_bot_token:
+            return bool(self.telegram_chat_id)
+        chat = self.telegram_chat_id or self.project.telegram_chat_id
+        return bool(self.project.telegram_bot_token and chat)
+
+    @property
+    def telegram_token_hint(self) -> str | None:
+        """Masked site's own token; None when it uses the project's."""
+        return mask_secret(decrypt_secret(self.telegram_bot_token))
+
+    @property
     def alert_channels(self) -> list[str]:
         """Which channels reach this site's alerts."""
         channels = []
@@ -388,6 +415,8 @@ class Website(Base, TimestampMixin):
             channels.append("email")
         if self.has_slack_alerting:
             channels.append("slack")
+        if self.has_telegram_alerting:
+            channels.append("telegram")
         return channels
 
     def __repr__(self) -> str:

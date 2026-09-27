@@ -1,9 +1,9 @@
 """Generic JSON webhook alerts.
 
 Off unless ALERT_WEBHOOK_URL is set. Posts a machine-readable payload, so it
-can drive Telegram bots, PagerDuty bridges, or your own automation.
+can drive PagerDuty bridges, chat bots, or your own automation.
 
-Unlike email and Slack it has no per-project switch: it is a global firehose
+Unlike email, Slack and Telegram it has no per-project switch: it is a global firehose
 that an operator wires up once, and it receives every kind of notification.
 """
 

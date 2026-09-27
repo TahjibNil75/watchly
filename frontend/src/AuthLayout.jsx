@@ -18,7 +18,7 @@ function Showcase() {
         <h2>Know the moment a site goes down.</h2>
         <p className="muted">
           Watchly checks each of your websites on its own schedule, alerts the right people by
-          email, Slack or webhook, and tells them when it&apos;s back.
+          email, Slack, Telegram or webhook, and tells them when it&apos;s back.
         </p>
       </div>
       <LiveDemo />

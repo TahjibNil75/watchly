@@ -106,9 +106,17 @@ class Settings(BaseSettings):
     SLACK_WEBHOOK_URL: str = ""
     SLACK_API_URL: str = "https://slack.com/api/chat.postMessage"
     SLACK_TIMEOUT_SECONDS: int = 10
-    #: Encrypts stored Slack bot tokens. Falls back to SECRET_KEY when unset;
-    #: changing either makes existing stored tokens unreadable.
+    #: Encrypts stored Slack and Telegram bot tokens. Falls back to SECRET_KEY
+    #: when unset; changing either makes existing stored tokens unreadable.
     SLACK_TOKEN_ENCRYPTION_KEY: str = ""
+
+    # Telegram. Like Slack, bot token and chat are configured per project (and
+    # optionally per site) through the API; these two together are an optional
+    # firehose fallback for projects that have no Telegram of their own.
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+    TELEGRAM_API_URL: str = "https://api.telegram.org"
+    TELEGRAM_TIMEOUT_SECONDS: int = 10
 
     ALERT_WEBHOOK_URL: str = ""
 

@@ -3,7 +3,7 @@ import { api } from './api.js'
 import { ErrorBanner, Loading } from './components.jsx'
 import { useApi } from './useApi.js'
 
-const FIELDS = ['email_enabled', 'slack_enabled', 'subject', 'body']
+const FIELDS = ['email_enabled', 'slack_enabled', 'telegram_enabled', 'subject', 'body']
 
 const pickDraft = (setting) => Object.fromEntries(FIELDS.map((f) => [f, setting[f]]))
 
@@ -149,8 +149,73 @@ function SlackPreview({ blocks }) {
 }
 
 // ---------------------------------------------------------------------------
+// Telegram preview: just enough of Telegram's HTML to draw our own messages —
+// <b>, <i> and <a href>, with &-entities — as elements, never as raw HTML.
+// ---------------------------------------------------------------------------
+
+const TG_TAG = /(<\/?(?:b|i|a)(?: href="[^"]*")?>)/
+
+function decodeEntities(text) {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+function parseTelegram(html) {
+  const root = { children: [] }
+  const stack = [root]
+  for (const part of html.split(TG_TAG)) {
+    const open = part.match(/^<(b|i|a)(?: href="([^"]*)")?>$/)
+    if (open) {
+      const node = { tag: open[1], href: open[2] && decodeEntities(open[2]), children: [] }
+      stack.at(-1).children.push(node)
+      stack.push(node)
+    } else if (/^<\/(b|i|a)>$/.test(part)) {
+      if (stack.length > 1) stack.pop()
+    } else if (part) {
+      stack.at(-1).children.push(decodeEntities(part))
+    }
+  }
+  return root.children
+}
+
+function TelegramNodes({ nodes }) {
+  return nodes.map((node, i) => {
+    if (typeof node === 'string') return node
+    const inner = <TelegramNodes nodes={node.children} />
+    if (node.tag === 'b') return <strong key={i}>{inner}</strong>
+    if (node.tag === 'i') return <em key={i}>{inner}</em>
+    return /^https?:\/\//i.test(node.href ?? '') ? (
+      <a key={i} href={node.href} target="_blank" rel="noreferrer noopener">
+        {inner}
+      </a>
+    ) : (
+      <span key={i}>{inner}</span>
+    )
+  })
+}
+
+function TelegramPreview({ html }) {
+  return (
+    <div className="telegram-preview">
+      <div className="tg-bubble">
+        <div className="tg-name">Watchly</div>
+        <div className="tg-text">
+          <TelegramNodes nodes={parseTelegram(html)} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Live preview, rendered by the API exactly as it would be sent.
 // ---------------------------------------------------------------------------
+
+const TAB_LABELS = { email: 'Email', slack: 'Slack', telegram: 'Telegram' }
 
 function Preview({ kind, subject, body }) {
   const [tab, setTab] = useState('email')
@@ -181,7 +246,7 @@ function Preview({ kind, subject, body }) {
   return (
     <div className="preview">
       <div className="tabs" role="tablist">
-        {['email', 'slack'].map((name) => (
+        {['email', 'slack', 'telegram'].map((name) => (
           <button
             key={name}
             type="button"
@@ -190,7 +255,7 @@ function Preview({ kind, subject, body }) {
             className={tab === name ? 'tab active' : 'tab'}
             onClick={() => setTab(name)}
           >
-            {name === 'email' ? 'Email' : 'Slack'}
+            {TAB_LABELS[name]}
           </button>
         ))}
         <span className="muted small tabs-note">Preview with sample data</span>
@@ -210,8 +275,10 @@ function Preview({ kind, subject, body }) {
             srcDoc={data.email_html}
           />
         </>
-      ) : (
+      ) : tab === 'slack' ? (
         <SlackPreview blocks={data.slack_blocks} />
+      ) : (
+        <TelegramPreview html={data.telegram_html} />
       )}
     </div>
   )
@@ -305,6 +372,7 @@ function KindEditor({ setting, scope, canEdit, channels, onSave, onReset }) {
         <div className="notif-toggles">
           {toggle('email_enabled', 'Email', 'email')}
           {toggle('slack_enabled', 'Slack', 'slack')}
+          {toggle('telegram_enabled', 'Telegram', 'telegram')}
         </div>
       </div>
 
@@ -344,7 +412,8 @@ function KindEditor({ setting, scope, canEdit, channels, onSave, onReset }) {
           />
           <span className="muted small">
             {SOURCE_HINT[setting.sources.body]}. Plain text; line breaks are kept. In Slack,{' '}
-            <code>*bold*</code> and mentions like <code>&lt;!channel&gt;</code> work.
+            <code>*bold*</code> and mentions like <code>&lt;!channel&gt;</code> work; Telegram
+            shows it as written.
           </span>
         </label>
 

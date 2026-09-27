@@ -96,8 +96,8 @@ const CHECKS = [
 const ALERTS = [
   {
     icon: 'channels',
-    title: 'Email, Slack and webhooks',
-    text: 'Each project alerts by email, Slack or both, and a webhook can take every alert too. A site can add its own recipients, like a client, or its own Slack channel.',
+    title: 'Email, Slack, Telegram and webhooks',
+    text: 'Each project alerts by email, Slack, Telegram or any mix, and a webhook can take every alert too. A site can add its own recipients, like a client, or its own Slack channel or Telegram chat.',
   },
   {
     icon: 'bell',
@@ -106,8 +106,8 @@ const ALERTS = [
   },
   {
     icon: 'thread',
-    title: 'One Slack thread per outage',
-    text: 'The down alert starts the thread, reminders reply under it, and the recovery shows in the channel too.',
+    title: 'One thread per outage',
+    text: 'In Slack the down alert starts a thread, reminders reply under it, and the recovery shows in the channel too. In Telegram they reply to the down alert.',
   },
   {
     icon: 'retry',
@@ -142,7 +142,7 @@ const TEAM = [
     points: [
       'Uptime and response-time charts from 24 hours to 90 days',
       'The details of every recent check, and the history as a CSV download',
-      'A monthly uptime report for each project, by email and Slack',
+      'A monthly uptime report for each project, by email, Slack and Telegram',
     ],
   },
 ]
@@ -150,7 +150,7 @@ const TEAM = [
 const STEPS = [
   {
     title: 'Create a project',
-    text: 'Name it, add the people responsible, and choose email, Slack or both.',
+    text: 'Name it, add the people responsible, and choose email, Slack, Telegram or any mix.',
   },
   {
     title: 'Add what to watch',
@@ -215,7 +215,7 @@ export default function Landing() {
               <h1>Know the moment a site goes down.</h1>
               <p className="landing-lead muted">
                 Watchly checks your websites, servers and DNS records on their own schedule,
-                alerts the right people by email, Slack or webhook, and tells them when
+                alerts the right people by email, Slack, Telegram or webhook, and tells them when
                 it&apos;s back.
               </p>
               <Actions />

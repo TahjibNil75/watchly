@@ -34,6 +34,8 @@ const BLANK = {
   inherit_project_recipients: true,
   slack_channel_id: '',
   slack_bot_token: '',
+  telegram_chat_id: '',
+  telegram_bot_token: '',
 }
 
 function fromSite(site) {
@@ -42,8 +44,10 @@ function fromSite(site) {
     ...site,
     alert_emails: site.alert_emails.join(', '),
     slack_channel_id: site.slack_channel_id ?? '',
-    // The stored token is never sent back to us; blank means "keep it".
+    // The stored tokens are never sent back to us; blank means "keep it".
     slack_bot_token: '',
+    telegram_chat_id: site.telegram_chat_id ?? '',
+    telegram_bot_token: '',
     slow_threshold_ms: site.slow_threshold_ms ?? '',
     must_contain: site.must_contain ?? '',
     must_not_contain: site.must_not_contain ?? '',
@@ -97,6 +101,27 @@ function slackHint(project, site) {
     return (
       `Leave blank to post to ${project.name}'s channel ${project.slack_channel_id}${muted}. ` +
       "Add a channel id to post elsewhere with the project's bot, or a bot token too to use another bot."
+    )
+  }
+  return null
+}
+
+// The same for Telegram, given the project's own Telegram setup.
+function telegramHint(project, site) {
+  if (site?.telegram_token_hint) {
+    return (
+      'This site sends with its own bot. Leave the token blank to keep it; ' +
+      "clear the chat id to remove this site's Telegram."
+    )
+  }
+  if (!project) {
+    return "Leave blank to use the project's Telegram, if it has one. A bot token needs a chat id."
+  }
+  if (project.telegram_chat_id) {
+    const muted = project.telegram_enabled ? '' : ' (currently muted)'
+    return (
+      `Leave blank to send to ${project.name}'s chat ${project.telegram_chat_id}${muted}. ` +
+      "Add a chat id to send elsewhere with the project's bot, or a bot token too to use another bot."
     )
   }
   return null
@@ -156,6 +181,14 @@ export default function WebsiteForm({
     Boolean(project) &&
     !project.slack_channel_id &&
     !initial?.slack_token_hint
+  const tgHint = telegramHint(project, initial)
+  const tgChat = form.telegram_chat_id.trim()
+  const tgToken = form.telegram_bot_token.trim()
+  const needsTgToken =
+    Boolean(tgChat) &&
+    Boolean(project) &&
+    !project.telegram_chat_id &&
+    !initial?.telegram_token_hint
 
   const intervals = INTERVALS.includes(Number(form.check_interval_seconds))
     ? INTERVALS
@@ -183,12 +216,15 @@ export default function WebsiteForm({
       inherit_project_recipients: form.inherit_project_recipients,
       // Clearing the channel removes the site's own Slack, token included.
       slack_channel_id: slackChannel || null,
+      // Likewise for Telegram.
+      telegram_chat_id: tgChat || null,
     }
     if (dns) {
       payload.dns_record_type = form.dns_record_type
       payload.dns_expected_values = lines(form.dns_expected_values)
     }
     if (slackToken) payload.slack_bot_token = slackToken
+    if (tgToken) payload.telegram_bot_token = tgToken
     if (creating) {
       payload.check_type = form.check_type
       payload.project_id = Number(form.project_id)
@@ -600,6 +636,40 @@ export default function WebsiteForm({
               }
               autoComplete="off"
               required={needsToken}
+            />
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset className="fieldset">
+        <legend>Telegram alerts (optional)</legend>
+        {tgHint && <p className="muted small">{tgHint}</p>}
+        <div className="row-2">
+          <label className="field">
+            <span>Chat id</span>
+            <input
+              value={form.telegram_chat_id}
+              onChange={set('telegram_chat_id')}
+              placeholder={project?.telegram_chat_id ?? '-1001234567890 or @channel'}
+              maxLength={64}
+              required={Boolean(tgToken)}
+            />
+          </label>
+          <label className="field">
+            <span>Bot token</span>
+            <input
+              type="password"
+              value={form.telegram_bot_token}
+              onChange={set('telegram_bot_token')}
+              placeholder={
+                initial?.telegram_token_hint
+                  ? `Stored: ${initial.telegram_token_hint}`
+                  : project?.telegram_chat_id
+                    ? "Project's bot"
+                    : '123456789:AA…'
+              }
+              autoComplete="off"
+              required={needsTgToken}
             />
           </label>
         </div>

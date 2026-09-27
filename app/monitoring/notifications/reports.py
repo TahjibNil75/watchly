@@ -32,7 +32,11 @@ from app.monitoring.alerts.base import Alerter
 from app.monitoring.alerts.events import ReportEvent, SiteStats
 from app.monitoring.notifications.dispatcher import Notifier
 from app.monitoring.notifications.models import ReportDelivery
-from app.monitoring.notifications.recipients import project_recipients, slack_target
+from app.monitoring.notifications.recipients import (
+    project_recipients,
+    slack_target,
+    telegram_target,
+)
 from app.monitoring.projects.models import Project
 from app.monitoring.websites.models import Website, WebsiteCheck
 
@@ -261,6 +265,7 @@ class ReportService:
             sites_without_data=len(websites) - len(stats),
             recipients=project_recipients(project),
             slack=slack_target(project),
+            telegram=telegram_target(project),
         )
 
     # -- sending -----------------------------------------------------------

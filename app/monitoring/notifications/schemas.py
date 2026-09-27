@@ -11,6 +11,7 @@ class NotificationOverrides(BaseModel):
 
     email_enabled: bool | None = None
     slack_enabled: bool | None = None
+    telegram_enabled: bool | None = None
     subject: str | None = None
     body: str | None = None
 
@@ -24,6 +25,7 @@ class NotificationSettingRead(BaseModel):
     audience: str
     email_enabled: bool
     slack_enabled: bool
+    telegram_enabled: bool
     subject: str = Field(description="The subject template in effect.")
     body: str = Field(description="The body template in effect.")
     sources: dict[str, str] = Field(
@@ -54,6 +56,7 @@ class NotificationSettingRead(BaseModel):
             audience=info.audience,
             email_enabled=setting.email_enabled,
             slack_enabled=setting.slack_enabled,
+            telegram_enabled=setting.telegram_enabled,
             subject=setting.subject,
             body=setting.body,
             sources=setting.sources,
@@ -74,7 +77,7 @@ class NotificationSettingUpdate(BaseModel):
     """Replaces what this level overrides for one kind.
 
     Send every field: one left null (or blank) inherits from the level above,
-    and sending all four as null removes the override entirely.
+    and sending all of them as null removes the override entirely.
     """
 
     model_config = ConfigDict(
@@ -82,6 +85,7 @@ class NotificationSettingUpdate(BaseModel):
             "example": {
                 "email_enabled": True,
                 "slack_enabled": False,
+                "telegram_enabled": True,
                 "subject": "[{{project}}] {{website}} is down",
                 "body": "Heads up — {{website}} stopped responding: {{summary}}",
             }
@@ -90,6 +94,7 @@ class NotificationSettingUpdate(BaseModel):
 
     email_enabled: bool | None = None
     slack_enabled: bool | None = None
+    telegram_enabled: bool | None = None
     subject: str | None = Field(
         default=None,
         max_length=SUBJECT_MAX,
@@ -100,7 +105,8 @@ class NotificationSettingUpdate(BaseModel):
         max_length=BODY_MAX,
         description=(
             "Plain text; line breaks are kept. In Slack it is mrkdwn, so `*bold*` "
-            "and mentions such as `<!channel>` work there."
+            "and mentions such as `<!channel>` work there. Telegram shows it as "
+            "plain text."
         ),
     )
 
@@ -123,6 +129,9 @@ class NotificationPreviewResponse(BaseModel):
     email_text: str
     slack_text: str
     slack_blocks: list[dict]
+    telegram_html: str = Field(
+        description="The Telegram message: text in Telegram's HTML subset."
+    )
 
 
 class ReportSendRequest(BaseModel):
@@ -139,10 +148,11 @@ class ReportSendResponse(BaseModel):
     sites: int = Field(description="Websites included in the report.")
     email_recipients: int
     slack_configured: bool
+    telegram_configured: bool
     delivered_by: list[str] = Field(
         description=(
             "Channels that delivered it. Empty means it was not delivered: the "
-            "notification is switched off for the project, SMTP/Slack is not "
+            "notification is switched off for the project, SMTP/Slack/Telegram is not "
             "configured, or sending failed (see the API log)."
         )
     )

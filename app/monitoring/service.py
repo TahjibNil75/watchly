@@ -14,6 +14,8 @@ each stating the cumulative downtime, then silence until recovery.
 
 In Slack an outage is one thread: the down alert starts it, the follow-ups
 reply under it, and the recovery replies too while also showing in the channel.
+In Telegram it is a reply chain the same way: the follow-ups and the recovery
+reply to the down alert.
 
 Softer signals ride on the same checks, none of which is an outage:
 
@@ -48,6 +50,7 @@ from app.monitoring.alerts.base import (
     Notification,
     NotificationKind,
     SlackTarget,
+    TelegramTarget,
     WebsiteSnapshot,
 )
 from app.monitoring.alerts.events import (
@@ -59,7 +62,11 @@ from app.monitoring.alerts.events import (
     SslExpiryEvent,
 )
 from app.monitoring.notifications.dispatcher import Notifier, default_alerters
-from app.monitoring.notifications.recipients import dedupe_emails, slack_target
+from app.monitoring.notifications.recipients import (
+    dedupe_emails,
+    slack_target,
+    telegram_target,
+)
 from app.monitoring.websites.checker import CheckResult, check_website, new_client
 from app.monitoring.websites.models import (
     Website,
@@ -179,6 +186,12 @@ class MonitoringService:
             website.project, website.slack_channel_id, website.slack_bot_token
         )
 
+    def telegram_target_for(self, website: Website) -> TelegramTarget | None:
+        """The chat this site's alerts go to, with the token decrypted."""
+        return telegram_target(
+            website.project, website.telegram_chat_id, website.telegram_bot_token
+        )
+
     # -- alert dispatch ----------------------------------------------------
 
     async def dispatch(self, event: Notification) -> tuple[str, ...]:
@@ -240,18 +253,16 @@ class MonitoringService:
                 )
                 website.down_since = None
                 website.down_alerts_sent = 0
-                website.slack_thread_ts = None
-                website.slack_thread_channel = None
+                self._forget_threads(website)
         else:
             website.consecutive_failures += 1
             if not was_down:
                 # First failure of a new outage — alert immediately, as the
-                # start of a new Slack thread.
+                # start of a new Slack thread and Telegram reply chain.
                 website.status = WebsiteStatus.DOWN
                 website.down_since = result.checked_at
                 website.down_alerts_sent = 1
-                website.slack_thread_ts = None
-                website.slack_thread_channel = None
+                self._forget_threads(website)
                 events.append(
                     self._outage_event(NotificationKind.DOWN, website, result, attempt=1)
                 )
@@ -296,7 +307,7 @@ class MonitoringService:
             for channel in await self.dispatch(event):
                 if channel not in delivered:
                     delivered.append(channel)
-        await self._keep_slack_thread(website, events)
+        await self._keep_threads(website, events)
 
         return CheckOutcome(
             website=website,
@@ -324,6 +335,7 @@ class MonitoringService:
             max_attempts=website.max_down_alerts,
             recipients=self.recipients_for(website),
             slack=self._outage_slack_target(website, kind),
+            telegram=self._outage_telegram_target(website),
         )
 
     def _outage_slack_target(
@@ -344,27 +356,60 @@ class MonitoringService:
             broadcast=kind is NotificationKind.RECOVERED,
         )
 
-    async def _keep_slack_thread(
+    def _outage_telegram_target(self, website: Website) -> TelegramTarget | None:
+        """The site's Telegram target, replying to the outage's first message
+        when there is one in that chat."""
+        target = self.telegram_target_for(website)
+        if (
+            target is None
+            or website.telegram_thread_message_id is None
+            or website.telegram_thread_chat != target.chat_id
+        ):
+            return target
+        return replace(target, reply_to=website.telegram_thread_message_id)
+
+    @staticmethod
+    def _forget_threads(website: Website) -> None:
+        """An outage ended or a new one began: its replies start afresh."""
+        website.slack_thread_ts = None
+        website.slack_thread_channel = None
+        website.telegram_thread_message_id = None
+        website.telegram_thread_chat = None
+
+    async def _keep_threads(
         self, website: Website, events: list[Notification]
     ) -> None:
-        """Remember an outage alert that went to Slack as a new message, so the
-        rest of the outage replies under it.
+        """Remember an outage alert that went to Slack or Telegram as a new
+        message, so the rest of the outage replies under it.
 
-        Usually that is the down alert. If it never reached Slack, or the site's
-        channel changed mid-outage, the next alert that posts starts the thread.
+        Usually that is the down alert. If it never reached a channel, or the
+        site's channel or chat changed mid-outage, the next alert that posts
+        there starts the thread.
         """
+        slack_kept = telegram_kept = False
         for event in events:
+            if not isinstance(event, OutageEvent) or event.is_recovery:
+                continue
             if (
-                isinstance(event, OutageEvent)
-                and not event.is_recovery
+                not slack_kept
                 and event.slack is not None
                 and event.slack.thread_ts is None
                 and event.slack_ts
             ):
                 website.slack_thread_ts = event.slack_ts
                 website.slack_thread_channel = event.slack.channel_id
-                await self.session.commit()
-                return
+                slack_kept = True
+            if (
+                not telegram_kept
+                and event.telegram is not None
+                and event.telegram.reply_to is None
+                and event.telegram_message_id
+            ):
+                website.telegram_thread_message_id = event.telegram_message_id
+                website.telegram_thread_chat = event.telegram.chat_id
+                telegram_kept = True
+        if slack_kept or telegram_kept:
+            await self.session.commit()
 
     def _track_slowness(
         self, website: Website, result: CheckResult, events: list[Notification]
@@ -404,6 +449,7 @@ class MonitoringService:
                 slow_checks=website.slow_streak,
                 recipients=self.recipients_for(website),
                 slack=self.slack_target_for(website),
+                telegram=self.telegram_target_for(website),
             )
         )
 
@@ -446,6 +492,7 @@ class MonitoringService:
                 lossy_checks=website.loss_streak,
                 recipients=self.recipients_for(website),
                 slack=self.slack_target_for(website),
+                telegram=self.telegram_target_for(website),
             )
         )
 
@@ -479,6 +526,7 @@ class MonitoringService:
                 current=current,
                 recipients=self.recipients_for(website),
                 slack=self.slack_target_for(website),
+                telegram=self.telegram_target_for(website),
             )
         )
 
@@ -520,6 +568,7 @@ class MonitoringService:
                     bucket=bucket,
                     recipients=self.recipients_for(website),
                     slack=self.slack_target_for(website),
+                    telegram=self.telegram_target_for(website),
                 )
             )
 

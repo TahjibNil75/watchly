@@ -20,7 +20,9 @@ from app.monitoring.notifications.templating import (
     unknown_placeholders,
 )
 
-FIELDS = ("email_enabled", "slack_enabled", "subject", "body")
+FIELDS = ("email_enabled", "slack_enabled", "telegram_enabled", "subject", "body")
+#: The per-channel switches among FIELDS.
+SWITCHES = ("email_enabled", "slack_enabled", "telegram_enabled")
 
 
 class NotificationSettingsError(Exception):
@@ -44,7 +46,7 @@ class TemplateTooLongError(NotificationSettingsError):
 class ProtectedNotificationError(NotificationSettingsError):
     def __init__(self) -> None:
         super().__init__(
-            "The “Site down” alert cannot be switched off on both email and Slack — "
+            "The “Site down” alert cannot be switched off on every channel — "
             "nobody would hear about an outage. Turn off the whole project instead "
             "(mark it inactive), or leave one channel on."
         )
@@ -57,6 +59,7 @@ class EffectiveSetting:
     kind: NotificationKind
     email_enabled: bool
     slack_enabled: bool
+    telegram_enabled: bool
     subject: str
     body: str
     #: Per field: `project`, `global` or `default` — where the value came from.
@@ -76,6 +79,7 @@ def default_setting(kind: NotificationKind) -> EffectiveSetting:
         kind=kind,
         email_enabled=True,
         slack_enabled=True,
+        telegram_enabled=True,
         subject=info.default_subject,
         body=info.default_body,
         sources=dict.fromkeys(FIELDS, "default"),
@@ -121,6 +125,7 @@ def _merge(
         kind=kind,
         email_enabled=values["email_enabled"],
         slack_enabled=values["slack_enabled"],
+        telegram_enabled=values["telegram_enabled"],
         subject=values["subject"],
         body=values["body"],
         sources=sources,
@@ -204,15 +209,17 @@ class NotificationSettingsService:
         project_id: int | None,
         email_enabled: bool | None,
         slack_enabled: bool | None,
+        telegram_enabled: bool | None,
         subject: str | None,
         body: str | None,
         actor_id: int | None,
     ) -> EffectiveSetting:
-        """Replace this level's overrides. A field left None inherits; all four
-        None removes the row, which is what "reset to default" means."""
+        """Replace this level's overrides. A field left None inherits; all of
+        them None removes the row, which is what "reset to default" means."""
         values = {
             "email_enabled": email_enabled,
             "slack_enabled": slack_enabled,
+            "telegram_enabled": telegram_enabled,
             "subject": self.normalize_template(kind, "subject", subject),
             "body": self.normalize_template(kind, "body", body),
         }
@@ -247,6 +254,7 @@ class NotificationSettingsService:
             project_id=project_id,
             email_enabled=None,
             slack_enabled=None,
+            telegram_enabled=None,
             subject=None,
             body=None,
             actor_id=None,
@@ -273,7 +281,5 @@ class NotificationSettingsService:
             return True
 
         for project_row in [None, *(r for r in rows if r.project_id is not None)]:
-            if not resolved("email_enabled", project_row) and not resolved(
-                "slack_enabled", project_row
-            ):
+            if not any(resolved(switch, project_row) for switch in SWITCHES):
                 raise ProtectedNotificationError

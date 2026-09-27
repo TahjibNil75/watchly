@@ -72,6 +72,17 @@ class Project(Base, TimestampMixin):
     slack_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
+    # --- Telegram ---------------------------------------------------------
+    #: Bot token from @BotFather (`123456789:AA…`), encrypted at rest. Never
+    #: returned by the API.
+    telegram_bot_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Default chat for this project's alerts: a numeric id such as
+    #: `-1001234567890`, or a public `@channelname`. A site may override it.
+    telegram_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Lets you mute Telegram without discarding the token and chat.
+    telegram_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
 
     #: The project manager (or admin/DevOps) who created it. Decides who may
     #: edit the project — see app/core/permissions.can_manage_project.
@@ -118,6 +129,12 @@ class Project(Base, TimestampMixin):
         return bool(self.slack_bot_token and self.slack_channel_id)
 
     @property
+    def has_telegram_alerting(self) -> bool:
+        """Both halves of the Telegram config are present. Like Slack's,
+        `telegram_enabled` is a mute switch and does not count here."""
+        return bool(self.telegram_bot_token and self.telegram_chat_id)
+
+    @property
     def alert_channels(self) -> list[str]:
         """Which channels this project is set up for. Never empty — every
         project must have at least one."""
@@ -126,6 +143,8 @@ class Project(Base, TimestampMixin):
             channels.append("email")
         if self.has_slack_alerting:
             channels.append("slack")
+        if self.has_telegram_alerting:
+            channels.append("telegram")
         return channels
 
     @property
@@ -136,6 +155,17 @@ class Project(Base, TimestampMixin):
     def slack_token_hint(self) -> str | None:
         """Masked tail of the stored token, so the UI can show what is set."""
         return mask_secret(decrypt_secret(self.slack_bot_token))
+
+    @property
+    def telegram_configured(self) -> bool:
+        return bool(
+            self.telegram_enabled and self.telegram_bot_token and self.telegram_chat_id
+        )
+
+    @property
+    def telegram_token_hint(self) -> str | None:
+        """Masked stored token, e.g. `123456789:…wxyz`."""
+        return mask_secret(decrypt_secret(self.telegram_bot_token))
 
     @property
     def recipient_emails(self) -> list[str]:

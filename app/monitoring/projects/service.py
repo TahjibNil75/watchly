@@ -81,6 +81,8 @@ class ProjectService:
                 has_email=project.has_email_alerting,
                 slack_token=project.slack_bot_token,
                 slack_channel=project.slack_channel_id,
+                telegram_token=project.telegram_bot_token,
+                telegram_chat=project.telegram_chat_id,
             )
         except ValueError as exc:
             raise NoAlertChannelError(str(exc)) from exc
@@ -155,6 +157,12 @@ class ProjectService:
                 else None
             ),
             slack_channel_id=payload.slack_channel_id,
+            telegram_bot_token=(
+                encrypt_secret(payload.telegram_bot_token)
+                if payload.telegram_bot_token
+                else None
+            ),
+            telegram_chat_id=payload.telegram_chat_id,
             owner_id=owner.id,
         )
         project.members = members
@@ -174,26 +182,30 @@ class ProjectService:
         changes = payload.model_dump(exclude_unset=True)
         if changes.get("extra_emails") is not None:
             changes["extra_emails"] = [str(e) for e in changes["extra_emails"]]
-        if "slack_bot_token" in changes:
-            # Explicit null clears it; anything else is encrypted before storage.
-            token = changes["slack_bot_token"]
-            changes["slack_bot_token"] = encrypt_secret(token) if token else None
-        if changes.get("slack_enabled") is None:
-            # `slack_enabled` is optional in the payload but NOT NULL in the
-            # table, so an omitted-as-null must not be written.
-            changes.pop("slack_enabled", None)
+        for token_field in ("slack_bot_token", "telegram_bot_token"):
+            if token_field in changes:
+                # Explicit null clears it; anything else is encrypted before storage.
+                token = changes[token_field]
+                changes[token_field] = encrypt_secret(token) if token else None
+        for switch in ("slack_enabled", "telegram_enabled"):
+            if changes.get(switch) is None:
+                # The mute switches are optional in the payload but NOT NULL in
+                # the table, so an omitted-as-null must not be written.
+                changes.pop(switch, None)
         for field, value in changes.items():
             setattr(project, field, value)
 
-        # Slack is a unit: explicitly nulling either half means "turn Slack
-        # off", so clear both rather than rejecting it as a half-configuration.
-        # Supplying only one half as a *value* is still an error.
-        if any(
-            field in changes and changes[field] is None
-            for field in ("slack_bot_token", "slack_channel_id")
+        # Slack and Telegram are each a unit: explicitly nulling either half
+        # means "turn it off", so clear both rather than rejecting it as a
+        # half-configuration. Supplying only one half as a *value* is still an
+        # error.
+        for pair in (
+            ("slack_bot_token", "slack_channel_id"),
+            ("telegram_bot_token", "telegram_chat_id"),
         ):
-            project.slack_bot_token = None
-            project.slack_channel_id = None
+            if any(field in changes and changes[field] is None for field in pair):
+                for field in pair:
+                    setattr(project, field, None)
 
         try:
             self._assert_still_alertable(project)

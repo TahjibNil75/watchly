@@ -62,7 +62,7 @@ together, see [`hld.md`](hld.md).
 | 38 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
 | 39 | `GET` | `/monitoring/websites/{website_id}/stats` | Uptime and response time over 24h, 7d, 30d or 90d, with a bucketed series for charts. |
 | 40 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
-| 41 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack switches per kind. |
+| 41 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack/Telegram switches per kind. |
 | 42 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
 | 43 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
 | 44 | `POST` | `/monitoring/notifications/preview` | Render a notification with sample data, exactly as it would be sent. |
@@ -303,7 +303,7 @@ field
 
 A project groups the URLs of one client or product, and carries the alerting
 setup its sites inherit. **Every project must have at least one alert channel**
-— email, Slack, or both — configured on the project itself; there are no
+— email, Slack, Telegram, or any mix — configured on the project itself; there are no
 separate endpoints for setting up a channel.
 
 **Reading** is scoped: admin and DevOps see every project; everyone else —
@@ -320,19 +320,22 @@ Query: `limit` (1–100), `offset`, `is_active`, `owner_id`
 ### `POST /api/v1/monitoring/projects`
 Create a project. **At least one alert channel is required** — email
 (`member_ids` and/or `extra_emails`), Slack (`slack_bot_token` **with**
-`slack_channel_id`), or both. The caller becomes its owner.
+`slack_channel_id`), Telegram (`telegram_bot_token` **with**
+`telegram_chat_id`), or any mix. The caller becomes its owner.
 `201` · `403` not admin/DevOps/PM · `409` name taken · `422` no alert channel,
-half-configured Slack, or unknown member id
+half-configured Slack or Telegram, or unknown member id
 
 ### `GET /api/v1/monitoring/projects/{project_id}`
 Return one project with its member list.
 `200` · `404` missing **or** not visible to the caller
 
 ### `PATCH /api/v1/monitoring/projects/{project_id}`
-Update `name`, `description`, `is_active`, `extra_emails`, or the Slack
-settings (`slack_bot_token`, `slack_channel_id`, `slack_enabled`). Supplying
-`extra_emails` replaces the whole list. Sending `slack_bot_token: null` (or
-`slack_channel_id: null`) turns Slack off entirely — both halves are cleared.
+Update `name`, `description`, `is_active`, `extra_emails`, the Slack
+settings (`slack_bot_token`, `slack_channel_id`, `slack_enabled`) or the
+Telegram settings (`telegram_bot_token`, `telegram_chat_id`,
+`telegram_enabled`). Supplying `extra_emails` replaces the whole list. Sending
+`slack_bot_token: null` (or `slack_channel_id: null`) turns Slack off entirely
+— both halves are cleared; the same goes for Telegram.
 A change that would leave the project with no channel at all is refused.
 `200` · `403` not yours · `404` · `409` name taken · `422` would leave no
 alert channel
@@ -348,8 +351,8 @@ idempotent for anyone already on the project.
 
 ### `DELETE /api/v1/monitoring/projects/{project_id}/members/{user_id}`
 Remove one member; they stop receiving this project's alerts. Removing a
-non-member is a no-op. Refused if they are the last member and Slack is not
-configured.
+non-member is a no-op. Refused if they are the last member and neither Slack
+nor Telegram is configured.
 `200` · `403` · `404` · `422` would leave no alert channel
 
 ---
@@ -389,8 +392,8 @@ sites you can see, newest first, with its `website` (`id`, `name`, `url`, `check
 the check's one-line `summary` (for `dns_changed`, the records now and before),
 and the figures its kind uses
 (`downtime_seconds`, `threshold_ms` with `response_time_ms`,
-`ssl_expires_at`). Recorded with the check that raised it, whether or not email
-or Slack is on for that kind; an outage appears once, when it starts. Kept for
+`ssl_expires_at`). Recorded with the check that raised it, whether or not any
+channel is on for that kind; an outage appears once, when it starts. Kept for
 `CHECK_RETENTION_DAYS`. `total` counts every match, which may be more than
 `items`.
 Query: `after_id` (only events after this one: poll with the newest id you
@@ -428,11 +431,12 @@ text — case-sensitive, first 1 MB; needs GET or POST; a failure has
 `alert_emails` (addresses alerted about this site only),
 `inherit_project_recipients` (default `true`), `slack_channel_id` (post to
 this channel instead of the project's), `slack_bot_token` (the site's own bot,
-for when the project has no Slack; needs `slack_channel_id`)
+for when the project has no Slack; needs `slack_channel_id`), and the same for
+Telegram: `telegram_chat_id` and `telegram_bot_token`
 `201` · `403` not your project · `404` no such project · `409` URL already
 monitored with this check type (for DNS, this record of the domain) · `422`
 invalid field, unknown recipient id, the site would have no alert channel, its
-Slack settings post nowhere, a `url` that does not suit the `check_type`, an
+Slack or Telegram settings post nowhere, a `url` that does not suit the `check_type`, an
 expected value that does not suit the record type, or content rules on a
 HEAD/OPTIONS request, a ping or a DNS check
 
@@ -442,21 +446,23 @@ Return one site with its live state: `status`, `last_checked_at`, `down_since`,
 `dns_expected_values` and `dns_records` (what the resolvers last agreed on) —
 and its alerting setup:
 `recipients`, `alert_emails`, `inherit_project_recipients`, `alert_channels`,
-`slack_channel_id`, and `slack_token_hint` when the site has its own bot.
+`slack_channel_id`, `telegram_chat_id`, and `slack_token_hint` /
+`telegram_token_hint` when the site has its own bot.
 `200` · `404` missing **or** not visible
 
 ### `PATCH /api/v1/monitoring/websites/{website_id}`
 Update any of the check settings, `alert_emails` (replaces the whole list),
 `inherit_project_recipients`, the site's Slack (`slack_channel_id: null`
 removes it, token included; `slack_bot_token: null` goes back to the project's
-token), `retries_on_failure`, the content rules (`null` removes one), or disable
+token), the site's Telegram (`telegram_chat_id` and `telegram_bot_token`, the
+same way), `retries_on_failure`, the content rules (`null` removes one), or disable
 the site without deleting it. A change that would leave the site with no alert
 channel is refused. `check_type` cannot change, and a new `url` must suit it.
 A DNS check's `dns_expected_values` replaces the whole list (`[]` unpins); a new
 `dns_record_type` or domain forgets the records learned so far, and a new
 record type clears the pinned values unless new ones are sent.
 `200` · `403` · `404` · `409` URL already monitored · `422` would leave no
-alert channel, Slack settings that post nowhere, a `url` that does not suit
+alert channel, Slack or Telegram settings that post nowhere, a `url` that does not suit
 the check type, or expected values that do not suit the record type
 
 ### `DELETE /api/v1/monitoring/websites/{website_id}`
@@ -532,7 +538,7 @@ default, field by field; see the [technical reference](reference.md#what-else-wa
 
 Every setting comes back as:
 `kind`, `label`, `description`, `audience`, the effective `email_enabled`,
-`slack_enabled`, `subject`, `body`, where each came from (`sources`:
+`slack_enabled`, `telegram_enabled`, `subject`, `body`, where each came from (`sources`:
 `project` / `global` / `default`), what this level itself stores (`overrides`,
 null = inherits), what a blank field would fall back to (`inherited_subject`,
 `inherited_body`), the built-in `default_subject` / `default_body`, and the
@@ -543,9 +549,10 @@ Global settings for every kind. Any signed-in user.
 `200`
 
 ### `PUT /api/v1/monitoring/notifications/{kind}`
-Replace the global overrides for one kind. Send all four fields
-(`email_enabled`, `slack_enabled`, `subject`, `body`): one left null or blank
-inherits, and all four null removes the override. Admin/DevOps only.
+Replace the global overrides for one kind. Send every field
+(`email_enabled`, `slack_enabled`, `telegram_enabled`, `subject`, `body`): one
+left null or blank inherits, and all of them null removes the override.
+Admin/DevOps only.
 `200` · `403` · `422` unknown placeholder, too long (subject 255, body 4000), or
 it would switch "Site down" off on every channel
 
@@ -556,7 +563,8 @@ Reset to the built-in wording and switches. Admin/DevOps only.
 ### `POST /api/v1/monitoring/notifications/preview`
 Body: `kind`, and optionally `subject` and `body` (omitted means the built-in
 default). Returns the rendered `subject`, `email_html`, `email_text`, and the
-Slack `slack_text` and `slack_blocks`, built from sample data by the same code
+Slack `slack_text` and `slack_blocks`, and the Telegram `telegram_html`, built
+from sample data by the same code
 that sends real messages. Nothing is saved or sent.
 `200` · `422` unknown placeholder
 
@@ -586,8 +594,9 @@ checks are older than `CHECK_RETENTION_DAYS` allows · `422` bad month
 Build and send a monthly uptime report now. Body (optional): `month` as
 `YYYY-MM`, a month that has ended; defaults to last month. Follows the
 project's notification switches. Returns the `month`, how many `sites` it
-covered, `email_recipients`, and `delivered_by` — empty means nothing was
-delivered (switched off, SMTP/Slack not set up, or sending failed; see the log).
+covered, `email_recipients`, `slack_configured`, `telegram_configured`, and
+`delivered_by` — empty means nothing was delivered (switched off,
+SMTP/Slack/Telegram not set up, or sending failed; see the log).
 Does not stop the scheduled report.
 `200` · `403` · `404` · `409` no checks that month, or the month has not ended
 
@@ -620,10 +629,11 @@ what exists.
 
 **Timestamps.** ISO 8601, UTC.
 
-**Secrets.** A project's or site's `slack_bot_token` is write-only: it is
-encrypted before storage and never appears in a response. Reads return a
-masked `slack_token_hint` such as `xoxb-…9f2a` instead (and, for a project,
-`slack_configured`).
+**Secrets.** A project's or site's `slack_bot_token` and `telegram_bot_token`
+are write-only: they are encrypted before storage and never appear in a
+response. Reads return a masked `slack_token_hint` such as `xoxb-…9f2a` or
+`telegram_token_hint` such as `123456789:…wxyz` instead (and, for a project,
+`slack_configured` / `telegram_configured`).
 
 ---
 

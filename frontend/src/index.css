@@ -2066,6 +2066,37 @@ textarea {
   color: #1264a3;
 }
 
+/* A rough Telegram message, in Telegram's own light colours like the Slack
+   preview above. */
+.telegram-preview {
+  padding: 16px;
+  background: #d9e4ec;
+  border-radius: 8px;
+}
+.tg-bubble {
+  max-width: 560px;
+  padding: 8px 12px 10px;
+  background: #ffffff;
+  color: #000000;
+  border-radius: 12px 12px 12px 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  font-size: 0.93rem;
+  line-height: 1.4;
+}
+.tg-name {
+  margin-bottom: 2px;
+  color: #3a8fd4;
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+.tg-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tg-text a {
+  color: #168acd;
+}
+
 @media (max-width: 640px) {
   .sp-fields {
     grid-template-columns: 1fr;

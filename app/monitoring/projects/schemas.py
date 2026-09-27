@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from pydantic import (
@@ -70,8 +71,72 @@ class SlackSettings(BaseModel):
         return channel
 
 
+#: A bot token as @BotFather hands it out: the bot's numeric id, a colon, then
+#: the secret.
+_TELEGRAM_TOKEN = re.compile(r"\d+:[A-Za-z0-9_-]{20,}")
+#: A numeric chat id (groups and channels are negative), or a public
+#: `@channelname`.
+_TELEGRAM_CHAT = re.compile(r"-?\d+|@[A-Za-z][A-Za-z0-9_]{4,31}")
+
+
+class TelegramSettings(BaseModel):
+    """Write-only Telegram configuration. Shared by create and update."""
+
+    telegram_bot_token: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=255,
+        description=(
+            "Telegram bot token from @BotFather (`123456789:AA…`). Stored "
+            "encrypted and never returned. Send null to remove it."
+        ),
+    )
+    telegram_chat_id: str | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "Chat to send to: a numeric id such as `-1001234567890` for a group "
+            "or channel (or a person's id), or `@channelname` for a public channel."
+        ),
+    )
+    telegram_enabled: bool | None = Field(
+        default=None, description="Mute Telegram without discarding the settings."
+    )
+
+    @field_validator("telegram_bot_token")
+    @classmethod
+    def looks_like_a_telegram_token(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        token = value.strip()
+        if not _TELEGRAM_TOKEN.fullmatch(token):
+            raise ValueError(
+                "expected the bot token @BotFather gave you, like "
+                "'123456789:AAH…' — not a bot URL or @username"
+            )
+        return token
+
+    @field_validator("telegram_chat_id")
+    @classmethod
+    def looks_like_a_chat_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        chat = value.strip()
+        if not _TELEGRAM_CHAT.fullmatch(chat):
+            raise ValueError(
+                "use a numeric chat id such as -1001234567890, or @channelname "
+                "for a public channel — not a t.me link or a group's title"
+            )
+        return chat
+
+
 def check_alert_channels(
-    *, has_email: bool, slack_token: str | None, slack_channel: str | None
+    *,
+    has_email: bool,
+    slack_token: str | None,
+    slack_channel: str | None,
+    telegram_token: str | None,
+    telegram_chat: str | None,
 ) -> None:
     """A project must be able to tell someone when a site goes down.
 
@@ -83,11 +148,17 @@ def check_alert_channels(
             "slack_bot_token and slack_channel_id must be set together — "
             "one without the other cannot deliver anything"
         )
-    if not has_email and not slack_token:
+    if bool(telegram_token) != bool(telegram_chat):
+        raise ValueError(
+            "telegram_bot_token and telegram_chat_id must be set together — "
+            "one without the other cannot deliver anything"
+        )
+    if not (has_email or slack_token or telegram_token):
         raise ValueError(
             "choose at least one way to be alerted: add member_ids or "
-            "extra_emails for email, and/or slack_bot_token with "
-            "slack_channel_id for Slack. Both together is fine."
+            "extra_emails for email, slack_bot_token with slack_channel_id for "
+            "Slack, and/or telegram_bot_token with telegram_chat_id for "
+            "Telegram. Any combination is fine."
         )
 
 
@@ -105,7 +176,7 @@ class ProjectBase(BaseModel):
     )
 
 
-class ProjectCreate(ProjectBase, SlackSettings):
+class ProjectCreate(ProjectBase, SlackSettings, TelegramSettings):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -115,6 +186,8 @@ class ProjectCreate(ProjectBase, SlackSettings):
                 "extra_emails": ["oncall@example.com"],
                 "slack_bot_token": "xoxb-your-bot-token",
                 "slack_channel_id": "C0123456789",
+                "telegram_bot_token": "123456789:AAH-your-bot-token-from-botfather",
+                "telegram_chat_id": "-1001234567890",
             }
         }
     )
@@ -130,11 +203,13 @@ class ProjectCreate(ProjectBase, SlackSettings):
             has_email=bool(self.member_ids or self.extra_emails),
             slack_token=self.slack_bot_token,
             slack_channel=self.slack_channel_id,
+            telegram_token=self.telegram_bot_token,
+            telegram_chat=self.telegram_chat_id,
         )
         return self
 
 
-class ProjectUpdate(SlackSettings):
+class ProjectUpdate(SlackSettings, TelegramSettings):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     is_active: bool | None = None
@@ -152,7 +227,7 @@ class ProjectMembersUpdate(BaseModel):
 
 
 class ProjectRead(ProjectBase):
-    """What the API returns. The Slack bot token is deliberately absent."""
+    """What the API returns. The bot tokens are deliberately absent."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -167,10 +242,23 @@ class ProjectRead(ProjectBase):
     )
     alert_channels: list[str] = Field(
         default_factory=list,
-        description="Configured channels, e.g. `[\"email\"]` or `[\"email\",\"slack\"]`.",
+        description=(
+            "Configured channels, e.g. `[\"email\"]` or "
+            "`[\"email\",\"slack\",\"telegram\"]`."
+        ),
     )
     slack_token_hint: str | None = Field(
         default=None, description="Masked tail of the stored token, e.g. `xoxb-…9f2a`."
+    )
+    telegram_chat_id: str | None = None
+    telegram_enabled: bool = True
+    telegram_configured: bool = Field(
+        default=False,
+        description="True when a token and chat are both stored and enabled.",
+    )
+    telegram_token_hint: str | None = Field(
+        default=None,
+        description="Masked stored token, e.g. `123456789:…wxyz`.",
     )
     created_at: datetime
     updated_at: datetime

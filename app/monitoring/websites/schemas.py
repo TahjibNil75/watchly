@@ -18,7 +18,11 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
-from app.monitoring.projects.schemas import ProjectMemberRead, SlackSettings
+from app.monitoring.projects.schemas import (
+    ProjectMemberRead,
+    SlackSettings,
+    TelegramSettings,
+)
 from app.monitoring.websites.models import (
     CheckType,
     DnsRecordType,
@@ -329,6 +333,25 @@ class WebsiteBase(BaseModel):
             "slack_channel_id. Stored encrypted and never returned."
         ),
     )
+    telegram_chat_id: str | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "Send this site's alerts to its own Telegram chat instead of the "
+            "project's. Uses the project's bot unless telegram_bot_token is "
+            "also given."
+        ),
+    )
+    telegram_bot_token: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=255,
+        description=(
+            "The site's own Telegram bot token (`123456789:AA…`), for a site "
+            "whose project has no Telegram or that uses another bot. Needs "
+            "telegram_chat_id. Stored encrypted and never returned."
+        ),
+    )
 
     @field_validator("url")
     @classmethod
@@ -364,6 +387,12 @@ class WebsiteBase(BaseModel):
     )
     _channel_id = field_validator("slack_channel_id")(
         SlackSettings.looks_like_a_channel_id.__func__
+    )
+    _telegram_token = field_validator("telegram_bot_token")(
+        TelegramSettings.looks_like_a_telegram_token.__func__
+    )
+    _chat_id = field_validator("telegram_chat_id")(
+        TelegramSettings.looks_like_a_chat_id.__func__
     )
     _content_rules = field_validator("must_contain", "must_not_contain")(_blank_to_none)
 
@@ -458,6 +487,17 @@ class WebsiteUpdate(BaseModel):
         max_length=255,
         description="Send null to go back to the project's token.",
     )
+    telegram_chat_id: str | None = Field(
+        default=None,
+        max_length=64,
+        description="Send null to remove the site's own Telegram, token included.",
+    )
+    telegram_bot_token: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=255,
+        description="Send null to go back to the project's bot.",
+    )
 
     _known_method = field_validator("method")(WebsiteBase.known_method.__func__)
     _content_rules = field_validator("must_contain", "must_not_contain")(_blank_to_none)
@@ -466,6 +506,12 @@ class WebsiteUpdate(BaseModel):
     )
     _channel_id = field_validator("slack_channel_id")(
         SlackSettings.looks_like_a_channel_id.__func__
+    )
+    _telegram_token = field_validator("telegram_bot_token")(
+        TelegramSettings.looks_like_a_telegram_token.__func__
+    )
+    _chat_id = field_validator("telegram_chat_id")(
+        TelegramSettings.looks_like_a_chat_id.__func__
     )
 
 
@@ -630,6 +676,14 @@ class WebsiteRead(BaseModel):
         default=None,
         description=(
             "Masked tail of the site's own bot token, e.g. `xoxb-…9f2a`; null "
+            "when the site uses its project's."
+        ),
+    )
+    telegram_chat_id: str | None = None
+    telegram_token_hint: str | None = Field(
+        default=None,
+        description=(
+            "Masked site's own Telegram bot token, e.g. `123456789:…wxyz`; null "
             "when the site uses its project's."
         ),
     )

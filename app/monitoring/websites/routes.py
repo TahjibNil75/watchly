@@ -42,6 +42,7 @@ from app.monitoring.websites.service import (
     WebsiteService,
     WebsiteSlackError,
     WebsiteTargetError,
+    WebsiteTelegramError,
 )
 
 router = APIRouter(prefix="/monitoring/websites", tags=["monitoring: websites"])
@@ -195,7 +196,7 @@ async def list_events(
     service: WebsiteService = Depends(get_website_service),
 ) -> WebsiteEventList:
     """Newest first, over the same sites as the list. Recorded whether or not
-    email or Slack is switched on for the kind. An outage appears once, when it
+    any channel is switched on for the kind. An outage appears once, when it
     starts: still-down reminders are not recorded."""
     events, total = await service.events(actor, after_id=after_id, limit=limit)
     return WebsiteEventList(
@@ -214,7 +215,7 @@ async def list_events(
         409: {"description": "URL already monitored"},
         422: {
             "description": (
-                "Unknown recipient id, no alert channel, Slack settings that "
+                "Unknown recipient id, no alert channel, Slack or Telegram settings that "
                 "post nowhere, a URL that does not suit the check type, DNS expected "
                 "values that do not suit the record type, or content rules on a "
                 "HEAD/OPTIONS request, a ping or a DNS check"
@@ -239,7 +240,8 @@ async def create_website(
     `inherit_project_recipients: false` to email only the site's own list.
     Slack comes from the project, optionally on the site's own
     `slack_channel_id`; add `slack_bot_token` too for Slack of the site's own,
-    which works even when the project has none."""
+    which works even when the project has none. Telegram works the same way,
+    with `telegram_chat_id` and `telegram_bot_token`."""
     project = await _assert_can_manage(projects, payload.project_id, actor)
     try:
         website = await service.create(payload, project, created_by_id=actor.id)
@@ -250,6 +252,7 @@ async def create_website(
         WebsiteContentRuleError,
         WebsiteNotAlertableError,
         WebsiteSlackError,
+        WebsiteTelegramError,
     ) as exc:
         raise _unprocessable(exc) from exc
     return WebsiteRead.model_validate(website)
@@ -284,7 +287,7 @@ async def read_website(
         409: {"description": "URL already monitored"},
         422: {
             "description": (
-                "The change would leave no alert channel, Slack settings that "
+                "The change would leave no alert channel, Slack or Telegram settings that "
                 "post nowhere, a URL that does not suit the check type, DNS expected "
                 "values that do not suit the record type, or content rules on a "
                 "HEAD/OPTIONS request, a ping or a DNS check"
@@ -302,6 +305,7 @@ async def update_website(
     """`alert_emails` replaces the whole list; site users are managed through
     `/recipients`. `slack_channel_id: null` removes the site's own Slack,
     token included; `slack_bot_token: null` goes back to the project's token.
+    `telegram_chat_id` and `telegram_bot_token` work the same way.
     The check type cannot change: `url` must suit the one the site has. A DNS
     check's new `dns_record_type` clears its expected values unless new ones
     come with it."""
@@ -315,6 +319,7 @@ async def update_website(
         WebsiteNotAlertableError,
         WebsiteSlackError,
         WebsiteTargetError,
+        WebsiteTelegramError,
     ) as exc:
         raise _unprocessable(exc) from exc
 
@@ -377,7 +382,7 @@ async def remove_recipient(
 ) -> WebsiteRead:
     """Removing a non-recipient is a no-op. Refused if they are the site's last
     way to alert — e.g. its last recipient while it does not inherit the
-    project's and Slack is not set up."""
+    project's and neither Slack nor Telegram is set up."""
     await _get_for_write(service, projects, website_id, actor)
     try:
         website = await service.remove_recipient(website_id, user_id)

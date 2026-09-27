@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.monitoring.alerts.base import Alerter, Message, Notification
 from app.monitoring.alerts.email import EmailAlerter
 from app.monitoring.alerts.slack import SlackAlerter
+from app.monitoring.alerts.telegram import TelegramAlerter
 from app.monitoring.alerts.webhook import WebhookAlerter
 from app.monitoring.notifications.service import (
     EffectiveSetting,
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def default_alerters() -> list[Alerter]:
     """Every channel; each one no-ops when it is not configured."""
-    return [EmailAlerter(), SlackAlerter(), WebhookAlerter()]
+    return [EmailAlerter(), SlackAlerter(), TelegramAlerter(), WebhookAlerter()]
 
 
 class Notifier:
@@ -64,7 +65,11 @@ class Notifier:
             return ()
 
         setting = await self.settings_for(event)
-        switches = {"email": setting.email_enabled, "slack": setting.slack_enabled}
+        switches = {
+            "email": setting.email_enabled,
+            "slack": setting.slack_enabled,
+            "telegram": setting.telegram_enabled,
+        }
         # Channels without a switch (the webhook) are always active.
         active = [a for a in self.alerters if switches.get(a.name, True)]
         if not active:
