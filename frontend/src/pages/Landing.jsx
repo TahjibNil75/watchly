@@ -1,9 +1,11 @@
 import { Link } from 'react-router-dom'
+import AlertPreviews from '../AlertPreviews.jsx'
 import { useSignupOpen } from '../auth.jsx'
 import LiveDemo from '../LiveDemo.jsx'
 
 // What a signed-out visitor sees at the site's root: what Watchly does, and
-// the way in. Deep links still go to the sign-in form and back.
+// the way in. Deep links still go to the sign-in form and back. Its sections
+// move with the scroll, and its cards follow the mouse, in index.css.
 
 // 24x24 stroke icons, drawn inline like the sidebar's.
 const ICONS = {
@@ -43,7 +45,7 @@ const ICONS = {
 
 function Icon({ name }) {
   return (
-    <span className="landing-icon">
+    <span className={`landing-icon is-${name}`}>
       <svg
         className="icon"
         viewBox="0 0 24 24"
@@ -162,6 +164,29 @@ const STEPS = [
   },
 ]
 
+// Mouse only. Hands the pointer's place to CSS, which draws a spotlight at
+// --mx/--my and tilts by --tilt-x/--tilt-y (each -0.5 to 0.5). No state, so
+// moving re-renders nothing.
+function followPointer(e) {
+  if (e.pointerType !== 'mouse') return
+  const el = e.currentTarget
+  const box = el.getBoundingClientRect()
+  const x = (e.clientX - box.left) / box.width
+  const y = (e.clientY - box.top) / box.height
+  el.style.setProperty('--mx', `${(x * 100).toFixed(1)}%`)
+  el.style.setProperty('--my', `${(y * 100).toFixed(1)}%`)
+  el.style.setProperty('--tilt-x', (0.5 - y).toFixed(3))
+  el.style.setProperty('--tilt-y', (x - 0.5).toFixed(3))
+}
+
+function settle(e) {
+  for (const name of ['--mx', '--my', '--tilt-x', '--tilt-y']) {
+    e.currentTarget.style.removeProperty(name)
+  }
+}
+
+const POINTER = { onPointerMove: followPointer, onPointerLeave: settle }
+
 function Points({ items }) {
   return (
     <ul className="landing-points">
@@ -205,7 +230,7 @@ export default function Landing() {
       </header>
 
       <main>
-        <div className="landing-hero-wrap">
+        <div className="landing-hero-wrap" {...POINTER}>
           <section className="landing-section landing-hero">
             <div className="landing-hero-text">
               <span className="live-pill">
@@ -240,7 +265,7 @@ export default function Landing() {
           </div>
           <div className="landing-grid">
             {CHECKS.map((c) => (
-              <article key={c.title} className="landing-card">
+              <article key={c.title} className="landing-card" {...POINTER}>
                 <Icon name={c.icon} />
                 <h3>{c.title}</h3>
                 <p className="muted">{c.lead}</p>
@@ -259,6 +284,7 @@ export default function Landing() {
                 once everyone knows.
               </p>
             </div>
+            <AlertPreviews />
             <div className="landing-grid landing-features">
               {ALERTS.map((a) => (
                 <div key={a.title} className="landing-feature">
@@ -276,7 +302,7 @@ export default function Landing() {
         <section className="landing-section">
           <div className="landing-grid landing-grid-2">
             {TEAM.map((t) => (
-              <article key={t.title} className="landing-card">
+              <article key={t.title} className="landing-card" {...POINTER}>
                 <Icon name={t.icon} />
                 <h3>{t.title}</h3>
                 <Points items={t.points} />
@@ -292,7 +318,7 @@ export default function Landing() {
             </div>
             <ol className="landing-steps">
               {STEPS.map((s, i) => (
-                <li key={s.title}>
+                <li key={s.title} {...POINTER}>
                   <span className="landing-step-num" aria-hidden="true">
                     {i + 1}
                   </span>

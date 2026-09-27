@@ -772,6 +772,8 @@ a:hover {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  /* The scroll motion starts some blocks off to the side; never scroll to them. */
+  overflow-x: clip;
 }
 .landing main {
   flex: 1;
@@ -813,9 +815,11 @@ a:hover {
   scroll-margin-top: 48px;
 }
 
+/* Clip, not hidden: a hidden box is a scroll container, and the hero's scroll
+   motion would follow it, which never scrolls, instead of the page. */
 .landing-hero-wrap {
   position: relative;
-  overflow: hidden;
+  overflow: clip;
   background: color-mix(in srgb, var(--primary) 4%, var(--bg));
   border-bottom: 1px solid var(--border);
 }
@@ -831,6 +835,8 @@ a:hover {
 }
 .landing-hero {
   position: relative;
+  /* Above the glow that follows the mouse. */
+  z-index: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   align-items: center;
@@ -906,6 +912,7 @@ a:hover {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .landing-card {
+  position: relative;
   padding: 24px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -985,6 +992,352 @@ a:hover {
   margin-top: 8px;
 }
 
+/* Where alerts go, between the Alerts heading and its features: a tab per
+   channel over an example of the alert there (AlertPreviews.jsx). */
+.landing-channels {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin: -8px 0 20px;
+}
+.landing-channel {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 18px 9px 10px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    transform 0.25s cubic-bezier(0.3, 1.6, 0.5, 1),
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.landing-channel .channel-logo {
+  width: 26px;
+  height: 26px;
+}
+.landing-channel[aria-selected='true'] {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+  box-shadow: 0 8px 20px -14px color-mix(in srgb, var(--primary) 80%, transparent);
+}
+.landing-channel:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+/* The turn running out on the channel shown, until someone picks one. */
+.alert-tab-turn {
+  position: absolute;
+  inset: auto 16px 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--primary);
+  transform-origin: left;
+  animation: tab-turn 3.8s linear forwards;
+}
+.alert-previews.is-held .alert-tab-turn {
+  animation-play-state: paused;
+}
+
+.alert-stage {
+  position: relative;
+  display: grid;
+  max-width: 620px;
+  margin: 0 auto 56px;
+  padding: 40px 20px 24px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+.alert-stage-tag {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+/* One over another in the same cell; only the chosen one shows. */
+.alert-panel {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  visibility: hidden;
+  border-radius: 12px;
+}
+.alert-panel.is-active {
+  visibility: visible;
+}
+.alert-panel:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 6px;
+}
+.alert-preview {
+  width: 100%;
+  max-width: 460px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+/* Arriving each time it is chosen, its parts one after another in their
+   --n order. */
+.alert-panel.is-active .alert-preview {
+  animation: preview-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.alert-panel.is-active
+  :is(
+    .preview-email-head,
+    .preview-subject,
+    .preview-email-body,
+    .preview-slack-channel,
+    .preview-slack-msg,
+    .preview-fields,
+    .preview-slack .preview-button,
+    .preview-thread,
+    .preview-chat-head,
+    .preview-code-head,
+    .preview-code-line
+  ) {
+  animation: preview-part 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  animation-delay: calc(0.1s + var(--n, 0) * 70ms);
+}
+.preview-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-weight: 700;
+  color: #fff;
+  background: #3a5bd9;
+}
+.preview-avatar.is-app {
+  border-radius: 8px;
+  background: #1c8f4e;
+}
+.preview-button {
+  justify-self: start;
+  margin-top: 4px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--primary-text);
+  background: var(--primary);
+}
+.preview-link {
+  color: var(--primary);
+}
+
+.preview-email {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 14px 30px -20px rgb(16 24 40 / 0.4);
+}
+.preview-email-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.preview-from {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+.preview-from .muted,
+.preview-time {
+  font-size: 0.78rem;
+}
+.preview-time {
+  margin-left: auto;
+}
+.preview-subject {
+  font-size: 0.92rem;
+}
+.preview-email-body {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--down);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.preview-email-body p {
+  margin: 0 0 4px;
+}
+.preview-kicker {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--down);
+}
+
+.preview-slack {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 14px 30px -20px rgb(16 24 40 / 0.4);
+}
+.preview-slack-channel {
+  padding: 8px 14px;
+  font-weight: 700;
+  color: #fff;
+  background: #4a154b;
+}
+.preview-slack-msg {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+.preview-slack-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.preview-app {
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.preview-title {
+  margin-top: 4px;
+  font-size: 1rem;
+}
+.preview-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 6px 0 2px;
+}
+.preview-fields > span {
+  display: grid;
+}
+.preview-fields b {
+  font-size: 0.75rem;
+}
+.preview-thread {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.preview-chat {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px 16px;
+  background: color-mix(in srgb, var(--chat) 9%, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.preview-chat.is-telegram {
+  --chat: #26a5e4;
+}
+.preview-chat.is-whatsapp {
+  --chat: #25d366;
+}
+.preview-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.preview-chat-head .channel-logo {
+  width: 22px;
+  height: 22px;
+}
+.preview-chat-head .muted {
+  font-size: 0.78rem;
+}
+/* A message popping up from the corner it hangs from. */
+.preview-bubble {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  justify-self: start;
+  max-width: 94%;
+  padding: 9px 12px 22px;
+  background: var(--surface);
+  border-radius: 4px 14px 14px;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.14);
+  overflow-wrap: anywhere;
+  transform-origin: 0 0;
+}
+.alert-panel.is-active .preview-bubble {
+  animation: bubble-in 0.5s cubic-bezier(0.3, 1.4, 0.5, 1) 0.2s backwards;
+}
+.preview-bubble em {
+  color: var(--muted);
+}
+.preview-bubble .small {
+  margin-top: 6px;
+}
+.preview-meta {
+  position: absolute;
+  right: 10px;
+  bottom: 5px;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.preview-code {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.preview-code-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.preview-method {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  background: #8250df;
+}
+.preview-code pre {
+  margin: 0;
+  padding: 12px 14px;
+  font: 0.76rem/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.preview-code-line {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.preview-key {
+  color: var(--primary);
+}
+
 .landing-steps {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1057,6 +1410,14 @@ a:hover {
   .landing-demo .live-channel {
     flex: 0 0 calc((100% - 12px) / 3);
   }
+  /* Three of the Alerts section's channels to the first row, not two. */
+  .landing-channels {
+    gap: 8px;
+  }
+  .landing-channel {
+    gap: 8px;
+    padding: 7px 14px 7px 8px;
+  }
   .landing-actions .btn {
     flex: 1;
   }
@@ -1068,6 +1429,314 @@ a:hover {
   .landing *::after {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* Scroll motion. Driven by the scroll position rather than the clock, so it
+   plays forwards on the way down and backwards on the way up: blocks rise
+   into view from below and settle, then lift and fade as they pass under the
+   nav, and come back down the same way. Only translate, scale, rotate and
+   opacity move, which leaves transform to the cards' hover lift. Browsers
+   without scroll-driven animations show the page still. */
+@media (prefers-reduced-motion: no-preference) {
+  /* The nav's links glide to their section, playing the motion on the way. */
+  html:has(.landing) {
+    scroll-behavior: smooth;
+  }
+
+  @supports (animation-timeline: view()) {
+    /* How far down the page you are. */
+    .landing-nav::after {
+      content: '';
+      position: absolute;
+      inset: auto 0 -1px;
+      height: 2px;
+      background: linear-gradient(90deg, var(--primary), var(--up));
+      transform-origin: left;
+      animation: scroll-progress linear both;
+      animation-timeline: scroll(root);
+    }
+
+    /* `animation` resets the timeline, so the timeline and ranges follow it.
+       --i holds back the later blocks in a row, so a row arrives in turn. */
+    .landing-hero-text,
+    .landing-demo,
+    .landing-head,
+    .landing-channel,
+    .alert-stage,
+    .landing-card,
+    .landing-feature,
+    .landing-steps > li {
+      animation:
+        scroll-in linear both,
+        scroll-out linear both;
+      animation-timeline: view(), view();
+      animation-range:
+        entry calc(var(--i, 0) * 8%) cover calc(30% + var(--i, 0) * 6%),
+        exit 10% exit 90%;
+    }
+    /* The board sinks back behind the headline as the hero leaves. */
+    .landing-demo {
+      animation-name: scroll-in, demo-out;
+    }
+    /* The channels fly in from either side and gather into a row. */
+    .landing-channel {
+      animation-name: channel-in, scroll-out;
+    }
+    .landing-step-num {
+      animation: step-in linear both;
+      animation-timeline: view();
+      animation-range: entry 30% cover 45%;
+    }
+  }
+}
+/* Side by side only on wide screens; stacked, each block takes its own turn. */
+@media (min-width: 961px) {
+  .landing-grid > :nth-child(3n + 2),
+  .landing-steps > :nth-child(3n + 2) {
+    --i: 1;
+  }
+  .landing-grid > :nth-child(3n),
+  .landing-steps > :nth-child(3n) {
+    --i: 2;
+  }
+}
+
+/* Each names only the end it moves from or to; the other end is the block at
+   rest, or wherever the animation before it in the list has left it. */
+@keyframes scroll-in {
+  from {
+    opacity: 0;
+    translate: 0 48px;
+    scale: 0.96;
+  }
+}
+@keyframes scroll-out {
+  to {
+    opacity: 0;
+    translate: 0 -32px;
+    scale: 0.97;
+  }
+}
+@keyframes demo-out {
+  to {
+    opacity: 0;
+    translate: 0 -24px;
+    scale: 0.9;
+  }
+}
+@keyframes channel-in {
+  from {
+    opacity: 0;
+    translate: calc((var(--i) - 2) * 48px) 64px;
+    rotate: calc((var(--i) - 2) * 12deg);
+    scale: 0.6;
+  }
+}
+@keyframes step-in {
+  from {
+    opacity: 0;
+    scale: 0.3;
+    rotate: -90deg;
+  }
+}
+@keyframes scroll-progress {
+  from {
+    scale: 0 1;
+  }
+}
+
+/* Pointer motion, for a mouse. Landing.jsx hands the pointer's place over the
+   hero, a card or a step to --mx/--my, for a spotlight there, and to
+   --tilt-x/--tilt-y (-0.5 to 0.5), for a tilt towards it. */
+@media (hover: hover) {
+  .landing-card,
+  .landing-steps > li {
+    isolation: isolate;
+  }
+  /* Behind the content: isolation keeps z-index -1 inside the card. */
+  .landing-card::before,
+  .landing-steps > li::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: radial-gradient(
+      280px circle at var(--mx, 50%) var(--my, 50%),
+      color-mix(in srgb, var(--primary) 14%, transparent),
+      transparent 70%
+    );
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+  .landing-card:hover::before,
+  .landing-steps > li:hover::before {
+    opacity: 1;
+  }
+  .landing-card:hover,
+  .landing-steps > li:hover {
+    border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  }
+  .landing-hero-wrap::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      520px circle at var(--mx, 50%) var(--my, 50%),
+      color-mix(in srgb, var(--primary) 11%, transparent),
+      transparent 70%
+    );
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+  }
+  .landing-hero-wrap:hover::after {
+    opacity: 1;
+  }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .landing-card:hover,
+  .landing-steps > li:hover {
+    transform: perspective(900px) rotateX(calc(var(--tilt-x, 0) * 7deg))
+      rotateY(calc(var(--tilt-y, 0) * 7deg)) translateY(-3px);
+  }
+  .landing-steps > li {
+    transition:
+      transform 0.2s ease,
+      border-color 0.2s ease;
+  }
+  /* The demo board turns to face the pointer. */
+  .landing-demo .live-board {
+    transform: perspective(1400px) rotateX(calc(var(--tilt-x, 0) * 6deg))
+      rotateY(calc(var(--tilt-y, 0) * 8deg));
+    transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .landing-channel:hover {
+    transform: translateY(-3px);
+  }
+  .landing-channel:active {
+    transform: scale(0.96);
+    transition-duration: 0.08s;
+  }
+  .landing-channel:hover .channel-logo {
+    animation: icon-hop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1);
+  }
+
+  /* Icons act out what they stand for. */
+  .landing-icon {
+    transition:
+      scale 0.25s cubic-bezier(0.3, 1.6, 0.5, 1),
+      background-color 0.25s ease;
+  }
+  :is(.landing-card, .landing-feature):hover .landing-icon {
+    scale: 1.12;
+    background: color-mix(in srgb, var(--primary) 20%, transparent);
+  }
+  :is(.landing-card, .landing-feature):hover .landing-icon .icon {
+    animation: icon-hop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1);
+  }
+  :is(.landing-card, .landing-feature):hover .landing-icon:is(.is-http, .is-retry) .icon {
+    animation: icon-spin 0.8s cubic-bezier(0.3, 0.9, 0.3, 1);
+  }
+  .landing-feature:hover .landing-icon.is-bell .icon {
+    transform-origin: 50% 12%;
+    animation: icon-ring 0.8s ease;
+  }
+  .landing-feature:hover .landing-icon.is-warning .icon {
+    animation: icon-shake 0.45s ease;
+  }
+  .landing-steps > li:hover .landing-step-num {
+    animation: icon-hop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1);
+  }
+
+  /* The way in: a gleam across on hover, a press on click. */
+  .landing-actions .btn {
+    position: relative;
+    overflow: hidden;
+  }
+  .landing-actions .btn:active {
+    scale: 0.97;
+  }
+  .landing-actions .btn-primary::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 35%,
+      rgb(255 255 255 / 0.35) 50%,
+      transparent 65%
+    );
+    translate: -100% 0;
+    pointer-events: none;
+  }
+  .landing-actions .btn-primary:hover::after {
+    translate: 100% 0;
+    transition: translate 0.7s ease;
+  }
+}
+
+@keyframes icon-hop {
+  40% {
+    translate: 0 -4px;
+    rotate: -10deg;
+  }
+}
+@keyframes icon-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+@keyframes icon-ring {
+  15% {
+    rotate: 16deg;
+  }
+  35% {
+    rotate: -14deg;
+  }
+  55% {
+    rotate: 9deg;
+  }
+  75% {
+    rotate: -5deg;
+  }
+}
+@keyframes icon-shake {
+  20%,
+  60% {
+    translate: -2px 0;
+  }
+  40%,
+  80% {
+    translate: 2px 0;
+  }
+}
+@keyframes tab-turn {
+  from {
+    scale: 0 1;
+  }
+}
+@keyframes preview-in {
+  from {
+    opacity: 0;
+    translate: 0 14px;
+    scale: 0.98;
+  }
+}
+@keyframes preview-part {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    scale: 0.6;
   }
 }
 
