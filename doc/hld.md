@@ -28,8 +28,8 @@ deliberately, because the workload is small and bounded.
                           │   PostgreSQL     │     ├──────────────▶ SMTP  (SES, Resend, …)
                           │  users, projects │     ├──────────────▶ Slack (chat.postMessage)
                           │  websites, checks│     ├──────────────▶ Telegram (Bot API sendMessage)
-                          └──────────────────┘     └──────────────▶ Webhook (generic JSON)
-                          └──────────────────┘
+                          └──────────────────┘     ├──────────────▶ WhatsApp (Cloud API messages)
+                                                   └──────────────▶ Webhook (generic JSON)
 ```
 
 | Actor / system | Role |
@@ -38,7 +38,7 @@ deliberately, because the workload is small and bounded.
 | **Watchly** | The single deployable. Serves `/api/v1`, polls sites, sends alerts. |
 | **PostgreSQL** | The only persistent store. Also the coordination lock for multi-worker deployments. |
 | **Monitored websites** | Third-party targets. Watchly only ever sends them an HTTP request. |
-| **SMTP / Slack / Telegram / Webhook** | Outbound alert channels. Each fails independently. |
+| **SMTP / Slack / Telegram / WhatsApp / Webhook** | Outbound alert channels. Each fails independently. |
 
 ---
 
@@ -62,6 +62,7 @@ flowchart LR
     SMTP["SMTP provider"]
     SLACK["Slack Web API"]
     TELEGRAM["Telegram Bot API"]
+    WHATSAPP["WhatsApp Cloud API"]
     HOOK["Generic webhook"]
 
     UI -->|"JWT bearer"| API
@@ -73,6 +74,7 @@ flowchart LR
     SVC --> SMTP
     SVC --> SLACK
     SVC --> TELEGRAM
+    SVC --> WHATSAPP
     SVC --> HOOK
     LOOP -.->|"pg_try_advisory_lock"| DB
 ```
@@ -151,6 +153,7 @@ app/monitoring/
 │   ├── email.py    SMTP: HTML + text layouts
 │   ├── slack.py    Block Kit; per-project (or per-site) bot token + channel
 │   ├── telegram.py Telegram HTML; per-project (or per-site) bot token + chat
+│   ├── whatsapp.py approved template (or text); per-project sender + numbers, per-site numbers
 │   └── webhook.py  generic JSON POST
 └── notifications/  who wants what, in which words
     ├── catalog.py      kinds, placeholders, built-in wording
@@ -229,6 +232,10 @@ erDiagram
         text telegram_bot_token "Fernet ciphertext"
         string telegram_chat_id
         bool telegram_enabled
+        text whatsapp_access_token "Fernet ciphertext"
+        string whatsapp_phone_number_id "the sending number's id"
+        text_array whatsapp_recipients
+        bool whatsapp_enabled
         bool is_active
     }
     project_members {
@@ -255,6 +262,7 @@ erDiagram
         text slack_bot_token "Fernet ciphertext, null = project's"
         string telegram_chat_id "overrides project"
         text telegram_bot_token "Fernet ciphertext, null = project's"
+        text_array whatsapp_recipients "empty = project's"
         enum status "website_status"
         enum environment "website_environment, null = unset"
         timestamptz last_checked_at
@@ -282,6 +290,7 @@ erDiagram
         bool email_enabled "null = inherit"
         bool slack_enabled "null = inherit"
         bool telegram_enabled "null = inherit"
+        bool whatsapp_enabled "null = inherit"
         string subject "null = inherit"
         text body "null = inherit"
     }
@@ -449,13 +458,14 @@ In Slack the whole outage is **one thread**: the down alert is a new message,
 the still-down alerts reply under it, and the recovery replies too, with
 "also send to channel" so the channel sees it. (The `SLACK_WEBHOOK_URL`
 fallback cannot thread and posts each alert to the channel.) In Telegram the
-still-down alerts and the recovery reply to the down alert.
+still-down alerts and the recovery reply to the down alert. WhatsApp has no
+threads: each alert is a message of its own.
 
 ### 5.3 Who gets the alert
 
 ```mermaid
 flowchart LR
-    E["notification raised"] --> T{"kind switched on<br/>for this project?<br/>(email / slack / telegram,<br/>per kind)"}
+    E["notification raised"] --> T{"kind switched on<br/>for this project?<br/>(email / slack / telegram /<br/>whatsapp, per kind)"}
     T --> R{"resolve recipients"}
     R -->|"unless the site sets<br/>inherit_project_recipients = false"| P["project"]
     P --> M["project members<br/>suspended users skipped"]
@@ -474,14 +484,20 @@ flowchart LR
     TG -->|"site token + site chat, else<br/>site or project chat + project token"| TGA["TelegramAlerter → sendMessage"]
     TG -->|"none configured"| TFB["TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID<br/>fallback, if set"]
 
+    E --> WA{"whatsapp target?"}
+    WA -->|"project token + number id,<br/>site numbers else project numbers"| WAA["WhatsAppAlerter → messages<br/>(approved template)"]
+    WA -->|"none configured"| WFB["WHATSAPP_ACCESS_TOKEN + _PHONE_NUMBER_ID<br/>+ _RECIPIENTS fallback, if set"]
+
     E --> WH["WebhookAlerter → ALERT_WEBHOOK_URL"]
 ```
 
-**Every project must have at least one channel** — email, Slack, Telegram, or any mix.
+**Every project must have at least one channel** — email, Slack, Telegram,
+WhatsApp, or any mix.
 Enforced at create *and* on every later change, so a project cannot be quietly
 silenced by clearing its last recipient or removing its last member. **Every
 site must too**: a site that stops inheriting its project's recipients needs
-recipients of its own (or Slack or Telegram), and cannot drop its last one.
+recipients of its own (or Slack, Telegram or WhatsApp), and cannot drop its
+last one.
 
 Channels fail independently: an alerter that throws is logged and the others
 still run.
@@ -605,7 +621,7 @@ manages only the ones they created, and the sites under them.
 | ------- | -------- |
 | **Passwords** | bcrypt via the `bcrypt` package directly. `passlib` is unusable on Python 3.13+ — it imports the removed `crypt` module. |
 | **Account enumeration** | Login runs bcrypt against a dummy hash when no user matches, so timing does not reveal which accounts exist (measured 1.02 ratio). `is_active` is checked only after the password is proven. |
-| **Stored secrets** | Slack and Telegram bot tokens (project and site) are Fernet-encrypted at rest and write-only in the API — reads return a masked hint. Key from `SLACK_TOKEN_ENCRYPTION_KEY`, falling back to `SECRET_KEY`. |
+| **Stored secrets** | Slack and Telegram bot tokens (project and site) and WhatsApp access tokens (project) are Fernet-encrypted at rest and write-only in the API — reads return a masked hint. Key from `SLACK_TOKEN_ENCRYPTION_KEY`, falling back to `SECRET_KEY`. |
 | **Brute force** | `MAX_FAILED_LOGIN_ATTEMPTS` wrong passwords in a row suspend the account; the count is incremented in SQL so parallel guesses cannot race past it. The suspending attempt answers `401` like any other, so it reveals nothing. The price: anyone who knows a username can lock that account out. |
 | **Forgot password** | Always answers `202` with the same text and sends the email after responding, so it does not reveal which addresses have accounts. The temporary password sits beside the real one, which keeps working until the temporary one is used — asking cannot lock anyone out. Signing in with it confines the account to `POST /users/me/password` (`must_change_password`). |
 | **Password leakage** | FastAPI's default 422 body echoes the offending input. A custom handler redacts password fields. |
@@ -654,7 +670,7 @@ Worth knowing before this carries real load:
 | **No alert retry** | A failed delivery is logged, not queued. The next follow-up alert is the recovery mechanism. |
 | **No audit trail** | Nothing records who changed a role, suspended an account or edited a project. The main gap in the permissions story. |
 | **Password change keeps other sessions** | Changing a password, or signing in with a temporary one, revokes no refresh tokens, so a stolen one keeps working until it goes unused for 7 days. |
-| **Key rotation** | Changing `SECRET_KEY` invalidates every access token (sessions recover through a refresh) *and* makes stored Slack and Telegram tokens unreadable. `decrypt_secret` degrades quietly; the tokens must be re-entered. |
+| **Key rotation** | Changing `SECRET_KEY` invalidates every access token (sessions recover through a refresh) *and* makes stored Slack, Telegram and WhatsApp tokens unreadable. `decrypt_secret` degrades quietly; the tokens must be re-entered. |
 
 ---
 
@@ -666,7 +682,7 @@ Worth knowing before this carries real load:
 | Understand monitoring in depth | [`app/monitoring/websites/README.md`](../app/monitoring/websites/README.md) |
 | Change who can do what | [`app/core/permissions.py`](../app/core/permissions.py) |
 | Change when alerts fire | `record_result()` in [`app/monitoring/service.py`](../app/monitoring/service.py) |
-| Change what an email, Slack or Telegram message looks like | `render_html()` in [`alerts/email.py`](../app/monitoring/alerts/email.py), `build_blocks()` in [`alerts/slack.py`](../app/monitoring/alerts/slack.py), `build_text()` in [`alerts/telegram.py`](../app/monitoring/alerts/telegram.py) |
+| Change what an email, Slack, Telegram or WhatsApp message looks like | `render_html()` in [`alerts/email.py`](../app/monitoring/alerts/email.py), `build_blocks()` in [`alerts/slack.py`](../app/monitoring/alerts/slack.py), `build_text()` in [`alerts/telegram.py`](../app/monitoring/alerts/telegram.py), `template_parameters()` in [`alerts/whatsapp.py`](../app/monitoring/alerts/whatsapp.py) |
 | Add a notification kind | `NotificationKind`, an event in [`alerts/events.py`](../app/monitoring/alerts/events.py), and its entry in [`notifications/catalog.py`](../app/monitoring/notifications/catalog.py) |
 | Change the default wording | [`notifications/catalog.py`](../app/monitoring/notifications/catalog.py) |
 | Change how the monthly report is computed | `compute_site_stats()` in [`notifications/reports.py`](../app/monitoring/notifications/reports.py) |

@@ -300,6 +300,16 @@ export default function ProjectDetail() {
                     : 'not set up'}
               </dd>
             </div>
+            <div>
+              <dt>WhatsApp</dt>
+              <dd>
+                {p.whatsapp_configured
+                  ? `${p.whatsapp_recipients.join(', ')} (${p.whatsapp_token_hint})`
+                  : p.whatsapp_token_hint
+                    ? 'muted'
+                    : 'not set up'}
+              </dd>
+            </div>
             {owner && (
               <div>
                 <dt>Owner</dt>

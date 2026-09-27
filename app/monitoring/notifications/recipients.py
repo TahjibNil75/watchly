@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 from app.core.config import settings
 from app.core.crypto import decrypt_secret
-from app.monitoring.alerts.base import SlackTarget, TelegramTarget
+from app.monitoring.alerts.base import SlackTarget, TelegramTarget, WhatsAppTarget
 from app.monitoring.projects.models import Project
 
 
@@ -83,3 +83,28 @@ def telegram_target(
     if not token:
         return None
     return TelegramTarget(bot_token=token, chat_id=chat)
+
+
+def whatsapp_target(
+    project: Project | None, recipients: Iterable[str] = ()
+) -> WhatsAppTarget | None:
+    """Who to message and from which business number, with the token decrypted.
+
+    The sender is always the project's: `recipients` (a website's own numbers)
+    only replaces who is messaged. Returns None when nothing is set up,
+    WhatsApp is muted, or the stored token cannot be decrypted.
+    """
+    if project is None or not project.whatsapp_enabled:
+        return None
+    numbers = tuple(recipients) or tuple(project.whatsapp_recipients)
+    if not (numbers and project.whatsapp_phone_number_id):
+        return None
+
+    token = decrypt_secret(project.whatsapp_access_token)
+    if not token:
+        return None
+    return WhatsAppTarget(
+        access_token=token,
+        phone_number_id=project.whatsapp_phone_number_id,
+        recipients=numbers,
+    )

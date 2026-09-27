@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CHECK_TYPES, RECORD_TYPES, recordType } from './checkTypes.js'
 import { ErrorBanner, UserChecklist } from './components.jsx'
 import { ENVIRONMENTS } from './environments.js'
-import { duration, parseEmails } from './format.js'
+import { duration, parseEmails, parsePhoneNumbers } from './format.js'
 
 const METHODS = ['GET', 'HEAD', 'POST', 'OPTIONS']
 const INTERVALS = [30, 60, 120, 300, 600, 900, 1800, 3600, 21600, 86400]
@@ -36,6 +36,7 @@ const BLANK = {
   slack_bot_token: '',
   telegram_chat_id: '',
   telegram_bot_token: '',
+  whatsapp_recipients: '',
 }
 
 function fromSite(site) {
@@ -48,6 +49,7 @@ function fromSite(site) {
     slack_bot_token: '',
     telegram_chat_id: site.telegram_chat_id ?? '',
     telegram_bot_token: '',
+    whatsapp_recipients: site.whatsapp_recipients.join(', '),
     slow_threshold_ms: site.slow_threshold_ms ?? '',
     must_contain: site.must_contain ?? '',
     must_not_contain: site.must_not_contain ?? '',
@@ -127,6 +129,25 @@ function telegramHint(project, site) {
   return null
 }
 
+// WhatsApp has no bot of the site's own: its numbers are always sent from the
+// project's business number.
+function whatsappHint(project) {
+  if (!project) {
+    return "Leave blank to use the project's WhatsApp numbers, if it has any."
+  }
+  if (project.whatsapp_phone_number_id) {
+    const muted = project.whatsapp_enabled ? '' : ' (currently muted)'
+    return (
+      `Leave blank to alert ${project.name}'s numbers${muted}. ` +
+      "Add numbers to alert them instead, still from the project's business number."
+    )
+  }
+  return (
+    `${project.name} has no WhatsApp set up. Add it to the project first: ` +
+    "a site's numbers are sent from the project's business number."
+  )
+}
+
 /**
  * Create mode when `projects` is passed (adds the project picker and
  * recipients); edit mode when `initial` is a website, with `project` its
@@ -189,6 +210,9 @@ export default function WebsiteForm({
     Boolean(project) &&
     !project.telegram_chat_id &&
     !initial?.telegram_token_hint
+  // Nothing to send a site's numbers from; still allow clearing ones already saved.
+  const noWaSender =
+    Boolean(project) && !project.whatsapp_phone_number_id && !form.whatsapp_recipients.trim()
 
   const intervals = INTERVALS.includes(Number(form.check_interval_seconds))
     ? INTERVALS
@@ -218,6 +242,8 @@ export default function WebsiteForm({
       slack_channel_id: slackChannel || null,
       // Likewise for Telegram.
       telegram_chat_id: tgChat || null,
+      // Empty goes back to the project's numbers.
+      whatsapp_recipients: parsePhoneNumbers(form.whatsapp_recipients),
     }
     if (dns) {
       payload.dns_record_type = form.dns_record_type
@@ -673,6 +699,20 @@ export default function WebsiteForm({
             />
           </label>
         </div>
+      </fieldset>
+
+      <fieldset className="fieldset">
+        <legend>WhatsApp alerts (optional)</legend>
+        <p className="muted small">{whatsappHint(project)}</p>
+        <label className="field">
+          <span>Numbers to alert, with country code</span>
+          <input
+            value={form.whatsapp_recipients}
+            onChange={set('whatsapp_recipients')}
+            placeholder={project?.whatsapp_recipients?.join(', ') || '+8801712345678'}
+            disabled={noWaSender}
+          />
+        </label>
       </fieldset>
 
       <div className="form-actions">

@@ -43,6 +43,7 @@ from app.monitoring.websites.service import (
     WebsiteSlackError,
     WebsiteTargetError,
     WebsiteTelegramError,
+    WebsiteWhatsAppError,
 )
 
 router = APIRouter(prefix="/monitoring/websites", tags=["monitoring: websites"])
@@ -215,10 +216,10 @@ async def list_events(
         409: {"description": "URL already monitored"},
         422: {
             "description": (
-                "Unknown recipient id, no alert channel, Slack or Telegram settings that "
-                "post nowhere, a URL that does not suit the check type, DNS expected "
-                "values that do not suit the record type, or content rules on a "
-                "HEAD/OPTIONS request, a ping or a DNS check"
+                "Unknown recipient id, no alert channel, Slack, Telegram or WhatsApp "
+                "settings that send nowhere, a URL that does not suit the check "
+                "type, DNS expected values that do not suit the record type, or "
+                "content rules on a HEAD/OPTIONS request, a ping or a DNS check"
             )
         },
     },
@@ -241,7 +242,9 @@ async def create_website(
     Slack comes from the project, optionally on the site's own
     `slack_channel_id`; add `slack_bot_token` too for Slack of the site's own,
     which works even when the project has none. Telegram works the same way,
-    with `telegram_chat_id` and `telegram_bot_token`."""
+    with `telegram_chat_id` and `telegram_bot_token`. `whatsapp_recipients`
+    sends the site's WhatsApp alerts to its own numbers, from the project's
+    business number."""
     project = await _assert_can_manage(projects, payload.project_id, actor)
     try:
         website = await service.create(payload, project, created_by_id=actor.id)
@@ -253,6 +256,7 @@ async def create_website(
         WebsiteNotAlertableError,
         WebsiteSlackError,
         WebsiteTelegramError,
+        WebsiteWhatsAppError,
     ) as exc:
         raise _unprocessable(exc) from exc
     return WebsiteRead.model_validate(website)
@@ -287,10 +291,10 @@ async def read_website(
         409: {"description": "URL already monitored"},
         422: {
             "description": (
-                "The change would leave no alert channel, Slack or Telegram settings that "
-                "post nowhere, a URL that does not suit the check type, DNS expected "
-                "values that do not suit the record type, or content rules on a "
-                "HEAD/OPTIONS request, a ping or a DNS check"
+                "The change would leave no alert channel, Slack, Telegram or WhatsApp "
+                "settings that send nowhere, a URL that does not suit the check "
+                "type, DNS expected values that do not suit the record type, or "
+                "content rules on a HEAD/OPTIONS request, a ping or a DNS check"
             )
         },
     },
@@ -306,6 +310,7 @@ async def update_website(
     `/recipients`. `slack_channel_id: null` removes the site's own Slack,
     token included; `slack_bot_token: null` goes back to the project's token.
     `telegram_chat_id` and `telegram_bot_token` work the same way.
+    `whatsapp_recipients: []` goes back to the project's WhatsApp numbers.
     The check type cannot change: `url` must suit the one the site has. A DNS
     check's new `dns_record_type` clears its expected values unless new ones
     come with it."""
@@ -320,6 +325,7 @@ async def update_website(
         WebsiteSlackError,
         WebsiteTargetError,
         WebsiteTelegramError,
+        WebsiteWhatsAppError,
     ) as exc:
         raise _unprocessable(exc) from exc
 
@@ -382,7 +388,7 @@ async def remove_recipient(
 ) -> WebsiteRead:
     """Removing a non-recipient is a no-op. Refused if they are the site's last
     way to alert — e.g. its last recipient while it does not inherit the
-    project's and neither Slack nor Telegram is set up."""
+    project's and no Slack, Telegram or WhatsApp is set up."""
     await _get_for_write(service, projects, website_id, actor)
     try:
         website = await service.remove_recipient(website_id, user_id)

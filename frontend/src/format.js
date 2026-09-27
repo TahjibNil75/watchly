@@ -37,3 +37,12 @@ export function parseEmails(text) {
     .map((part) => part.trim())
     .filter(Boolean)
 }
+
+// Accepts phone numbers separated by commas, semicolons or newlines — not
+// spaces, which people write inside a number. The API normalizes each one.
+export function parsePhoneNumbers(text) {
+  return text
+    .split(/[,;\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+}

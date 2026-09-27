@@ -12,6 +12,7 @@ class NotificationOverrides(BaseModel):
     email_enabled: bool | None = None
     slack_enabled: bool | None = None
     telegram_enabled: bool | None = None
+    whatsapp_enabled: bool | None = None
     subject: str | None = None
     body: str | None = None
 
@@ -26,6 +27,7 @@ class NotificationSettingRead(BaseModel):
     email_enabled: bool
     slack_enabled: bool
     telegram_enabled: bool
+    whatsapp_enabled: bool
     subject: str = Field(description="The subject template in effect.")
     body: str = Field(description="The body template in effect.")
     sources: dict[str, str] = Field(
@@ -57,6 +59,7 @@ class NotificationSettingRead(BaseModel):
             email_enabled=setting.email_enabled,
             slack_enabled=setting.slack_enabled,
             telegram_enabled=setting.telegram_enabled,
+            whatsapp_enabled=setting.whatsapp_enabled,
             subject=setting.subject,
             body=setting.body,
             sources=setting.sources,
@@ -86,6 +89,7 @@ class NotificationSettingUpdate(BaseModel):
                 "email_enabled": True,
                 "slack_enabled": False,
                 "telegram_enabled": True,
+                "whatsapp_enabled": False,
                 "subject": "[{{project}}] {{website}} is down",
                 "body": "Heads up — {{website}} stopped responding: {{summary}}",
             }
@@ -95,6 +99,7 @@ class NotificationSettingUpdate(BaseModel):
     email_enabled: bool | None = None
     slack_enabled: bool | None = None
     telegram_enabled: bool | None = None
+    whatsapp_enabled: bool | None = None
     subject: str | None = Field(
         default=None,
         max_length=SUBJECT_MAX,
@@ -106,7 +111,7 @@ class NotificationSettingUpdate(BaseModel):
         description=(
             "Plain text; line breaks are kept. In Slack it is mrkdwn, so `*bold*` "
             "and mentions such as `<!channel>` work there. Telegram shows it as "
-            "plain text."
+            "plain text, and WhatsApp as plain text on a single line."
         ),
     )
 
@@ -132,6 +137,13 @@ class NotificationPreviewResponse(BaseModel):
     telegram_html: str = Field(
         description="The Telegram message: text in Telegram's HTML subset."
     )
+    whatsapp_text: str = Field(
+        description=(
+            "The WhatsApp message as it reads on the phone: the approved template "
+            "with its variables filled in, or the free-form text (with `*bold*` "
+            "and `_italic_`) when WHATSAPP_TEMPLATE_NAME is blank."
+        )
+    )
 
 
 class ReportSendRequest(BaseModel):
@@ -149,10 +161,11 @@ class ReportSendResponse(BaseModel):
     email_recipients: int
     slack_configured: bool
     telegram_configured: bool
+    whatsapp_configured: bool
     delivered_by: list[str] = Field(
         description=(
             "Channels that delivered it. Empty means it was not delivered: the "
-            "notification is switched off for the project, SMTP/Slack/Telegram is not "
+            "notification is switched off for the project, no channel is "
             "configured, or sending failed (see the API log)."
         )
     )

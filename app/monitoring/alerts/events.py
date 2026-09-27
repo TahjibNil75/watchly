@@ -21,6 +21,7 @@ from app.monitoring.alerts.base import (
     TelegramTarget,
     Tone,
     WebsiteSnapshot,
+    WhatsAppTarget,
     format_duration,
     format_uptime,
     plural,
@@ -104,6 +105,7 @@ class SiteEvent(Notification):
     recipients: tuple[str, ...] = ()
     slack: SlackTarget | None = None
     telegram: TelegramTarget | None = None
+    whatsapp: WhatsAppTarget | None = None
 
     @property
     def project_id(self) -> int:
@@ -782,6 +784,7 @@ class ReportEvent(Notification):
     recipients: tuple[str, ...] = ()
     slack: SlackTarget | None = None
     telegram: TelegramTarget | None = None
+    whatsapp: WhatsAppTarget | None = None
 
     @property
     def month_label(self) -> str:

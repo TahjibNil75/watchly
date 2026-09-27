@@ -26,7 +26,7 @@
 Watchly watches your websites, servers and DNS records around the clock and
 tells the right people the moment something breaks. Organize what you monitor
 into projects, invite your team with the right roles, and get alerts by email,
-Slack, Telegram or webhook, plus a monthly uptime report you can trust.
+Slack, Telegram, WhatsApp or webhook, plus a monthly uptime report you can trust.
 
 It runs on your own infrastructure with a single `docker compose up`.
 
@@ -36,7 +36,7 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **Ping monitoring**: ICMP checks for hosts, including packet-loss alerts
 - **DNS monitoring**: query several public resolvers at once and alert when records change or drift from what you expect
 - **Early warnings**: SSL certificates about to expire, slow responses and packet loss, not just "down"
-- **Alerts where your team works**: email (any SMTP provider), Slack, Telegram and generic webhooks
+- **Alerts where your team works**: email (any SMTP provider), Slack, Telegram, WhatsApp and generic webhooks
 - **Projects and recipients**: each project's members hear about all of its sites, and each site can add its own recipients
 - **Monthly uptime reports**: uptime, downtime and incidents per project, delivered automatically
 - **Team management**: invite by email, role-based access (Admin, DevOps, Project Manager, Developer, Viewer), suspension, and invite-only mode
@@ -187,6 +187,8 @@ option. The most important ones:
 | `ALERT_DEFAULT_EMAILS` | | Addresses that receive every alert |
 | `SLACK_WEBHOOK_URL` / `ALERT_WEBHOOK_URL` | | Optional Slack and webhook channels |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | | Optional Telegram fallback for projects without their own bot |
+| `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_RECIPIENTS` | | Optional WhatsApp fallback for projects without their own sender |
+| `WHATSAPP_TEMPLATE_NAME` | `watchly_alert` | Approved WhatsApp template alerts are sent as |
 | `SSL_EXPIRY_ALERT_DAYS` | `14,7,3,1` | Days before certificate expiry to warn |
 | `DNS_RESOLVERS` | Cloudflare, Google, Quad9, OpenDNS | Resolvers queried by DNS checks |
 | `MONTHLY_REPORTS_ENABLED` | `true` | Send the monthly uptime report |

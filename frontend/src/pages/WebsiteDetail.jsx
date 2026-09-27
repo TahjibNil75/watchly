@@ -615,6 +615,16 @@ export default function WebsiteDetail() {
                 </dd>
               </div>
             )}
+            {(s.whatsapp_recipients.length > 0 || s.alert_channels.includes('whatsapp')) && (
+              <div>
+                <dt>WhatsApp</dt>
+                <dd>
+                  {s.whatsapp_recipients.length
+                    ? s.whatsapp_recipients.join(', ')
+                    : "project's numbers"}
+                </dd>
+              </div>
+            )}
           </dl>
           <h3>Site recipients</h3>
           <p className="muted small">

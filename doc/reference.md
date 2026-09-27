@@ -27,7 +27,7 @@ app/
     service.py       # MonitoringService — the outage state machine
     scheduler.py     # background loop that drives the checks
     projects/
-      models.py      # Project + project_members + Slack and Telegram settings
+      models.py      # Project + project_members + Slack, Telegram and WhatsApp settings
       schemas.py     # Pydantic contracts
       service.py     # ProjectService — CRUD + membership
       routes.py      # project + member endpoints
@@ -43,6 +43,7 @@ app/
       email.py       # SMTP — HTML + plain-text layouts
       slack.py       # Block Kit + per-project bot token and channel
       telegram.py    # Telegram HTML + per-project bot token and chat
+      whatsapp.py    # WhatsApp template (or text) + per-project sender and numbers
       webhook.py     # generic JSON POST (off unless configured)
     notifications/   # who wants what, in which words
       catalog.py     # the kinds, their placeholders, the built-in wording
@@ -57,7 +58,7 @@ app/
     security.py      # generate_hash_password / verify_password (bcrypt), emailed-link tokens
     mail.py          # one-link account emails (invitations, email confirmation) over SMTP
     handlers.py      # 422 handler that redacts passwords from echoed input
-    crypto.py        # Fernet encryption for stored Slack and Telegram tokens
+    crypto.py        # Fernet encryption for stored Slack, Telegram and WhatsApp tokens
     permissions.py   # who may manage, see, suspend and invite whom
   utils/
     jwt.py           # access-token helpers (refresh tokens live in the DB)
@@ -619,7 +620,7 @@ different sites within one project.
 
 Like a project, **every site must keep at least one alert channel**. A site
 that has opted out needs at least one recipient or address of its own (or
-Slack or Telegram). The `PATCH` or `DELETE` that would remove its last one
+Slack, Telegram or WhatsApp). The `PATCH` or `DELETE` that would remove its last one
 is refused with `422`.
 
 `extra_emails` and `alert_emails` are replaced wholesale by `PATCH`. Project
@@ -658,6 +659,7 @@ In Slack that outage is **one thread**, not five messages: the down alert is
 posted to the channel, the still-down alerts reply under it, and the recovery
 replies there too with "also send to channel", so the channel sees it's back up.
 In Telegram the still-down alerts and the recovery reply to the down alert.
+WhatsApp has no threads, so each alert arrives as a message of its own.
 
 ### Ping checks
 
@@ -747,7 +749,8 @@ Likewise a host's `packet_loss_threshold_percent` falls back to
 ### The monthly uptime report
 
 One message per project, to its members and extra emails (and to
-`ALERT_DEFAULT_EMAILS`) and to its Slack channel and Telegram chat: average uptime, incidents and
+`ALERT_DEFAULT_EMAILS`) and to its Slack channel, Telegram chat and WhatsApp
+numbers: average uptime, incidents and
 downtime as headline numbers, then every site worst-first with its uptime,
 downtime, incidents and average response time.
 
@@ -789,9 +792,9 @@ everything else.
 
 | you can set | what it does |
 | ----------- | ------------ |
-| **Email on/off**, **Slack on/off**, **Telegram on/off** | per kind. The generic webhook has no switch — it is a global firehose. |
+| **Email on/off**, **Slack on/off**, **Telegram on/off**, **WhatsApp on/off** | per kind. The generic webhook has no switch — it is a global firehose. |
 | **Subject** | the email subject, and the Slack notification text |
-| **Message** | the text at the top of the email, Slack and Telegram message |
+| **Message** | the text at the top of the email, Slack, Telegram and WhatsApp message |
 
 The layout, colours, facts table and the "what happens next" note are fixed
 per kind; the subject and message are yours. Templates use `{{placeholders}}`
@@ -799,7 +802,9 @@ such as `{{project}}`, `{{website}}`, `{{summary}}` or `{{downtime}}` (each
 kind lists its own — the UI shows them as click-to-insert chips). It is plain
 substitution, not a template language, and unknown placeholders are refused on
 save with the list of valid ones. In Slack the message is mrkdwn, so `*bold*`
-and mentions like `<!channel>` work there; Telegram shows it as plain text.
+and mentions like `<!channel>` work there; Telegram shows it as plain text, and
+WhatsApp as plain text on a single line (a template variable cannot hold line
+breaks).
 
 Values from the monitored site (error text, headers) are untrusted, so each
 channel escapes them for its own markup: a hostile response cannot inject HTML
@@ -809,8 +814,8 @@ except in Telegram, where all of it is escaped and shown as written.
 The **Site down** alert cannot be switched off on every channel — at the global
 level or for any project — because then nobody would hear about an outage.
 
-The editor previews the exact email, Slack and Telegram message with sample data as you
-type. The same is available at `POST /monitoring/notifications/preview`.
+The editor previews the exact email, Slack, Telegram and WhatsApp message with
+sample data as you type. The same is available at `POST /monitoring/notifications/preview`.
 
 ### What an alert contains
 
@@ -849,12 +854,16 @@ Any SMTP provider works — set `SMTP_HOST` and friends in `.env`:
 | Mailgun  | `smtp.mailgun.org` | 587 |
 
 Use `SMTP_USE_TLS=true` for port 587, or `SMTP_USE_SSL=true` for port 465.
-Slack and Telegram are set up per project; the generic-webhook channel switches
-on as soon as `ALERT_WEBHOOK_URL` is set, `SLACK_WEBHOOK_URL` is a fallback for
-projects with no Slack of their own, and `TELEGRAM_BOT_TOKEN` with
-`TELEGRAM_CHAT_ID` is the same for Telegram. See
-[the websites README](../app/monitoring/websites/README.md#telegram) for setting
-up a Telegram bot.
+Slack, Telegram and WhatsApp are set up per project; the generic-webhook
+channel switches on as soon as `ALERT_WEBHOOK_URL` is set, `SLACK_WEBHOOK_URL`
+is a fallback for projects with no Slack of their own, `TELEGRAM_BOT_TOKEN`
+with `TELEGRAM_CHAT_ID` is the same for Telegram, and
+`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_RECIPIENTS`
+for WhatsApp. WhatsApp alerts are sent as the approved template
+`WHATSAPP_TEMPLATE_NAME` (`watchly_alert`), because WhatsApp delivers nothing
+else to someone who has not written in the last 24 hours. See the websites
+README for setting up [a Telegram bot](../app/monitoring/websites/README.md#telegram)
+and [WhatsApp](../app/monitoring/websites/README.md#whatsapp).
 
 ### The scheduler
 

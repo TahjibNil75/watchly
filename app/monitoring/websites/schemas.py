@@ -19,9 +19,11 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from app.monitoring.projects.schemas import (
+    MAX_WHATSAPP_RECIPIENTS,
     ProjectMemberRead,
     SlackSettings,
     TelegramSettings,
+    WhatsAppSettings,
 )
 from app.monitoring.websites.models import (
     CheckType,
@@ -352,6 +354,15 @@ class WebsiteBase(BaseModel):
             "telegram_chat_id. Stored encrypted and never returned."
         ),
     )
+    whatsapp_recipients: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_WHATSAPP_RECIPIENTS,
+        description=(
+            "WhatsApp this site's alerts to these numbers (with country code, "
+            "such as `+8801712345678`) instead of the project's. They are sent "
+            "from the project's business number, so the project needs WhatsApp."
+        ),
+    )
 
     @field_validator("url")
     @classmethod
@@ -393,6 +404,9 @@ class WebsiteBase(BaseModel):
     )
     _chat_id = field_validator("telegram_chat_id")(
         TelegramSettings.looks_like_a_chat_id.__func__
+    )
+    _whatsapp_recipients = field_validator("whatsapp_recipients")(
+        WhatsAppSettings.looks_like_phone_numbers.__func__
     )
     _content_rules = field_validator("must_contain", "must_not_contain")(_blank_to_none)
 
@@ -498,6 +512,14 @@ class WebsiteUpdate(BaseModel):
         max_length=255,
         description="Send null to go back to the project's bot.",
     )
+    whatsapp_recipients: list[str] | None = Field(
+        default=None,
+        max_length=MAX_WHATSAPP_RECIPIENTS,
+        description=(
+            "Replaces the whole list; send [] (or null) to go back to the "
+            "project's numbers."
+        ),
+    )
 
     _known_method = field_validator("method")(WebsiteBase.known_method.__func__)
     _content_rules = field_validator("must_contain", "must_not_contain")(_blank_to_none)
@@ -512,6 +534,9 @@ class WebsiteUpdate(BaseModel):
     )
     _chat_id = field_validator("telegram_chat_id")(
         TelegramSettings.looks_like_a_chat_id.__func__
+    )
+    _whatsapp_recipients = field_validator("whatsapp_recipients")(
+        WhatsAppSettings.looks_like_phone_numbers.__func__
     )
 
 
@@ -686,6 +711,10 @@ class WebsiteRead(BaseModel):
             "Masked site's own Telegram bot token, e.g. `123456789:…wxyz`; null "
             "when the site uses its project's."
         ),
+    )
+    whatsapp_recipients: list[str] = Field(
+        default_factory=list,
+        description="The site's own WhatsApp numbers; empty when it uses its project's.",
     )
     status: WebsiteStatus
     last_checked_at: datetime | None

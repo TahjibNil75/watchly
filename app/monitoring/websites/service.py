@@ -56,7 +56,8 @@ class WebsiteNotAlertableError(WebsiteError):
         super().__init__(
             f"{website.name!r} would have no alert channel. Add recipient_ids or "
             "alert_emails, set inherit_project_recipients back to true, or "
-            f"set up Slack or Telegram on this site or on project {website.project.name!r}."
+            "set up Slack, Telegram or WhatsApp on this site or on project "
+            f"{website.project.name!r}."
         )
 
 
@@ -102,6 +103,24 @@ def telegram_problem(website: Website) -> WebsiteTelegramError | None:
     return None
 
 
+class WebsiteWhatsAppError(WebsiteError):
+    """The site's own WhatsApp numbers have nothing to send them from."""
+
+
+def whatsapp_problem(website: Website) -> WebsiteWhatsAppError | None:
+    """Why the site's own WhatsApp numbers would get nothing, if they would."""
+    project = website.project
+    if website.whatsapp_recipients and not (
+        project.whatsapp_access_token and project.whatsapp_phone_number_id
+    ):
+        return WebsiteWhatsAppError(
+            "whatsapp_recipients are sent from the project's business number: "
+            "configure whatsapp_access_token and whatsapp_phone_number_id on "
+            f"project {project.name!r} first."
+        )
+    return None
+
+
 class WebsiteContentRuleError(WebsiteError):
     """A content rule on a request that comes back with no body to search."""
 
@@ -139,14 +158,18 @@ class WebsiteService:
         *,
         check_slack: bool = False,
         check_telegram: bool = False,
+        check_whatsapp: bool = False,
     ) -> None:
         """Commit a change unless it leaves the site unable to alert anyone,
-        with content rules on a bodiless method, or — with `check_slack` and
-        `check_telegram` — with Slack or Telegram settings that post nowhere."""
+        with content rules on a bodiless method, or — with `check_slack`,
+        `check_telegram` and `check_whatsapp` — with Slack, Telegram or
+        WhatsApp settings that send nowhere."""
         # Build the error before rolling back, which expires `website`.
         error = slack_problem(website) if check_slack else None
         if error is None and check_telegram:
             error = telegram_problem(website)
+        if error is None and check_whatsapp:
+            error = whatsapp_problem(website)
         if error is None:
             error = content_rule_problem(website)
         if error is None and not website.alert_channels:
@@ -324,7 +347,7 @@ class WebsiteService:
         self.session.add(website)
         try:
             await self._commit_if_alertable(
-                website, check_slack=True, check_telegram=True
+                website, check_slack=True, check_telegram=True, check_whatsapp=True
             )
         except IntegrityError as exc:
             await self.session.rollback()
@@ -386,6 +409,13 @@ class WebsiteService:
             "telegram_chat_id" in changes
             and changes["telegram_chat_id"] != website.telegram_chat_id
         )
+        if "whatsapp_recipients" in changes and changes["whatsapp_recipients"] is None:
+            # NOT NULL in the table; empty means "the project's numbers".
+            changes["whatsapp_recipients"] = []
+        whatsapp_changed = (
+            "whatsapp_recipients" in changes
+            and changes["whatsapp_recipients"] != website.whatsapp_recipients
+        )
 
         if "url" in changes and changes["url"] != website.url:
             # The certificate state describes the old host. Clearing it makes
@@ -409,7 +439,10 @@ class WebsiteService:
         url, record_type = website.url, website.dns_record_type
         try:
             await self._commit_if_alertable(
-                website, check_slack=slack_changed, check_telegram=telegram_changed
+                website,
+                check_slack=slack_changed,
+                check_telegram=telegram_changed,
+                check_whatsapp=whatsapp_changed,
             )
         except IntegrityError as exc:
             await self.session.rollback()

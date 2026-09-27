@@ -249,26 +249,28 @@ also showing in the channel. The thread's `ts` is kept on the website
 (`slack_thread_ts`, `slack_thread_channel`) until the recovery. Telegram does
 the same with replies: the still-down alerts and the recovery reply to the down
 alert, whose id is kept in `telegram_thread_message_id` and
-`telegram_thread_chat`.
+`telegram_thread_chat`. WhatsApp has no threads: each alert is a message of its
+own.
 
 ---
 
 ## 5. Who receives an alert
 
-**Every project must have at least one channel — email, Slack, Telegram, or
-any mix.** It is chosen when the project is created and enforced on every later
-change: you cannot clear the last email recipient while no chat channel is set,
-remove the last member, or drop Slack or Telegram while it is the only channel. There are no separate
-endpoints for configuring a channel; it is all part of the project payload.
+**Every project must have at least one channel — email, Slack, Telegram,
+WhatsApp, or any mix.** It is chosen when the project is created and enforced
+on every later change: you cannot clear the last email recipient while no chat
+channel is set, remove the last member, or drop Slack, Telegram or WhatsApp
+while it is the only channel. There are no separate endpoints for configuring a
+channel; it is all part of the project payload.
 
 `GET /monitoring/projects/{id}` reports what is set as `alert_channels`, e.g.
-`["email"]` or `["email", "slack", "telegram"]`.
+`["email"]` or `["email", "slack", "telegram", "whatsapp"]`.
 
 Sites inherit their project's channels and need nothing of their own — but
 each can have its own recipients, and **a site must keep at least one
 channel too**: one that stops inheriting the project's recipients needs a
-recipient or address of its own (or Slack or Telegram), and its last one cannot be
-removed. `GET /monitoring/websites/{id}` reports the site's `alert_channels`.
+recipient or address of its own (or Slack, Telegram or WhatsApp), and its last
+one cannot be removed. `GET /monitoring/websites/{id}` reports the site's `alert_channels`.
 
 ### Email
 
@@ -297,8 +299,8 @@ curl -X PATCH $BASE/monitoring/websites/$SID -H "Authorization: Bearer $TOKEN" \
 ```
 
 Recipients go in first: opting out while the site has none of its own is
-refused with `422` (unless Slack or Telegram is set up), since nobody would be
-emailed. Slack and Telegram are unaffected by the flag.
+refused with `422` (unless Slack, Telegram or WhatsApp is set up), since nobody
+would be emailed. Slack, Telegram and WhatsApp are unaffected by the flag.
 
 Subjects are project-qualified:
 
@@ -402,6 +404,83 @@ returned, and shown as a masked `telegram_token_hint` such as
 
 `TELEGRAM_BOT_TOKEN` with `TELEGRAM_CHAT_ID` is an optional global firehose for
 projects with no Telegram of their own, like `SLACK_WEBHOOK_URL`.
+
+### WhatsApp
+
+Optional, through Meta's **WhatsApp Cloud API**. A project carries a *sender*
+— a Meta access token and the Phone number ID of the business number that
+sends — and the numbers to alert. A site may alert **numbers of its own**
+instead; they are still sent from the project's business number, so a site
+cannot have WhatsApp when its project has none.
+
+| level | field | effect |
+| ----- | ----- | ------ |
+| project | `whatsapp_access_token` | a system user's token; encrypted at rest |
+| project | `whatsapp_phone_number_id` | the business number that sends — its id, not the number |
+| project | `whatsapp_recipients` | numbers alerted for all the project's sites, up to 10 |
+| project | `whatsapp_enabled` | mute the project's WhatsApp without discarding the settings |
+| site | `whatsapp_recipients` | that one site alerts these numbers instead; `[]` goes back to the project's |
+
+The three project fields are set together. `PATCH` with any of them `null`, or
+`whatsapp_recipients: []`, removes the project's WhatsApp. Numbers need their
+country code; `+880 1712-345678` and `008801712345678` are both stored as
+`+8801712345678`.
+
+**Why a template.** WhatsApp lets a business write freely to someone only
+within 24 hours of that person's last message to it. Outside that window only
+an approved *message template* is delivered — and a plain message sent outside
+it is accepted by the API, then silently dropped. So alerts are sent as the
+template named by `WHATSAPP_TEMPLATE_NAME` (`watchly_alert` by default), with
+the headline and the details as its two variables. Setting it blank sends
+formatted free-form text instead, which is fine for a trial with numbers that
+have just written to the business, but not for real alerting.
+
+Setting it up:
+
+1. In [Meta for Developers](https://developers.facebook.com/), create an app
+   of type **Business** and add the **WhatsApp** product. API setup gives you a
+   test number, and its **Phone number ID**. A test number can only message the
+   (up to five) numbers you add under *To*; add your own business number for
+   real use.
+2. In **Business settings → System users**, create a system user, assign it
+   the app and the WhatsApp account, and generate a token with the
+   `whatsapp_business_messaging` permission, set to never expire. The
+   temporary token on the API setup page stops working after 24 hours.
+3. In **WhatsApp Manager → Message templates**, create a template named
+   `watchly_alert`, category **Utility**, language **English** (`en`), with
+   this body, word for word:
+
+   ```
+   Watchly monitoring update: {{1}}
+
+   {{2}}
+
+   You are receiving this because your number is on the WhatsApp alert list of a Watchly project.
+   ```
+
+   Give samples such as `🚨 Marketing site is down` and `Marketing site did
+   not respond as expected: HTTP 503`, and wait for it to be approved
+   (usually minutes). Another name or language works too: set
+   `WHATSAPP_TEMPLATE_NAME` and `WHATSAPP_TEMPLATE_LANGUAGE`. A project with
+   its own WhatsApp Business account needs the template there as well.
+4. `PATCH /monitoring/projects/{id}` with `whatsapp_access_token`,
+   `whatsapp_phone_number_id` and `whatsapp_recipients` — or give one site its
+   own `whatsapp_recipients`. The project and website forms have a **WhatsApp
+   alerts (optional)** section for the same.
+
+Each number gets its own copy, one after the other; the alert counts as
+delivered if any number got it. Refusals are translated in the log: `131030`
+becomes "the number is not on the test number's list of allowed recipients…",
+`132001` "no approved template by that name and language…". A refusal about
+the token or the template stops the remaining numbers, which would fail the
+same way.
+
+**The token is write-only**, like the others: encrypted with the same key,
+never returned, and shown as a masked `whatsapp_token_hint` such as `EAA…wxyz`.
+
+`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_RECIPIENTS`
+together are an optional global firehose for projects with no WhatsApp of
+their own.
 
 Each alert carries HTTP status and reason, expected vs actual, error class
 (`dns_error`, `connect_timeout`, `tls_error`, `unexpected_status`, …), response

@@ -36,6 +36,7 @@ from app.monitoring.notifications.recipients import (
     project_recipients,
     slack_target,
     telegram_target,
+    whatsapp_target,
 )
 from app.monitoring.projects.models import Project
 from app.monitoring.websites.models import Website, WebsiteCheck
@@ -266,6 +267,7 @@ class ReportService:
             recipients=project_recipients(project),
             slack=slack_target(project),
             telegram=telegram_target(project),
+            whatsapp=whatsapp_target(project),
         )
 
     # -- sending -----------------------------------------------------------

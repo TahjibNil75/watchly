@@ -3,8 +3,9 @@
 Off unless ALERT_WEBHOOK_URL is set. Posts a machine-readable payload, so it
 can drive PagerDuty bridges, chat bots, or your own automation.
 
-Unlike email, Slack and Telegram it has no per-project switch: it is a global firehose
-that an operator wires up once, and it receives every kind of notification.
+Unlike email, Slack, Telegram and WhatsApp it has no per-project switch: it is
+a global firehose that an operator wires up once, and it receives every kind of
+notification.
 """
 
 import logging

@@ -1,9 +1,9 @@
 """Symmetric encryption for secrets stored in the database.
 
-Slack and Telegram bot tokens are supplied through the API and have to be
-kept, but a plaintext `xoxb-...` in a table is a token in every database dump,
-replica and backup. They are encrypted here instead, and never returned by the
-API.
+Slack and Telegram bot tokens and WhatsApp access tokens are supplied through
+the API and have to be kept, but a plaintext `xoxb-...` in a table is a token
+in every database dump, replica and backup. They are encrypted here instead,
+and never returned by the API.
 
 The key comes from `SLACK_TOKEN_ENCRYPTION_KEY` if set, otherwise it is derived
 from `SECRET_KEY`. **Rotating either one makes existing ciphertexts
@@ -55,12 +55,15 @@ def mask_secret(plaintext: str | None, keep: int = 4) -> str | None:
     """`xoxb-1234-5678-abcdefgh` -> `xoxb-…efgh`, for showing what is stored.
 
     A Telegram token keeps its bot id, which is public anyway and says which
-    bot it is: `123456789:AAH…wxyz` -> `123456789:…wxyz`.
+    bot it is: `123456789:AAH…wxyz` -> `123456789:…wxyz`. A Meta access token
+    keeps its `EAA` prefix: `EAA…wxyz`.
     """
     if not plaintext:
         return None
     if plaintext.startswith("xox"):
         prefix = plaintext[:5]
+    elif plaintext.startswith("EAA"):
+        prefix = "EAA"
     elif ":" in plaintext and plaintext.partition(":")[0].isdigit():
         prefix = plaintext.partition(":")[0] + ":"
     else:

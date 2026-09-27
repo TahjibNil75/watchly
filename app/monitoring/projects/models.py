@@ -83,6 +83,24 @@ class Project(Base, TimestampMixin):
     telegram_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
+    # --- WhatsApp ---------------------------------------------------------
+    #: Meta access token of a system user that may send for the business
+    #: number, encrypted at rest. Never returned by the API.
+    whatsapp_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Meta's id for the business number that sends (WhatsApp Manager → API
+    #: setup) — not the phone number itself.
+    whatsapp_phone_number_id: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    #: Numbers alerted for every site in this project, with country code, e.g.
+    #: `+8801712345678`. A site may alert numbers of its own instead.
+    whatsapp_recipients: Mapped[list[str]] = mapped_column(
+        ARRAY(String(16)), default=list, server_default=text("'{}'"), nullable=False
+    )
+    #: Lets you mute WhatsApp without discarding the settings.
+    whatsapp_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
 
     #: The project manager (or admin/DevOps) who created it. Decides who may
     #: edit the project — see app/core/permissions.can_manage_project.
@@ -135,6 +153,16 @@ class Project(Base, TimestampMixin):
         return bool(self.telegram_bot_token and self.telegram_chat_id)
 
     @property
+    def has_whatsapp_alerting(self) -> bool:
+        """A sender and somebody to send to are all present. Like the others,
+        `whatsapp_enabled` is a mute switch and does not count here."""
+        return bool(
+            self.whatsapp_access_token
+            and self.whatsapp_phone_number_id
+            and self.whatsapp_recipients
+        )
+
+    @property
     def alert_channels(self) -> list[str]:
         """Which channels this project is set up for. Never empty — every
         project must have at least one."""
@@ -145,6 +173,8 @@ class Project(Base, TimestampMixin):
             channels.append("slack")
         if self.has_telegram_alerting:
             channels.append("telegram")
+        if self.has_whatsapp_alerting:
+            channels.append("whatsapp")
         return channels
 
     @property
@@ -166,6 +196,15 @@ class Project(Base, TimestampMixin):
     def telegram_token_hint(self) -> str | None:
         """Masked stored token, e.g. `123456789:…wxyz`."""
         return mask_secret(decrypt_secret(self.telegram_bot_token))
+
+    @property
+    def whatsapp_configured(self) -> bool:
+        return self.whatsapp_enabled and self.has_whatsapp_alerting
+
+    @property
+    def whatsapp_token_hint(self) -> str | None:
+        """Masked stored token, e.g. `EAA…wxyz`."""
+        return mask_secret(decrypt_secret(self.whatsapp_access_token))
 
     @property
     def recipient_emails(self) -> list[str]:

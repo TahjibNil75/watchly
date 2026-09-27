@@ -202,9 +202,9 @@ async def remove_member(
 ) -> ProjectRead:
     """They stop receiving this project's alerts. Removing a non-member is a no-op.
 
-    Refused with `422` if they are the last member and neither Slack nor
-    Telegram is configured —
-    a project must always keep at least one way to raise an alert.
+    Refused with `422` if they are the last member and no Slack, Telegram or
+    WhatsApp is configured — a project must always keep at least one way to
+    raise an alert.
     """
     try:
         project = await service.remove_member(project_id, user_id, actor)

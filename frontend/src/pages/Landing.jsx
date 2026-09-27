@@ -96,8 +96,8 @@ const CHECKS = [
 const ALERTS = [
   {
     icon: 'channels',
-    title: 'Email, Slack, Telegram and webhooks',
-    text: 'Each project alerts by email, Slack, Telegram or any mix, and a webhook can take every alert too. A site can add its own recipients, like a client, or its own Slack channel or Telegram chat.',
+    title: 'Email, Slack, Telegram, WhatsApp and webhooks',
+    text: 'Each project alerts by email, Slack, Telegram, WhatsApp or any mix, and a webhook can take every alert too. A site can add its own recipients, like a client, or its own Slack channel, Telegram chat or WhatsApp numbers.',
   },
   {
     icon: 'bell',
@@ -142,7 +142,7 @@ const TEAM = [
     points: [
       'Uptime and response-time charts from 24 hours to 90 days',
       'The details of every recent check, and the history as a CSV download',
-      'A monthly uptime report for each project, by email, Slack and Telegram',
+      'A monthly uptime report for each project, by email, Slack, Telegram and WhatsApp',
     ],
   },
 ]
@@ -150,7 +150,7 @@ const TEAM = [
 const STEPS = [
   {
     title: 'Create a project',
-    text: 'Name it, add the people responsible, and choose email, Slack, Telegram or any mix.',
+    text: 'Name it, add the people responsible, and choose email, Slack, Telegram, WhatsApp or any mix.',
   },
   {
     title: 'Add what to watch',
@@ -215,8 +215,8 @@ export default function Landing() {
               <h1>Know the moment a site goes down.</h1>
               <p className="landing-lead muted">
                 Watchly checks your websites, servers and DNS records on their own schedule,
-                alerts the right people by email, Slack, Telegram or webhook, and tells them when
-                it&apos;s back.
+                alerts the right people by email, Slack, Telegram, WhatsApp or webhook, and tells
+                them when it&apos;s back.
               </p>
               <Actions />
               <p className="muted small landing-note">

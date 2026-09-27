@@ -17,6 +17,7 @@ from app.monitoring.alerts.base import NotificationKind
 from app.monitoring.alerts.email import render_html, render_text
 from app.monitoring.alerts.slack import build_payload
 from app.monitoring.alerts.telegram import build_text as build_telegram_text
+from app.monitoring.alerts.whatsapp import preview_text as whatsapp_preview_text
 from app.monitoring.notifications.catalog import CATALOG
 from app.monitoring.exports import csv_response, report_csv
 from app.monitoring.notifications.reports import (
@@ -152,10 +153,10 @@ async def preview(
     payload: NotificationPreviewRequest,
     _: User = Depends(get_current_user),
 ) -> NotificationPreviewResponse:
-    """Renders the email, Slack and Telegram message exactly as they would be
-    sent, using made-up data. Nothing is saved or delivered, so use it to try a
-    template before saving it. Unknown placeholders are refused, as they would
-    be on save."""
+    """Renders the email, Slack, Telegram and WhatsApp message exactly as they
+    would be sent, using made-up data. Nothing is saved or delivered, so use it
+    to try a template before saving it. Unknown placeholders are refused, as
+    they would be on save."""
     info = CATALOG[payload.kind]
     try:
         subject = NotificationSettingsService.normalize_template(
@@ -178,6 +179,7 @@ async def preview(
         slack_text=slack["text"],
         slack_blocks=slack["blocks"],
         telegram_html=build_telegram_text(message),
+        whatsapp_text=whatsapp_preview_text(message),
     )
 
 
@@ -335,5 +337,6 @@ async def send_report(
         email_recipients=len(event.recipients),
         slack_configured=event.slack is not None,
         telegram_configured=event.telegram is not None,
+        whatsapp_configured=event.whatsapp is not None,
         delivered_by=list(delivered),
     )

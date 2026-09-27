@@ -111,7 +111,7 @@ Here's a quick tour that exercises the whole monitoring loop.
 1. **Create a project.** Go to **Projects → New project**, give it a name, and
    tick yourself under *Responsible members*. Every project needs someone or
    something to alert, so the form refuses one with no members, no extra
-   emails, no Slack and no Telegram.
+   emails, no Slack, no Telegram and no WhatsApp.
 2. **Add a website.** On the project page, go to **Add website**, then enter a
    name and a URL such as `example.com` (`https://` is added for you).
 3. **Probe it now.** On the website page, click **Check now**. You'll see the
@@ -178,7 +178,8 @@ With Mailpit running, everything Watchly can send is one click away:
 
 - **See and edit the wording without waiting for an outage.** Sign in as admin,
   open **Notifications**, expand any kind and edit its subject or message. The
-  preview underneath renders the real email, Slack and Telegram message as you type.
+  preview underneath renders the real email, Slack, Telegram and WhatsApp
+  message as you type.
 - **Get a monthly uptime report now.** Once a project has a month of checks,
   open it and click **Send last month's report now**. Left alone, it goes out on
   the 1st at 06:00 UTC (`MONTHLY_REPORT_DAY`, `MONTHLY_REPORT_HOUR_UTC`).
@@ -195,8 +196,12 @@ With Mailpit running, everything Watchly can send is one click away:
 Slack and Telegram work the same way, per project: give a project a bot token
 and channel (or chat) and the same messages appear there. A single site can also
 get its own from the **Slack alerts (optional)** or **Telegram alerts
-(optional)** section of its form. Switch any kind off for a project, on any
-channel, from the project's **Notifications** section.
+(optional)** section of its form. WhatsApp is set up on the project too — an
+access token, the sending number's Phone number ID and the numbers to alert —
+and a site can alert numbers of its own; it needs an approved message template
+first (see [the websites README](../app/monitoring/websites/README.md#whatsapp)).
+Switch any kind off for a project, on any channel, from the project's
+**Notifications** section.
 
 ---
 
@@ -343,8 +348,8 @@ default). If you are signed out sooner:
   looks like theft. Scripts that call `/auth/refresh` must not run in parallel.
 
 Changing `SECRET_KEY` invalidates access tokens but not sessions. It also makes
-stored Slack and Telegram bot tokens unreadable unless `SLACK_TOKEN_ENCRYPTION_KEY` is set
-separately.
+stored Slack, Telegram and WhatsApp tokens unreadable unless
+`SLACK_TOKEN_ENCRYPTION_KEY` is set separately.
 
 **Sites go down and nobody gets an email**
 

@@ -66,6 +66,7 @@ class NotificationSetting(Base, TimestampMixin):
     email_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     slack_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     telegram_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    whatsapp_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     #: Template text with `{{placeholders}}`; see `catalog.py` for the names.
     subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
     body: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -2097,6 +2097,26 @@ textarea {
   color: #168acd;
 }
 
+/* A rough WhatsApp message, in WhatsApp's own light colours like the previews
+   above. */
+.whatsapp-preview {
+  padding: 16px;
+  background: #efeae2;
+  border-radius: 8px;
+}
+.wa-bubble {
+  max-width: 560px;
+  padding: 7px 10px 9px;
+  background: #ffffff;
+  color: #111b21;
+  border-radius: 4px 12px 12px 12px;
+  box-shadow: 0 1px 1px rgba(11, 20, 26, 0.13);
+  font-size: 0.93rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 640px) {
   .sp-fields {
     grid-template-columns: 1fr;

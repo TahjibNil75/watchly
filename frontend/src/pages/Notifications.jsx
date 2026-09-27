@@ -12,7 +12,7 @@ export default function Notifications() {
     <>
       <PageHeader
         title="Notifications"
-        subtitle="The emails, Slack and Telegram messages Watchly sends, and the defaults every project inherits."
+        subtitle="The emails, Slack, Telegram and WhatsApp messages Watchly sends, and the defaults every project inherits."
       />
       <div className="banner banner-info">
         Changes here apply to every project that has not set its own. A project can override any of

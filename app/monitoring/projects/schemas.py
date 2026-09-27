@@ -130,6 +130,100 @@ class TelegramSettings(BaseModel):
         return chat
 
 
+#: A Meta access token: a long run of letters and digits, usually `EAA…`.
+_WHATSAPP_TOKEN = re.compile(r"[A-Za-z0-9_-]{20,}")
+#: Country code and number, 7 to 15 digits in all (E.164).
+_PHONE = re.compile(r"\+[1-9]\d{6,14}")
+#: What people write a number with, besides its digits.
+_PHONE_PUNCTUATION = re.compile(r"[\s().-]")
+#: Each number costs one API call per alert, made one after the other.
+MAX_WHATSAPP_RECIPIENTS = 10
+
+
+def phone_numbers(numbers: list[str] | None) -> list[str] | None:
+    """`["+880 1712-345678", "008801712345678"]` -> `["+8801712345678"]`:
+    each number normalized to `+` and digits, duplicates dropped."""
+    if numbers is None:
+        return None
+    normalized: dict[str, None] = {}
+    for raw in numbers:
+        number = _PHONE_PUNCTUATION.sub("", raw)
+        if number.startswith("00"):
+            number = "+" + number[2:]
+        if not _PHONE.fullmatch(number):
+            raise ValueError(
+                f"{raw!r} is not a phone number with its country code — write it "
+                "like +8801712345678"
+            )
+        normalized.setdefault(number, None)
+    return list(normalized)
+
+
+class WhatsAppSettings(BaseModel):
+    """Write-only WhatsApp configuration. Shared by create and update."""
+
+    whatsapp_access_token: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=1024,
+        description=(
+            "Meta access token of a system user with the "
+            "`whatsapp_business_messaging` permission (`EAA…`). Stored encrypted "
+            "and never returned. Send null to remove WhatsApp."
+        ),
+    )
+    whatsapp_phone_number_id: str | None = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "The Phone number ID that WhatsApp Manager → API setup shows for the "
+            "business number that sends — not the phone number itself."
+        ),
+    )
+    whatsapp_recipients: list[str] | None = Field(
+        default=None,
+        max_length=MAX_WHATSAPP_RECIPIENTS,
+        description=(
+            "Numbers to alert, with country code, such as `+8801712345678`. "
+            "Replaces the whole list; send null or [] to remove WhatsApp."
+        ),
+    )
+    whatsapp_enabled: bool | None = Field(
+        default=None, description="Mute WhatsApp without discarding the settings."
+    )
+
+    @field_validator("whatsapp_access_token")
+    @classmethod
+    def looks_like_an_access_token(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        token = value.strip().removeprefix("Bearer ").strip()
+        if not _WHATSAPP_TOKEN.fullmatch(token):
+            raise ValueError(
+                "expected the access token Meta gave you, usually starting 'EAA' — "
+                "not the app secret, a phone number or a URL"
+            )
+        return token
+
+    @field_validator("whatsapp_phone_number_id")
+    @classmethod
+    def looks_like_a_phone_number_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        number_id = value.strip()
+        if not number_id.isdigit():
+            raise ValueError(
+                "use the Phone number ID from WhatsApp Manager → API setup, all "
+                "digits — not the phone number itself"
+            )
+        return number_id
+
+    @field_validator("whatsapp_recipients")
+    @classmethod
+    def looks_like_phone_numbers(cls, value: list[str] | None) -> list[str] | None:
+        return phone_numbers(value)
+
+
 def check_alert_channels(
     *,
     has_email: bool,
@@ -137,6 +231,9 @@ def check_alert_channels(
     slack_channel: str | None,
     telegram_token: str | None,
     telegram_chat: str | None,
+    whatsapp_token: str | None,
+    whatsapp_phone_number_id: str | None,
+    whatsapp_recipients: list[str] | None,
 ) -> None:
     """A project must be able to tell someone when a site goes down.
 
@@ -153,12 +250,20 @@ def check_alert_channels(
             "telegram_bot_token and telegram_chat_id must be set together — "
             "one without the other cannot deliver anything"
         )
-    if not (has_email or slack_token or telegram_token):
+    whatsapp = (whatsapp_token, whatsapp_phone_number_id, whatsapp_recipients)
+    if any(whatsapp) and not all(whatsapp):
+        raise ValueError(
+            "whatsapp_access_token, whatsapp_phone_number_id and "
+            "whatsapp_recipients must be set together — a sender with nobody to "
+            "send to, or numbers with no sender, cannot deliver anything"
+        )
+    if not (has_email or slack_token or telegram_token or whatsapp_token):
         raise ValueError(
             "choose at least one way to be alerted: add member_ids or "
             "extra_emails for email, slack_bot_token with slack_channel_id for "
-            "Slack, and/or telegram_bot_token with telegram_chat_id for "
-            "Telegram. Any combination is fine."
+            "Slack, telegram_bot_token with telegram_chat_id for Telegram, "
+            "and/or whatsapp_access_token with whatsapp_phone_number_id and "
+            "whatsapp_recipients for WhatsApp. Any combination is fine."
         )
 
 
@@ -176,7 +281,7 @@ class ProjectBase(BaseModel):
     )
 
 
-class ProjectCreate(ProjectBase, SlackSettings, TelegramSettings):
+class ProjectCreate(ProjectBase, SlackSettings, TelegramSettings, WhatsAppSettings):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -188,6 +293,9 @@ class ProjectCreate(ProjectBase, SlackSettings, TelegramSettings):
                 "slack_channel_id": "C0123456789",
                 "telegram_bot_token": "123456789:AAH-your-bot-token-from-botfather",
                 "telegram_chat_id": "-1001234567890",
+                "whatsapp_access_token": "EAA-your-system-user-access-token",
+                "whatsapp_phone_number_id": "106540352242922",
+                "whatsapp_recipients": ["+8801712345678"],
             }
         }
     )
@@ -205,11 +313,14 @@ class ProjectCreate(ProjectBase, SlackSettings, TelegramSettings):
             slack_channel=self.slack_channel_id,
             telegram_token=self.telegram_bot_token,
             telegram_chat=self.telegram_chat_id,
+            whatsapp_token=self.whatsapp_access_token,
+            whatsapp_phone_number_id=self.whatsapp_phone_number_id,
+            whatsapp_recipients=self.whatsapp_recipients,
         )
         return self
 
 
-class ProjectUpdate(SlackSettings, TelegramSettings):
+class ProjectUpdate(SlackSettings, TelegramSettings, WhatsAppSettings):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     is_active: bool | None = None
@@ -244,7 +355,7 @@ class ProjectRead(ProjectBase):
         default_factory=list,
         description=(
             "Configured channels, e.g. `[\"email\"]` or "
-            "`[\"email\",\"slack\",\"telegram\"]`."
+            "`[\"email\",\"slack\",\"telegram\",\"whatsapp\"]`."
         ),
     )
     slack_token_hint: str | None = Field(
@@ -259,6 +370,16 @@ class ProjectRead(ProjectBase):
     telegram_token_hint: str | None = Field(
         default=None,
         description="Masked stored token, e.g. `123456789:…wxyz`.",
+    )
+    whatsapp_phone_number_id: str | None = None
+    whatsapp_recipients: list[str] = Field(default_factory=list)
+    whatsapp_enabled: bool = True
+    whatsapp_configured: bool = Field(
+        default=False,
+        description="True when a token, phone number id and numbers are all stored and enabled.",
+    )
+    whatsapp_token_hint: str | None = Field(
+        default=None, description="Masked stored token, e.g. `EAA…wxyz`."
     )
     created_at: datetime
     updated_at: datetime

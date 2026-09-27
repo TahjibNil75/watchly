@@ -126,6 +126,22 @@ class TelegramTarget:
 
 
 @dataclass(frozen=True, slots=True)
+class WhatsAppTarget:
+    """Who one alert should be sent to in WhatsApp, and from which business
+    number, resolved at raise time.
+
+    The token is already decrypted here. It never reaches an API response and
+    should not be logged.
+    """
+
+    access_token: str
+    #: Meta's id for the business number that sends — not the number itself.
+    phone_number_id: str
+    #: Numbers with country code, e.g. `+8801712345678`. Each gets its own copy.
+    recipients: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class WebsiteSnapshot:
     """The website's state at the moment an alert fired.
 
@@ -209,7 +225,8 @@ class Message:
     the built-in design and facts. `body` is plain text for email; `slack_body`
     is the same template with Slack's reserved characters escaped in the
     substituted values only, so an author's own `<!channel>` still works.
-    Telegram shows `body` as plain text, escaping all of it.
+    Telegram shows `body` as plain text, escaping all of it, and WhatsApp as
+    plain text too.
     """
 
     kind: NotificationKind
@@ -247,6 +264,8 @@ class Notification(abc.ABC):
     #: Set by the Telegram alerter once its message lands: its `message_id`,
     #: which later alerts pass as `reply_to`.
     telegram_message_id: int | None = None
+    #: None when the project has no WhatsApp configured.
+    whatsapp: WhatsAppTarget | None
 
     @abc.abstractmethod
     def describe(self) -> str:
@@ -268,16 +287,17 @@ class Notification(abc.ABC):
 class Alerter(abc.ABC):
     """A delivery channel. Implementations must not raise on delivery failure."""
 
-    #: Matches the per-kind toggle (`email`, `slack`, `telegram`). A channel
-    #: with no toggle, like the webhook, is never switched off per project.
+    #: Matches the per-kind toggle (`email`, `slack`, `telegram`, `whatsapp`).
+    #: A channel with no toggle, like the webhook, is never switched off per
+    #: project.
     name: str = "alerter"
 
     @abc.abstractmethod
     async def is_configured(self, event: Notification) -> bool:
         """Whether this channel can attempt a send for *this* event.
 
-        Takes the event because configuration is not always global — Slack
-        and Telegram are resolved per project.
+        Takes the event because configuration is not always global — Slack,
+        Telegram and WhatsApp are resolved per project.
         """
 
     @abc.abstractmethod

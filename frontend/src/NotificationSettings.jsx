@@ -3,7 +3,14 @@ import { api } from './api.js'
 import { ErrorBanner, Loading } from './components.jsx'
 import { useApi } from './useApi.js'
 
-const FIELDS = ['email_enabled', 'slack_enabled', 'telegram_enabled', 'subject', 'body']
+const FIELDS = [
+  'email_enabled',
+  'slack_enabled',
+  'telegram_enabled',
+  'whatsapp_enabled',
+  'subject',
+  'body',
+]
 
 const pickDraft = (setting) => Object.fromEntries(FIELDS.map((f) => [f, setting[f]]))
 
@@ -212,10 +219,37 @@ function TelegramPreview({ html }) {
 }
 
 // ---------------------------------------------------------------------------
+// WhatsApp preview: the text as sent, with WhatsApp's *bold* and _italic_ —
+// which, as in WhatsApp, only count at the edges of words.
+// ---------------------------------------------------------------------------
+
+const WA_FORMAT = /((?<![\w*])\*[^*\n]+\*(?![\w*])|(?<!\w)_[^_\n]+_(?!\w))/
+
+function WhatsAppPreview({ text }) {
+  // split() with a capturing group puts each match at an odd index.
+  const parts = text.split(WA_FORMAT)
+  return (
+    <div className="whatsapp-preview">
+      <div className="wa-bubble">
+        {parts.map((part, i) =>
+          i % 2 === 0 ? (
+            part
+          ) : part[0] === '*' ? (
+            <strong key={i}>{part.slice(1, -1)}</strong>
+          ) : (
+            <em key={i}>{part.slice(1, -1)}</em>
+          ),
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Live preview, rendered by the API exactly as it would be sent.
 // ---------------------------------------------------------------------------
 
-const TAB_LABELS = { email: 'Email', slack: 'Slack', telegram: 'Telegram' }
+const TAB_LABELS = { email: 'Email', slack: 'Slack', telegram: 'Telegram', whatsapp: 'WhatsApp' }
 
 function Preview({ kind, subject, body }) {
   const [tab, setTab] = useState('email')
@@ -246,7 +280,7 @@ function Preview({ kind, subject, body }) {
   return (
     <div className="preview">
       <div className="tabs" role="tablist">
-        {['email', 'slack', 'telegram'].map((name) => (
+        {Object.keys(TAB_LABELS).map((name) => (
           <button
             key={name}
             type="button"
@@ -277,8 +311,10 @@ function Preview({ kind, subject, body }) {
         </>
       ) : tab === 'slack' ? (
         <SlackPreview blocks={data.slack_blocks} />
-      ) : (
+      ) : tab === 'telegram' ? (
         <TelegramPreview html={data.telegram_html} />
+      ) : (
+        <WhatsAppPreview text={data.whatsapp_text} />
       )}
     </div>
   )
@@ -373,6 +409,7 @@ function KindEditor({ setting, scope, canEdit, channels, onSave, onReset }) {
           {toggle('email_enabled', 'Email', 'email')}
           {toggle('slack_enabled', 'Slack', 'slack')}
           {toggle('telegram_enabled', 'Telegram', 'telegram')}
+          {toggle('whatsapp_enabled', 'WhatsApp', 'whatsapp')}
         </div>
       </div>
 
@@ -413,7 +450,7 @@ function KindEditor({ setting, scope, canEdit, channels, onSave, onReset }) {
           <span className="muted small">
             {SOURCE_HINT[setting.sources.body]}. Plain text; line breaks are kept. In Slack,{' '}
             <code>*bold*</code> and mentions like <code>&lt;!channel&gt;</code> work; Telegram
-            shows it as written.
+            shows it as written, and WhatsApp on a single line.
           </span>
         </label>
 

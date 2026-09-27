@@ -242,8 +242,8 @@ class Website(Base, TimestampMixin):
         ARRAY(String(255)), default=list, server_default=text("'{}'"), nullable=False
     )
     #: Also email the project's members and extra_emails. Off means only this
-    #: site's own recipients hear about it. Slack and Telegram are unaffected
-    #: either way.
+    #: site's own recipients hear about it. Slack, Telegram and WhatsApp are
+    #: unaffected either way.
     inherit_project_recipients: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
@@ -260,6 +260,11 @@ class Website(Base, TimestampMixin):
     #: The site's own Telegram bot token, encrypted at rest. Always paired with
     #: the site's own chat, like its Slack token.
     telegram_bot_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: WhatsApp this site's alerts to these numbers instead of the project's,
+    #: still from the project's business number. Empty uses the project's.
+    whatsapp_recipients: Mapped[list[str]] = mapped_column(
+        ARRAY(String(16)), default=list, server_default=text("'{}'"), nullable=False
+    )
 
     # --- live state -------------------------------------------------------
     status: Mapped[WebsiteStatus] = mapped_column(
@@ -408,6 +413,15 @@ class Website(Base, TimestampMixin):
         return mask_secret(decrypt_secret(self.telegram_bot_token))
 
     @property
+    def has_whatsapp_alerting(self) -> bool:
+        """The project has a sender, and there are numbers to send to, the
+        site's or else the project's. The mute switch does not count here."""
+        project = self.project
+        if not (project.whatsapp_access_token and project.whatsapp_phone_number_id):
+            return False
+        return bool(self.whatsapp_recipients or project.whatsapp_recipients)
+
+    @property
     def alert_channels(self) -> list[str]:
         """Which channels reach this site's alerts."""
         channels = []
@@ -417,6 +431,8 @@ class Website(Base, TimestampMixin):
             channels.append("slack")
         if self.has_telegram_alerting:
             channels.append("telegram")
+        if self.has_whatsapp_alerting:
+            channels.append("whatsapp")
         return channels
 
     def __repr__(self) -> str:

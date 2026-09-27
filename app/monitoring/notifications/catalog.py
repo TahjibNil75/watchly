@@ -97,8 +97,8 @@ CATALOG: dict[NotificationKind, KindInfo] = {
             label="Site down",
             description="The first failed check of an outage.",
             audience="The website’s recipients (project members and extra emails, site "
-            "recipients), and the Slack channel and Telegram chat of the site or its "
-            "project.",
+            "recipients), and the Slack channel, Telegram chat and WhatsApp numbers of "
+            "the site or its project.",
             default_subject="[DOWN] {{project}} / {{website}} is not responding",
             default_body="{{website}} did not respond as expected: {{summary}}",
             placeholders=_OUTAGE,
@@ -186,7 +186,7 @@ CATALOG: dict[NotificationKind, KindInfo] = {
             description="How every site in the project did last month: uptime, downtime, "
             "incidents and response time.",
             audience="The project’s members and extra emails, ALERT_DEFAULT_EMAILS, and "
-            "the project’s Slack channel and Telegram chat.",
+            "the project’s Slack channel, Telegram chat and WhatsApp numbers.",
             default_subject="{{project}}: {{month}} uptime report ({{average_uptime}})",
             default_body=(
                 "Here is how {{sites}} in {{project}} performed in {{month}}: "

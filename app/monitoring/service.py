@@ -15,7 +15,7 @@ each stating the cumulative downtime, then silence until recovery.
 In Slack an outage is one thread: the down alert starts it, the follow-ups
 reply under it, and the recovery replies too while also showing in the channel.
 In Telegram it is a reply chain the same way: the follow-ups and the recovery
-reply to the down alert.
+reply to the down alert. WhatsApp has no threads; each alert is its own message.
 
 Softer signals ride on the same checks, none of which is an outage:
 
@@ -52,6 +52,7 @@ from app.monitoring.alerts.base import (
     SlackTarget,
     TelegramTarget,
     WebsiteSnapshot,
+    WhatsAppTarget,
 )
 from app.monitoring.alerts.events import (
     DnsChangeEvent,
@@ -66,6 +67,7 @@ from app.monitoring.notifications.recipients import (
     dedupe_emails,
     slack_target,
     telegram_target,
+    whatsapp_target,
 )
 from app.monitoring.websites.checker import CheckResult, check_website, new_client
 from app.monitoring.websites.models import (
@@ -191,6 +193,10 @@ class MonitoringService:
         return telegram_target(
             website.project, website.telegram_chat_id, website.telegram_bot_token
         )
+
+    def whatsapp_target_for(self, website: Website) -> WhatsAppTarget | None:
+        """The numbers this site's alerts go to, with the token decrypted."""
+        return whatsapp_target(website.project, website.whatsapp_recipients)
 
     # -- alert dispatch ----------------------------------------------------
 
@@ -336,6 +342,7 @@ class MonitoringService:
             recipients=self.recipients_for(website),
             slack=self._outage_slack_target(website, kind),
             telegram=self._outage_telegram_target(website),
+            whatsapp=self.whatsapp_target_for(website),
         )
 
     def _outage_slack_target(
@@ -450,6 +457,7 @@ class MonitoringService:
                 recipients=self.recipients_for(website),
                 slack=self.slack_target_for(website),
                 telegram=self.telegram_target_for(website),
+                whatsapp=self.whatsapp_target_for(website),
             )
         )
 
@@ -493,6 +501,7 @@ class MonitoringService:
                 recipients=self.recipients_for(website),
                 slack=self.slack_target_for(website),
                 telegram=self.telegram_target_for(website),
+                whatsapp=self.whatsapp_target_for(website),
             )
         )
 
@@ -527,6 +536,7 @@ class MonitoringService:
                 recipients=self.recipients_for(website),
                 slack=self.slack_target_for(website),
                 telegram=self.telegram_target_for(website),
+                whatsapp=self.whatsapp_target_for(website),
             )
         )
 
@@ -569,6 +579,7 @@ class MonitoringService:
                     recipients=self.recipients_for(website),
                     slack=self.slack_target_for(website),
                     telegram=self.telegram_target_for(website),
+                    whatsapp=self.whatsapp_target_for(website),
                 )
             )
 

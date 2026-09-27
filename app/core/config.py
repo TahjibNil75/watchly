@@ -106,8 +106,9 @@ class Settings(BaseSettings):
     SLACK_WEBHOOK_URL: str = ""
     SLACK_API_URL: str = "https://slack.com/api/chat.postMessage"
     SLACK_TIMEOUT_SECONDS: int = 10
-    #: Encrypts stored Slack and Telegram bot tokens. Falls back to SECRET_KEY
-    #: when unset; changing either makes existing stored tokens unreadable.
+    #: Encrypts stored Slack, Telegram and WhatsApp tokens. Falls back to
+    #: SECRET_KEY when unset; changing either makes existing stored tokens
+    #: unreadable.
     SLACK_TOKEN_ENCRYPTION_KEY: str = ""
 
     # Telegram. Like Slack, bot token and chat are configured per project (and
@@ -117,6 +118,24 @@ class Settings(BaseSettings):
     TELEGRAM_CHAT_ID: str = ""
     TELEGRAM_API_URL: str = "https://api.telegram.org"
     TELEGRAM_TIMEOUT_SECONDS: int = 10
+
+    # WhatsApp, through Meta's WhatsApp Cloud API. Like Slack and Telegram,
+    # the sender (access token and phone number id) and the numbers to alert
+    # are configured per project through the API; these three together are an
+    # optional firehose fallback for projects that have no WhatsApp of their own.
+    WHATSAPP_ACCESS_TOKEN: str = ""
+    WHATSAPP_PHONE_NUMBER_ID: str = ""
+    #: NoDecode: see ALERT_DEFAULT_EMAILS.
+    WHATSAPP_RECIPIENTS: Annotated[list[str], NoDecode] = []
+    #: WhatsApp only delivers a pre-approved template to someone who has not
+    #: written to the business in the last 24 hours, so alerts are sent as this
+    #: one — see app/monitoring/alerts/whatsapp.py for the text to create it
+    #: with. Blank sends free-form text instead, which only reaches people
+    #: inside that window: fine for a trial, not for real alerting.
+    WHATSAPP_TEMPLATE_NAME: str = "watchly_alert"
+    WHATSAPP_TEMPLATE_LANGUAGE: str = "en"
+    WHATSAPP_API_URL: str = "https://graph.facebook.com/v25.0"
+    WHATSAPP_TIMEOUT_SECONDS: int = 10
 
     ALERT_WEBHOOK_URL: str = ""
 
@@ -170,10 +189,10 @@ class Settings(BaseSettings):
     MONTHLY_REPORT_DAY: int = Field(default=1, ge=1, le=28)
     MONTHLY_REPORT_HOUR_UTC: int = Field(default=6, ge=0, le=23)
 
-    @field_validator("ALERT_DEFAULT_EMAILS", mode="before")
+    @field_validator("ALERT_DEFAULT_EMAILS", "WHATSAPP_RECIPIENTS", mode="before")
     @classmethod
     def _split_emails(cls, value: object) -> object:
-        """Accept `a@b.com,c@d.com` as well as a JSON list."""
+        """Accept `a@b.com,c@d.com` (or `+8801…,+4478…`) as well as a JSON list."""
         if isinstance(value, str):
             if value.strip().startswith("["):
                 return json.loads(value)

@@ -20,9 +20,9 @@ from app.monitoring.notifications.templating import (
     unknown_placeholders,
 )
 
-FIELDS = ("email_enabled", "slack_enabled", "telegram_enabled", "subject", "body")
 #: The per-channel switches among FIELDS.
-SWITCHES = ("email_enabled", "slack_enabled", "telegram_enabled")
+SWITCHES = ("email_enabled", "slack_enabled", "telegram_enabled", "whatsapp_enabled")
+FIELDS = (*SWITCHES, "subject", "body")
 
 
 class NotificationSettingsError(Exception):
@@ -60,6 +60,7 @@ class EffectiveSetting:
     email_enabled: bool
     slack_enabled: bool
     telegram_enabled: bool
+    whatsapp_enabled: bool
     subject: str
     body: str
     #: Per field: `project`, `global` or `default` — where the value came from.
@@ -80,6 +81,7 @@ def default_setting(kind: NotificationKind) -> EffectiveSetting:
         email_enabled=True,
         slack_enabled=True,
         telegram_enabled=True,
+        whatsapp_enabled=True,
         subject=info.default_subject,
         body=info.default_body,
         sources=dict.fromkeys(FIELDS, "default"),
@@ -126,6 +128,7 @@ def _merge(
         email_enabled=values["email_enabled"],
         slack_enabled=values["slack_enabled"],
         telegram_enabled=values["telegram_enabled"],
+        whatsapp_enabled=values["whatsapp_enabled"],
         subject=values["subject"],
         body=values["body"],
         sources=sources,
@@ -210,6 +213,7 @@ class NotificationSettingsService:
         email_enabled: bool | None,
         slack_enabled: bool | None,
         telegram_enabled: bool | None,
+        whatsapp_enabled: bool | None,
         subject: str | None,
         body: str | None,
         actor_id: int | None,
@@ -220,6 +224,7 @@ class NotificationSettingsService:
             "email_enabled": email_enabled,
             "slack_enabled": slack_enabled,
             "telegram_enabled": telegram_enabled,
+            "whatsapp_enabled": whatsapp_enabled,
             "subject": self.normalize_template(kind, "subject", subject),
             "body": self.normalize_template(kind, "body", body),
         }
@@ -255,6 +260,7 @@ class NotificationSettingsService:
             email_enabled=None,
             slack_enabled=None,
             telegram_enabled=None,
+            whatsapp_enabled=None,
             subject=None,
             body=None,
             actor_id=None,
