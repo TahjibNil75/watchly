@@ -79,7 +79,7 @@ watchly-web        Up 14 seconds
 
 ```bash
 curl http://localhost:8080/health
-# {"status":"ok","monitoring":"on"}
+# {"status":"ok","version":"1.0.0","monitoring":"on"}
 ```
 
 ### 5. Create the admin account

@@ -246,6 +246,18 @@ docker compose down                 # stop everything
 docker compose down -v              # stop and delete the database
 ```
 
+## Upgrading
+
+Check the [changelog](CHANGELOG.md) for what changed, then:
+
+```bash
+docker compose exec db pg_dump -U postgres watchly > watchly-backup.sql   # back up first
+git pull                          # or check out a release: git checkout v1.0.0
+docker compose up -d --build
+```
+
+The API migrates the database on start, so there is nothing else to run.
+
 ## Development
 
 To run the API and UI with hot reload (Python 3.14 and Node.js 20.19+):
@@ -275,16 +287,15 @@ See [`doc/local-setup.md`](doc/local-setup.md) for a full walkthrough and troubl
 | [`doc/hld.md`](doc/hld.md) | High-level design: architecture, data model, key flows |
 | [`doc/apis.md`](doc/apis.md) | Every API endpoint with a short description |
 | [`frontend/README.md`](frontend/README.md) | The web UI |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed in each release |
 
 ## Contributing
 
-Contributions are welcome.
-
-1. Fork the repository and create a branch: `git checkout -b feature/my-feature`
-2. Make your changes. If you change the database models, add a migration with `alembic revision --autogenerate -m "..."`
-3. Commit and push, then open a pull request describing what changed and why
-
-For bugs and feature requests, please [open an issue](https://github.com/TahjibNil75/watchly/issues).
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for setting
+up, making a change and opening a pull request. For bugs and feature requests,
+[open an issue](https://github.com/TahjibNil75/watchly/issues/new/choose). Please
+report security problems privately, as [SECURITY.md](SECURITY.md) describes.
+Everyone taking part is expected to follow the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

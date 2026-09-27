@@ -1,0 +1,40 @@
+name: Release
+
+# Pushing a version tag (v1.2.0, or v1.2.0-rc.1 for a pre-release) publishes a
+# GitHub release whose notes are that version's CHANGELOG.md section. See
+# "Releasing" in CONTRIBUTING.md.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish the release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag matches the version in the code
+        id: version
+        run: echo "version=$(.github/scripts/check-version.sh "$GITHUB_REF_NAME")" >> "$GITHUB_OUTPUT"
+
+      - name: Take the release notes from the changelog
+        run: .github/scripts/release-notes.sh "${{ steps.version.outputs.version }}" > notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A version with a suffix, like 1.2.0-rc.1, is a pre-release.
+          case "$GITHUB_REF_NAME" in
+            *-*) prerelease=--prerelease ;;
+            *) prerelease= ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Watchly $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --verify-tag \
+            $prerelease

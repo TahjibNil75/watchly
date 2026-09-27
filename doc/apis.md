@@ -74,7 +74,7 @@ together, see [`hld.md`](hld.md).
 | 47 | `DELETE` | `/monitoring/projects/{project_id}/notifications/{kind}` | Remove a project's override so it inherits again. |
 | 48 | `GET` | `/monitoring/projects/{project_id}/report.csv` | Download a monthly uptime report as CSV, one row per site — for anyone who can see the project. |
 | 49 | `POST` | `/monitoring/projects/{project_id}/report` | Send a monthly uptime report now instead of waiting for the 1st. |
-| 50 | `GET` | `/health` | Liveness check; also reports whether the monitoring loop is running. |
+| 50 | `GET` | `/health` | Liveness check; also reports the running version and whether the monitoring loop is running. |
 
 ---
 
@@ -669,7 +669,8 @@ Does not stop the scheduled report.
 ## Health
 
 ### `GET /health`
-Public liveness check. Returns `{"status": "ok", "monitoring": "on"|"off"}`.
+Public liveness check. Returns `{"status": "ok", "version": "1.0.0", "monitoring": "on"|"off"}`,
+`version` being the running release.
 `200`
 
 ---

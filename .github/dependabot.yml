@@ -1,0 +1,38 @@
+# Monthly pull requests keeping dependencies current, one per ecosystem.
+# Security updates, once switched on under Settings → Code security, arrive as
+# soon as an advisory is published, whatever this schedule says.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      python:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: monthly
+    groups:
+      frontend:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: docker
+    directories: ["/", "/frontend"]
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"

@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest something Watchly should do.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would it solve?
+      description: What are you trying to do, and what gets in the way today?
+      placeholder: Our team deploys several times a day, and every deploy pages everyone…
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything else you've considered?
+      description: Workarounds you use now, or how other tools handle it.

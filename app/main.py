@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app import __version__
 from app.auth.routes import router as auth_router
 from app.core.config import settings
 from app.core.handlers import register_exception_handlers
@@ -37,6 +38,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
+    version=__version__,
     debug=settings.DEBUG,
     lifespan=lifespan,
 )
@@ -51,4 +53,8 @@ app.include_router(monitoring_router, prefix=settings.API_V1_PREFIX)
 
 @app.get("/health", tags=["health"])
 async def health() -> dict[str, str]:
-    return {"status": "ok", "monitoring": "on" if scheduler.is_running else "off"}
+    return {
+        "status": "ok",
+        "version": __version__,
+        "monitoring": "on" if scheduler.is_running else "off",
+    }
