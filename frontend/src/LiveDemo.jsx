@@ -1,12 +1,14 @@
 import { useEffect, useReducer } from 'react'
+import ChannelLogo from './ChannelLogo.jsx'
+import { CHANNELS } from './channels.js'
 import { EnvironmentBadge, StatusBadge } from './components.jsx'
 import { duration } from './format.js'
 import { useMediaQuery } from './useMediaQuery.js'
 
 // A status board that plays out what Watchly does: checks landing, an outage
-// and its recovery, a slow site, an SSL reminder. Shown beside the sign-in
-// form and on the landing page. Its sites and alerts are made up, so screen
-// readers skip it.
+// and its recovery, a slow site, an SSL reminder, and each alert lighting up
+// the channels it went out on. Shown beside the sign-in form and on the
+// landing page. Its sites and alerts are made up, so screen readers skip it.
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 
@@ -21,12 +23,42 @@ const SLOW_MS = 1500
 const TOAST_TICKS = 7
 
 // `offset` shifts a site's script so its first event lands a few seconds in
-// and the alerts take turns rather than piling up.
+// and the alerts take turns rather than piling up. `channels` are its
+// project's; the webhook takes every alert, as it does for real.
 const SITES = [
-  { host: 'shop.example.com', environment: 'production', ms: 210, script: 'slow', offset: 13 },
-  { host: 'api.example.com', environment: 'production', ms: 130, script: 'outage', offset: 9 },
-  { host: 'docs.example.com', environment: 'staging', ms: 95, script: 'ssl', offset: 5 },
+  {
+    host: 'shop.example.com',
+    environment: 'production',
+    ms: 210,
+    script: 'slow',
+    offset: 13,
+    channels: ['email', 'telegram', 'webhook'],
+  },
+  {
+    host: 'api.example.com',
+    environment: 'production',
+    ms: 130,
+    script: 'outage',
+    offset: 9,
+    channels: ['slack', 'whatsapp', 'webhook'],
+  },
+  {
+    host: 'docs.example.com',
+    environment: 'staging',
+    ms: 95,
+    script: 'ssl',
+    offset: 5,
+    channels: ['email', 'slack', 'webhook'],
+  },
 ]
+
+// "email, Telegram and webhook": only the brands keep their capitals.
+function listChannels(ids) {
+  const names = ids.map((id) =>
+    id === 'email' || id === 'webhook' ? id : CHANNELS.find((c) => c.id === id).name,
+  )
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]
+}
 
 // Stable pseudo-random in [0, 1), so the reducer stays pure.
 function noise(n) {
@@ -52,34 +84,35 @@ function simulate(site, index, n, history) {
   const ms = slow ? 2200 + Math.round(noise(n) * 500) : jitter(site, index, n)
   const check = { n, up, ms: up ? ms : null }
 
-  const { host } = site
+  const { host, channels } = site
+  const via = `via ${listChannels(channels)}`
   let alert = null
   if (prev.up && !up) {
     alert = {
       tone: 'down',
       title: `${host} is down`,
-      detail: 'HTTP 503 · Slack alert sent to #ops',
+      detail: `HTTP 503 · ${via}`,
     }
   } else if (!prev.up && up) {
     alert = {
       tone: 'up',
       title: `${host} is back up`,
-      detail: `Down for ${duration(trailingDown(history) * CHECK_EVERY_S)} · all-clear sent`,
+      detail: `Down for ${duration(trailingDown(history) * CHECK_EVERY_S)} · all-clear ${via}`,
     }
   } else if (ms >= SLOW_MS && prev.ms >= SLOW_MS) {
     alert = {
       tone: 'pending',
       title: `${host} is responding slowly`,
-      detail: `${(ms / 1000).toFixed(1)} s, over its ${SLOW_MS / 1000} s threshold · team emailed`,
+      detail: `${(ms / 1000).toFixed(1)} s, over its ${SLOW_MS / 1000} s threshold · ${via}`,
     }
   } else if (site.script === 'ssl' && phase === 0) {
     alert = {
       tone: 'pending',
       title: `SSL certificate for ${host} expires in 14 days`,
-      detail: 'Reminder emailed to the project team',
+      detail: `Reminder ${via}`,
     }
   }
-  return { check, alert }
+  return { check, alert: alert && { ...alert, channels } }
 }
 
 function initialState() {
@@ -139,6 +172,36 @@ function LiveRow({ site, checks, order }) {
   )
 }
 
+// Every channel an alert can take; the ones the showing alert went out on
+// light up in turn, in its tone, and the rest fade back.
+function LiveChannels({ toast }) {
+  const sent = toast?.channels ?? []
+  return (
+    <div
+      className={sent.length ? `live-channels is-sending tone-${toast.tone}` : 'live-channels'}
+    >
+      <span className="live-channels-label">Alerts go out by</span>
+      <div className="live-channels-list">
+        {CHANNELS.map(({ id, name }) => {
+          const order = sent.indexOf(id)
+          const isSent = order !== -1
+          return (
+            // A lit one is keyed on the alert too, so it lights up again for the next.
+            <span
+              key={isSent ? `${id}-${toast.id}` : id}
+              className={isSent ? 'live-channel is-sent' : 'live-channel'}
+              style={isSent ? { '--order': order } : undefined}
+            >
+              <ChannelLogo channel={id} />
+              {name}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function LiveToast({ toast }) {
   return (
     <div
@@ -193,6 +256,7 @@ export default function LiveDemo() {
         {SITES.map((site, i) => (
           <LiveRow key={site.host} site={site} checks={history[i]} order={i} />
         ))}
+        <LiveChannels toast={showToast ? toast : null} />
       </div>
 
       <div className="live-toasts" aria-hidden="true">

@@ -11,7 +11,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[Features](#features) · [Quick start](#quick-start) · [Email alerts](#set-up-email-alerts-smtp) · [Configuration](#configuration) · [Docs](#documentation)
+[Features](#features) · [Alert channels](#alert-channels) · [Quick start](#quick-start) · [Email alerts](#set-up-email-alerts-smtp) · [Configuration](#configuration) · [Docs](#documentation)
 
 <br>
 
@@ -42,11 +42,54 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **Team management**: invite by email, role-based access (Admin, DevOps, Project Manager, Developer, Viewer), suspension, and invite-only mode
 - **Account security**: JWT sessions with refresh tokens, login lockout and password reset by email
 
+## Alert channels
+
+Each project alerts by any mix of email, Slack, Telegram and WhatsApp, and a
+site can add recipients of its own, like a client's inbox or a separate Slack
+channel. A webhook, if you set one, receives every alert from every project.
+
+<table>
+  <tr>
+    <td align="center" width="150">
+      <img src="doc/images/channels/email.svg" width="48" height="48" alt="Email"><br>
+      <a href="#set-up-email-alerts-smtp"><b>Email</b></a><br>
+      <sub>Any SMTP provider</sub>
+    </td>
+    <td align="center" width="150">
+      <img src="doc/images/channels/slack.svg" width="48" height="48" alt="Slack"><br>
+      <a href="app/monitoring/websites/README.md#slack"><b>Slack</b></a><br>
+      <sub>A bot per project, one thread per outage</sub>
+    </td>
+    <td align="center" width="150">
+      <img src="doc/images/channels/telegram.svg" width="48" height="48" alt="Telegram"><br>
+      <a href="app/monitoring/websites/README.md#telegram"><b>Telegram</b></a><br>
+      <sub>A bot per project, follow-ups as replies</sub>
+    </td>
+    <td align="center" width="150">
+      <img src="doc/images/channels/whatsapp.svg" width="48" height="48" alt="WhatsApp"><br>
+      <a href="app/monitoring/websites/README.md#whatsapp"><b>WhatsApp</b></a><br>
+      <sub>Meta's WhatsApp Cloud API</sub>
+    </td>
+    <td align="center" width="150">
+      <img src="doc/images/channels/webhook.svg" width="48" height="48" alt="Webhook"><br>
+      <a href="#configuration"><b>Webhook</b></a><br>
+      <sub>JSON for every alert, to one URL</sub>
+    </td>
+  </tr>
+</table>
+
+Down and recovery alerts, reminders while a site stays down, warnings (SSL
+expiry, slow responses, packet loss, DNS changes) and the monthly report all
+use these channels, and each kind can be switched off per channel under
+**Notifications**. Set Slack, Telegram and WhatsApp up on each project in the
+web app; their `.env` settings are only a fallback for projects without their
+own.
+
 ## Screenshots
 
 <p align="center">
   <img src="doc/images/features.png" alt="Website, server and DNS checks, and the alerting features" width="900">
-  <br><em>Website, server and DNS checks, with alerts by email, Slack and webhook</em>
+  <br><em>Website, server and DNS checks, with alerts by email, Slack, Telegram, WhatsApp and webhook</em>
 </p>
 
 <p align="center">
