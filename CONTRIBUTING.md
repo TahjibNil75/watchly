@@ -51,8 +51,11 @@ check becomes an alert.
 
    Keep `downgrade()` working: CI migrates all the way down and back up.
    Never edit a migration that has been released; add a new one.
-4. **Check the frontend**: `cd frontend && npm run lint && npm run build`.
-5. **Update the docs** your change touches, such as [`doc/apis.md`](doc/apis.md)
+4. **Run the backend tests**: `pip install -r requirements-dev.txt`, then
+   `pytest`. They need the `db` container running, and use a database of
+   their own, `watchly_test`, which they create and empty as they go.
+5. **Check the frontend**: `cd frontend && npm run lint && npm run build`.
+6. **Update the docs** your change touches, such as [`doc/apis.md`](doc/apis.md)
    for an endpoint, and add a line under **Unreleased** in
    [`CHANGELOG.md`](CHANGELOG.md) for anything a user would notice.
 

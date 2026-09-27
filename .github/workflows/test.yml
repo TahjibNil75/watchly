@@ -1,0 +1,57 @@
+name: Tests
+
+on:
+  push:
+    branches: [test]
+  pull_request:
+    branches: [test]
+
+permissions:
+  contents: read
+
+# A newer push to the branch makes an older run moot.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: watchly
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d watchly"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    # How to reach the server. tests/conftest.py pins everything else, and
+    # creates and migrates a watchly_test database of its own on it.
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run the tests
+        run: pytest -rxX
