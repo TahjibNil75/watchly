@@ -36,6 +36,7 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **Ping monitoring**: ICMP checks for hosts, including packet-loss alerts
 - **DNS monitoring**: query several public resolvers at once and alert when records change or drift from what you expect
 - **Early warnings**: SSL certificates about to expire, slow responses and packet loss, not just "down"
+- **Maintenance windows**: start one from a site's page for a deployment ("Start maintenance for 30 min" / "End now") or schedule one ahead; no checks or alerts until it ends
 - **Alerts where your team works**: email (any SMTP provider), Slack, Telegram, WhatsApp and generic webhooks
 - **Projects and recipients**: each project's members hear about all of its sites, and each site can add its own recipients
 - **Monthly uptime reports**: uptime, downtime and incidents per project, delivered automatically

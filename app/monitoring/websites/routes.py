@@ -19,6 +19,7 @@ from app.monitoring.websites.models import CheckType, WebsiteStatus
 from app.monitoring.websites.pinger import IcmpUnavailableError
 from app.monitoring.websites.schemas import (
     CheckNowResponse,
+    MaintenanceCreate,
     StatsFormat,
     StatsRange,
     WebsiteCheckRead,
@@ -36,6 +37,10 @@ from app.monitoring.websites.schemas import (
 from app.monitoring.websites.models import Website
 from app.monitoring.websites.service import (
     DuplicateWebsiteError,
+    MaintenanceError,
+    MaintenanceNotFoundError,
+    MaintenanceOverlapError,
+    MaintenanceStartedError,
     WebsiteContentRuleError,
     WebsiteNotAlertableError,
     WebsiteNotFoundError,
@@ -123,10 +128,17 @@ async def list_websites(
         None, max_length=200, description="Only sites whose name or URL contains this."
     ),
     sort: WebsiteSort = Query(
-        WebsiteSort.ID, description="`status` puts down sites first, then sorts by name."
+        WebsiteSort.ID,
+        description=(
+            "`status` puts down sites first (not those in maintenance), then sorts by name."
+        ),
     ),
     check_type: CheckType | None = Query(
         None, description="Only HTTP sites, only pinged hosts, or only DNS checks."
+    ),
+    in_maintenance: bool | None = Query(
+        None,
+        description="`true`: only sites in a maintenance window now; `false`: only the rest.",
     ),
     actor: User = Depends(get_current_user),
     service: WebsiteService = Depends(get_website_service),
@@ -147,6 +159,7 @@ async def list_websites(
         q=q,
         sort=sort,
         check_type=check_type,
+        in_maintenance=in_maintenance,
     )
     return WebsiteListResponse(
         items=[WebsiteRead.model_validate(s) for s in sites],
@@ -397,6 +410,93 @@ async def remove_recipient(
     return WebsiteRead.model_validate(website)
 
 
+@router.post(
+    "/{website_id}/maintenance",
+    response_model=WebsiteRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Start maintenance now, or schedule it",
+    responses={
+        **NOT_FOUND,
+        **NEEDS_MANAGER,
+        409: {"description": "Overlaps maintenance the site already has"},
+        422: {"description": "Ends before it starts, or in the past, or lasts over 7 days"},
+    },
+)
+async def schedule_maintenance(
+    payload: MaintenanceCreate,
+    website_id: int = Path(ge=1),
+    actor: User = Depends(require_project_creator),
+    service: WebsiteService = Depends(get_website_service),
+    projects: ProjectService = Depends(get_project_service),
+) -> WebsiteRead:
+    """For a deployment, say. While the window is in effect the site is not
+    checked, raises no alerts and loses no uptime; the first check after it
+    alerts as usual if the site is still down, and announces the recovery if
+    it was down before and is up now.
+
+    `{"duration_minutes": 30}` starts 30 minutes of it now. Send `starts_at`
+    and `ends_at` to schedule it ahead. Returns the site, with the window in
+    `maintenance` or `upcoming_maintenance`."""
+    await _get_for_write(service, projects, website_id, actor)
+    try:
+        website = await service.schedule_maintenance(
+            website_id, payload, created_by_id=actor.id
+        )
+    except MaintenanceOverlapError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except MaintenanceError as exc:
+        raise _unprocessable(exc) from exc
+    return WebsiteRead.model_validate(website)
+
+
+@router.post(
+    "/{website_id}/maintenance/end",
+    response_model=WebsiteRead,
+    summary="End maintenance now",
+    responses={**NOT_FOUND, **NEEDS_MANAGER},
+)
+async def end_maintenance(
+    website_id: int = Path(ge=1),
+    actor: User = Depends(require_project_creator),
+    service: WebsiteService = Depends(get_website_service),
+    projects: ProjectService = Depends(get_project_service),
+) -> WebsiteRead:
+    """Ends the window in effect now, and the site is checked again on the
+    next tick. Does nothing when no window is in effect, so a click that
+    lands just after it ran out is harmless."""
+    await _get_for_write(service, projects, website_id, actor)
+    return WebsiteRead.model_validate(await service.end_maintenance(website_id))
+
+
+@router.delete(
+    "/{website_id}/maintenance/{window_id}",
+    response_model=WebsiteRead,
+    summary="Cancel scheduled maintenance",
+    responses={
+        **NOT_FOUND,
+        **NEEDS_MANAGER,
+        409: {"description": "It has already started: end it instead"},
+    },
+)
+async def cancel_maintenance(
+    website_id: int = Path(ge=1),
+    window_id: int = Path(ge=1),
+    actor: User = Depends(require_project_creator),
+    service: WebsiteService = Depends(get_website_service),
+    projects: ProjectService = Depends(get_project_service),
+) -> WebsiteRead:
+    """Only for a window that has not started; end one that has with
+    `POST /maintenance/end`."""
+    await _get_for_write(service, projects, website_id, actor)
+    try:
+        website = await service.cancel_maintenance(website_id, window_id)
+    except MaintenanceNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except MaintenanceStartedError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return WebsiteRead.model_validate(website)
+
+
 @router.get(
     "/{website_id}/checks",
     response_model=list[WebsiteCheckRead],
@@ -472,6 +572,7 @@ async def check_now(
 
     Goes through the same state machine as a scheduled check, so it can raise
     and clear alerts. Useful for verifying a new site or your SMTP setup.
+    During maintenance the check is recorded but raises and clears nothing.
     """
     website = await _get_for_write(service.websites, projects, website_id, actor)
 

@@ -1,7 +1,7 @@
 import enum
 import ipaddress
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Self
 
 from pydantic import (
@@ -659,6 +659,76 @@ class WebsiteCheckRead(BaseModel):
     )
 
 
+#: The longest a maintenance window may last; pause a site for longer.
+MAX_MAINTENANCE_MINUTES = 7 * 24 * 60
+
+
+class MaintenanceCreate(BaseModel):
+    """Start maintenance now, or schedule it. Give `ends_at` or
+    `duration_minutes`, not both."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"duration_minutes": 30, "reason": "Deploying 2.4"},
+                {
+                    "starts_at": "2026-10-01T22:00:00Z",
+                    "ends_at": "2026-10-01T23:30:00Z",
+                    "reason": "Database upgrade",
+                },
+            ]
+        }
+    )
+
+    starts_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When it begins. Omit it to begin now; a time already past also "
+            "begins now. Without a timezone it is read as UTC."
+        ),
+    )
+    ends_at: datetime | None = Field(
+        default=None, description="When it ends. Without a timezone it is read as UTC."
+    )
+    duration_minutes: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_MAINTENANCE_MINUTES,
+        description="How long it lasts from `starts_at`, instead of `ends_at`.",
+    )
+    reason: str | None = Field(
+        default=None, max_length=255, description="What is going on, e.g. `Deploying 2.4`."
+    )
+
+    @field_validator("reason")
+    @classmethod
+    def _trimmed(cls, value: str | None) -> str | None:
+        return (value or "").strip() or None
+
+    @field_validator("starts_at", "ends_at")
+    @classmethod
+    def _utc(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
+
+    @model_validator(mode="after")
+    def _one_end(self) -> Self:
+        if (self.ends_at is None) == (self.duration_minutes is None):
+            raise ValueError("give either ends_at or duration_minutes")
+        return self
+
+
+class MaintenanceWindowRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    starts_at: datetime
+    ends_at: datetime
+    reason: str | None = None
+    created_by_id: int | None = None
+
+
 class WebsiteRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -724,6 +794,16 @@ class WebsiteRead(BaseModel):
     ssl_expires_at: datetime | None = Field(
         default=None,
         description="When the HTTPS certificate ends; null for plain HTTP or before the first read.",
+    )
+    maintenance: MaintenanceWindowRead | None = Field(
+        default=None,
+        description=(
+            "The maintenance window in effect now, if any: the site is not "
+            "checked and raises no alerts until it ends."
+        ),
+    )
+    upcoming_maintenance: list[MaintenanceWindowRead] = Field(
+        default_factory=list, description="Maintenance scheduled ahead, soonest first."
     )
     created_at: datetime
     updated_at: datetime
@@ -791,13 +871,17 @@ class WebsiteSort(str, enum.Enum):
 
 
 class WebsiteSummary(BaseModel):
-    """How many of the sites the caller can see are in each state. The first
-    four add up to `total`."""
+    """How many of the sites the caller can see are in each state. Up, down,
+    unknown, maintenance and paused add up to `total`."""
 
     total: int
     up: int
     down: int
     unknown: int = Field(description="Enabled, but not checked yet.")
+    maintenance: int = Field(
+        default=0,
+        description="Enabled, and in a maintenance window: whatever its status, not checked now.",
+    )
     paused: int
 
 

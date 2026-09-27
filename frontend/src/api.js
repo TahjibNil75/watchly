@@ -213,6 +213,13 @@ export const api = {
   websiteStatsCsv: (id, range) =>
     v1(`/monitoring/websites/${id}/stats`, { query: { range, format: 'csv' }, text: true }),
   checkNow: (id) => v1(`/monitoring/websites/${id}/check`, { method: 'POST' }),
+  // No checks or alerts while a maintenance window is on. { duration_minutes }
+  // starts one now; { starts_at, ends_at } schedules one. Each returns the site.
+  startMaintenance: (id, payload) =>
+    v1(`/monitoring/websites/${id}/maintenance`, { method: 'POST', body: payload }),
+  endMaintenance: (id) => v1(`/monitoring/websites/${id}/maintenance/end`, { method: 'POST' }),
+  cancelMaintenance: (id, windowId) =>
+    v1(`/monitoring/websites/${id}/maintenance/${windowId}`, { method: 'DELETE' }),
 
   // Notification wording and switches. Global = the admin's defaults; a
   // project's own settings override them field by field.

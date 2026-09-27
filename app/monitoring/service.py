@@ -29,6 +29,10 @@ Softer signals ride on the same checks, none of which is an outage:
     dns    a DNS check with nothing pinned: the resolvers agree on records
            other than the ones they last agreed on -> one alert per change
 
+A maintenance window (see `MaintenanceWindow`) silences all of it: the site
+is not checked while one is in effect, and a check made anyway, by hand, is
+recorded but changes no state and alerts nobody.
+
 A pinged host is UP while any of its pings is answered; one that answers none
 is DOWN, and goes through the same outage alerts as a website. A DNS check is
 DOWN when most resolvers cannot resolve its record, or any returns something
@@ -237,6 +241,19 @@ class MonitoringService:
             dns=result.dns.as_dict() if result.dns else None,
         )
         self.session.add(check)
+
+        if await self.websites.in_maintenance(website.id):
+            # Checked by hand during maintenance, or the window began while
+            # the probe ran. A deployment is expected to fail checks, so this
+            # one is kept for the history but moves nothing along — not even
+            # `last_checked_at`, so the site is overdue, and checked on the
+            # next tick, once the window ends. That check picks up from the
+            # state before the window, and alerts, or announces a recovery,
+            # from there.
+            await self.session.commit()
+            await self.session.refresh(website)
+            await self.session.refresh(check)
+            return CheckOutcome(website=website, check=check, result=result)
 
         was_down = website.status is WebsiteStatus.DOWN
         website.last_checked_at = result.checked_at

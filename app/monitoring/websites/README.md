@@ -29,6 +29,7 @@ Project ──┬── members (users)  ─┐  inherited unless the site sets
 | `website_recipients` | which users are alerted about one particular site          |
 | `website_checks`     | the result of every poll — the evidence behind each alert, including why it failed and where its time went; purged after `CHECK_RETENTION_DAYS` |
 | `website_check_hourly` | each site's checks summed per UTC hour — what charts and long-range uptime read; kept |
+| `maintenance_windows` | stretches of time when a site is expected to fail, e.g. a deployment: no checks or alerts during them; purged `CHECK_RETENTION_DAYS` after they end |
 
 Deleting a project deletes its websites, which deletes their check history.
 
@@ -38,12 +39,12 @@ Deleting a project deletes its websites, which deletes their check history.
 
 | file          | role                                                             |
 | ------------- | ---------------------------------------------------------------- |
-| `models.py`   | `Website` (config + live state) and `WebsiteCheck` (poll history) |
+| `models.py`   | `Website` (config + live state), `WebsiteCheck` (poll history) and `MaintenanceWindow` |
 | `schemas.py`  | request/response contracts and their validation rules            |
 | `checker.py`  | the HTTP probe (and, every few hours, the certificate read) — turns a URL into a `CheckResult`; hands ping checks to `pinger.py` and DNS checks to `dns_probe.py` |
 | `pinger.py`   | the ICMP probe — pings a host a few times and reports replies, round trips and packet loss |
 | `dns_probe.py` | the DNS probe — asks several resolvers for one record and judges whether they agree with each other and with the pinned values |
-| `service.py`  | CRUD, filtering, and "which sites are due for a check"           |
+| `service.py`  | CRUD, filtering, maintenance windows, and "which sites are due for a check" |
 | `history.py`  | hourly rollups, the stats read from them, and purging old checks |
 | `routes.py`   | the HTTP endpoints below                                          |
 
@@ -65,7 +66,7 @@ The pieces they talk to live one level up:
 scheduler._loop()                every MONITOR_TICK_SECONDS (default 60s)
   └─ run_tick_locked()           Postgres advisory lock: only one worker proceeds
       └─ MonitoringService.run_due_checks()
-          ├─ WebsiteService.due_for_check()      enabled, and interval elapsed
+          ├─ WebsiteService.due_for_check()      enabled, not in maintenance, and interval elapsed
           ├─ checker.check_website()   × N       concurrent, one shared client
           └─ MonitoringService.record_result()   sequential, per site
               ├─ INSERT website_checks
@@ -242,6 +243,31 @@ change still propagating is one alert when it completes, not one per check. A
 pinned check still remembers the records, but a different answer is an outage
 there, so no change alert fires. Changing the domain or the record type forgets
 them, and a new record type clears the pinned values unless new ones are sent.
+
+### Maintenance windows
+
+A deployment takes a site down for a minute and would page everyone. A
+**maintenance window** — started by hand ("Start maintenance for 30 min" on the
+site's page, `POST .../maintenance` with `duration_minutes`) or scheduled ahead
+(`starts_at` and `ends_at`) — stops that:
+
+| during the window | after it |
+| ----------------- | -------- |
+| `due_for_check` skips the site: no checks, no alerts, no uptime lost | the site is overdue, so it is checked on the next tick |
+| a check made by hand is recorded, but moves no state and alerts nobody — not even `last_checked_at` | that check picks up from the state before the window: still down alerts, and a site down before the window and up now announces its recovery |
+
+"End now" (`POST .../maintenance/end`) sets the window's `ends_at` to now; a
+window that has not started can be cancelled (`DELETE
+.../maintenance/{window_id}`). A site's windows never overlap, and one lasts at
+most 7 days. `record_result` asks the database whether a window covers now
+rather than trusting the loaded site, so a window that starts while a probe is
+in flight still silences it. The dashboard counts a site in maintenance under
+`maintenance`, not its status, and the `status` sort does not put it first
+even when it is down.
+
+`Website.maintenance_windows` loads only the windows that have not ended (its
+join compares `ends_at` with `now()`), from which `maintenance` (in effect now)
+and `upcoming_maintenance` are read.
 
 In Slack, one outage is one thread: the down alert is posted to the channel,
 the still-down alerts reply under it, and the recovery replies there too while
@@ -529,6 +555,7 @@ Membership changes take effect on the next request — no cache to clear.
 | add/edit/delete a site  | admin, DevOps, the owner of its project |
 | add/remove site recipients | admin, DevOps, the owner of its project |
 | trigger a check now     | admin, DevOps, the owner of its project |
+| start, end, schedule or cancel maintenance | admin, DevOps, the owner of its project |
 
 Viewers and developers can never write, even to their own project's sites.
 
@@ -579,10 +606,13 @@ List filters: `limit` (1–100), `offset`, `is_active`, `owner_id`.
 | `GET` | `/monitoring/websites/{website_id}/checks` | `200 404 422` |
 | `GET` | `/monitoring/websites/{website_id}/stats` | `200 404 422` |
 | `POST` | `/monitoring/websites/{website_id}/check` | `200 403 404 422` |
+| `POST` | `/monitoring/websites/{website_id}/maintenance` | `201 403 404 409 422` |
+| `POST` | `/monitoring/websites/{website_id}/maintenance/end` | `200 403 404 422` |
+| `DELETE` | `/monitoring/websites/{website_id}/maintenance/{window_id}` | `200 403 404 409 422` |
 
 List filters: `limit` (1–100), `offset`, `status` (`unknown`/`up`/`down`),
 `is_enabled`, `project_id`, `check_type` (`http`/`ping`/`dns`), `q` (name or URL),
-`sort` (`id`, `name`, `status`). The summary takes `project_id`, `check_type`
+`in_maintenance`, `sort` (`id`, `name`, `status`). The summary takes `project_id`, `check_type`
 and `q`. History takes `limit` (1–500), newest
 first; stats take `range` (`24h`, `7d`, `30d`, `90d`) and `format` (`json`, or
 `csv` to download the series).
@@ -594,7 +624,14 @@ wholesale by `PATCH`, like the project's `extra_emails`.
 
 `POST .../check` probes immediately through the same state machine, so it can
 raise and clear alerts — the fastest way to test a new site or your SMTP
-credentials.
+credentials. During maintenance it is recorded but raises and clears nothing.
+
+Maintenance: `POST .../maintenance` with `{"duration_minutes": 30}` starts it
+now, or with `starts_at` and `ends_at` schedules it; `reason` is optional.
+`POST .../maintenance/end` ends the one in effect (a no-op when there is none),
+and `DELETE .../maintenance/{window_id}` cancels one that has not started. All
+three return the site, whose `maintenance` and `upcoming_maintenance` show the
+windows.
 
 ### Auth
 
@@ -701,6 +738,6 @@ alerts are not duplicated.
   changing `RESPONSE_BUCKETS_MS` means re-rolling history.
 - **Alert recipients are resolved at send time**, so changing project membership
   or a site's recipients takes effect on the next check with no other action.
-- **Eager loading matters.** `Website.project`, `Website.recipients` and
-  `Project.members` use `lazy="selectin"` because the alert path reads them from
+- **Eager loading matters.** `Website.project`, `Website.recipients`,
+  `Website.maintenance_windows` and `Project.members` use `lazy="selectin"` because the alert path reads them from
   a background task, where a lazy load would raise `MissingGreenlet`.

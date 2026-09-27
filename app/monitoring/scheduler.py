@@ -44,8 +44,8 @@ async def _run_guarded(what: str, job: Callable[[AsyncSession], Awaitable[object
 async def run_tick() -> int:
     """Run one round of due checks, then the housekeeping that follows them:
     rolling checks up by the hour, any monthly reports that are due, purging
-    checks and feed events past their retention, and deleting expired refresh
-    tokens.
+    checks, feed events and ended maintenance past their retention, and
+    deleting expired refresh tokens.
 
     Returns how many websites were probed.
     """
@@ -56,6 +56,9 @@ async def run_tick() -> int:
     # After the rollup, which the purge relies on to have copied what it deletes.
     await _run_guarded("Check purge", lambda s: HistoryService(s).purge())
     await _run_guarded("Event purge", lambda s: WebsiteService(s).purge_old_events())
+    await _run_guarded(
+        "Maintenance purge", lambda s: WebsiteService(s).purge_old_maintenance()
+    )
     await _run_guarded("Session purge", lambda s: AuthService(s).purge_expired_sessions())
     return len(outcomes)
 

@@ -16,13 +16,17 @@ from app.monitoring.projects.service import resolve_users
 from app.monitoring.websites.models import (
     CheckType,
     DnsRecordType,
+    MaintenanceWindow,
     Website,
     WebsiteCheck,
     WebsiteEvent,
     WebsiteStatus,
+    maintenance_in_effect,
     recipient_website_ids,
 )
 from app.monitoring.websites.schemas import (
+    MAX_MAINTENANCE_MINUTES,
+    MaintenanceCreate,
     WebsiteCreate,
     WebsiteSort,
     WebsiteSummary,
@@ -119,6 +123,34 @@ def whatsapp_problem(website: Website) -> WebsiteWhatsAppError | None:
             f"project {project.name!r} first."
         )
     return None
+
+
+class MaintenanceError(WebsiteError):
+    """A maintenance window that could not be scheduled as asked."""
+
+
+class MaintenanceOverlapError(MaintenanceError):
+    def __init__(self, window: MaintenanceWindow) -> None:
+        self.window = window
+        super().__init__(
+            "The site already has maintenance from "
+            f"{_utc(window.starts_at)} to {_utc(window.ends_at)}: end or cancel "
+            "that one first."
+        )
+
+
+class MaintenanceNotFoundError(WebsiteError):
+    def __init__(self, window_id: int) -> None:
+        super().__init__(f"No upcoming maintenance window with id {window_id} on this site.")
+
+
+class MaintenanceStartedError(MaintenanceError):
+    def __init__(self) -> None:
+        super().__init__("That maintenance has already started: end it instead.")
+
+
+def _utc(moment: datetime) -> str:
+    return moment.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
 class WebsiteContentRuleError(WebsiteError):
@@ -244,6 +276,7 @@ class WebsiteService:
         q: str | None = None,
         sort: WebsiteSort = WebsiteSort.ID,
         check_type: CheckType | None = None,
+        in_maintenance: bool | None = None,
     ) -> tuple[list[Website], int]:
         """One page of the sites `actor` is allowed to see."""
         filters = self._visible_filters(actor, project_id, q, check_type)
@@ -251,13 +284,21 @@ class WebsiteService:
             filters.append(Website.status == status)
         if is_enabled is not None:
             filters.append(Website.is_enabled.is_(is_enabled))
+        if in_maintenance is not None:
+            under = maintenance_in_effect(func.now())
+            filters.append(under if in_maintenance else ~under)
 
         if sort is WebsiteSort.ID:
             order = [Website.id]
         else:
             order = [func.lower(Website.name), Website.id]
             if sort is WebsiteSort.STATUS:
-                is_down = and_(Website.is_enabled, Website.status == WebsiteStatus.DOWN)
+                # A site down for its own maintenance is not news.
+                is_down = and_(
+                    Website.is_enabled,
+                    Website.status == WebsiteStatus.DOWN,
+                    ~maintenance_in_effect(func.now()),
+                )
                 order.insert(0, case((is_down, 0), else_=1))
 
         total = await self.session.scalar(
@@ -275,11 +316,14 @@ class WebsiteService:
         q: str | None = None,
         check_type: CheckType | None = None,
     ) -> WebsiteSummary:
-        """Counts by state of the sites `actor` may see, in one query."""
+        """Counts by state of the sites `actor` may see, in one query. A site
+        in maintenance counts there whatever its status; a paused one is
+        paused whatever else."""
+        under = maintenance_in_effect(func.now())
 
         def enabled_with(status: WebsiteStatus):
             return func.count().filter(
-                Website.is_enabled.is_(True), Website.status == status
+                Website.is_enabled.is_(True), Website.status == status, ~under
             )
 
         row = (
@@ -289,6 +333,7 @@ class WebsiteService:
                     enabled_with(WebsiteStatus.UP),
                     enabled_with(WebsiteStatus.DOWN),
                     enabled_with(WebsiteStatus.UNKNOWN),
+                    func.count().filter(Website.is_enabled.is_(True), under),
                     func.count().filter(Website.is_enabled.is_(False)),
                 )
                 .select_from(Website)
@@ -296,7 +341,12 @@ class WebsiteService:
             )
         ).one()
         return WebsiteSummary(
-            total=row[0], up=row[1], down=row[2], unknown=row[3], paused=row[4]
+            total=row[0],
+            up=row[1],
+            down=row[2],
+            unknown=row[3],
+            maintenance=row[4],
+            paused=row[5],
         )
 
     async def create(
@@ -492,10 +542,13 @@ class WebsiteService:
         await self.session.commit()
 
     async def due_for_check(self, now: datetime | None = None) -> list[Website]:
-        """Enabled websites whose interval has elapsed since the last check.
+        """Enabled websites whose interval has elapsed since the last check,
+        and that are not in maintenance.
 
         The interval is per-row, so the deadline is computed in SQL:
         `last_checked_at + interval '1 second' * check_interval_seconds <= now`.
+        A site whose maintenance just ended is overdue, so it is checked on
+        the next tick.
         """
         now = now or datetime.now(UTC)
         next_due_at = Website.last_checked_at + (
@@ -505,6 +558,7 @@ class WebsiteService:
             select(Website)
             .where(
                 Website.is_enabled.is_(True),
+                ~maintenance_in_effect(now),
                 or_(
                     Website.last_checked_at.is_(None),  # never checked
                     next_due_at <= now,
@@ -513,6 +567,112 @@ class WebsiteService:
             .order_by(Website.last_checked_at.asc().nulls_first())
         )
         return list(rows)
+
+    # -- maintenance ---------------------------------------------------------
+
+    async def in_maintenance(self, website_id: int, now: datetime | None = None) -> bool:
+        """Whether a window covers `now`. Read afresh, not from the loaded
+        site, whose windows may have changed since."""
+        now = now or datetime.now(UTC)
+        return bool(
+            await self.session.scalar(
+                select(Website.id).where(Website.id == website_id, maintenance_in_effect(now))
+            )
+        )
+
+    async def schedule_maintenance(
+        self,
+        website_id: int,
+        payload: MaintenanceCreate,
+        created_by_id: int | None,
+        now: datetime | None = None,
+    ) -> Website:
+        """Start maintenance now, or schedule it for later. A start already
+        past is now: checks and alerts cannot be taken back."""
+        website = await self.get(website_id)
+        now = now or datetime.now(UTC)
+        starts_at = max(payload.starts_at or now, now)
+        ends_at = payload.ends_at or starts_at + timedelta(minutes=payload.duration_minutes)
+        if ends_at <= starts_at:
+            raise MaintenanceError("ends_at must be later than starts_at, and in the future.")
+        if ends_at - starts_at > timedelta(minutes=MAX_MAINTENANCE_MINUTES):
+            raise MaintenanceError(
+                f"Maintenance lasts at most {MAX_MAINTENANCE_MINUTES // (24 * 60)} "
+                "days: pause the site for longer."
+            )
+        clash = await self.session.scalar(
+            select(MaintenanceWindow)
+            .where(
+                MaintenanceWindow.website_id == website_id,
+                MaintenanceWindow.starts_at < ends_at,
+                MaintenanceWindow.ends_at > starts_at,
+            )
+            .order_by(MaintenanceWindow.starts_at)
+            .limit(1)
+        )
+        if clash is not None:
+            raise MaintenanceOverlapError(clash)
+
+        self.session.add(
+            MaintenanceWindow(
+                website_id=website_id,
+                starts_at=starts_at,
+                ends_at=ends_at,
+                reason=payload.reason,
+                created_by_id=created_by_id,
+            )
+        )
+        await self.session.commit()
+        await self.session.refresh(website)
+        return website
+
+    async def end_maintenance(self, website_id: int, now: datetime | None = None) -> Website:
+        """End the window in effect now, keeping it on record as ended now.
+        Does nothing when there is none: it may have just run out."""
+        website = await self.get(website_id)
+        now = now or datetime.now(UTC)
+        window = await self.session.scalar(
+            select(MaintenanceWindow).where(
+                MaintenanceWindow.website_id == website_id,
+                MaintenanceWindow.starts_at <= now,
+                MaintenanceWindow.ends_at > now,
+            )
+        )
+        if window is not None:
+            if window.starts_at == now:
+                # Nothing to keep, and `ends_at` must be after `starts_at`.
+                await self.session.delete(window)
+            else:
+                window.ends_at = now
+            await self.session.commit()
+        await self.session.refresh(website)
+        return website
+
+    async def cancel_maintenance(
+        self, website_id: int, window_id: int, now: datetime | None = None
+    ) -> Website:
+        """Delete a window that has not started yet."""
+        website = await self.get(website_id)
+        now = now or datetime.now(UTC)
+        window = await self.session.get(MaintenanceWindow, window_id)
+        if window is None or window.website_id != website_id or window.ends_at <= now:
+            raise MaintenanceNotFoundError(window_id)
+        if window.starts_at <= now:
+            raise MaintenanceStartedError()
+        await self.session.delete(window)
+        await self.session.commit()
+        await self.session.refresh(website)
+        return website
+
+    async def purge_old_maintenance(self, now: datetime | None = None) -> int:
+        """Delete windows that ended more than CHECK_RETENTION_DAYS ago, like
+        the feed. Called on every tick; returns how many were deleted."""
+        before = (now or datetime.now(UTC)) - timedelta(days=settings.CHECK_RETENTION_DAYS)
+        result = await self.session.execute(
+            delete(MaintenanceWindow).where(MaintenanceWindow.ends_at < before)
+        )
+        await self.session.commit()
+        return result.rowcount or 0
 
     async def recent_checks(
         self, website_id: int, actor: User, limit: int = 50

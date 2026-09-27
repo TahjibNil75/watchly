@@ -9,12 +9,20 @@ import { useApi } from '../useApi.js'
 
 const PAGE_SIZE = 50
 
-// `count` reads the summary; `query` is what the list asks the server for.
+// `count` reads the summary; `query` is what the list asks the server for. A
+// site in maintenance counts there, not under its status.
+const live = { is_enabled: true, in_maintenance: false }
 const FILTERS = [
   { key: 'all', label: 'All', count: 'total', query: {} },
-  { key: 'down', label: 'Down', count: 'down', query: { status: 'down', is_enabled: true } },
-  { key: 'up', label: 'Up', count: 'up', query: { status: 'up', is_enabled: true } },
-  { key: 'unknown', label: 'Pending', count: 'unknown', query: { status: 'unknown', is_enabled: true } },
+  { key: 'down', label: 'Down', count: 'down', query: { status: 'down', ...live } },
+  { key: 'up', label: 'Up', count: 'up', query: { status: 'up', ...live } },
+  { key: 'unknown', label: 'Pending', count: 'unknown', query: { status: 'unknown', ...live } },
+  {
+    key: 'maintenance',
+    label: 'Maintenance',
+    count: 'maintenance',
+    query: { is_enabled: true, in_maintenance: true },
+  },
   { key: 'paused', label: 'Paused', count: 'paused', query: { is_enabled: false } },
 ]
 

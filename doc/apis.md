@@ -51,7 +51,7 @@ together, see [`hld.md`](hld.md).
 | 27 | `POST` | `/monitoring/projects/{project_id}/members` | Add one or more users as responsible members (they start receiving alerts). |
 | 28 | `DELETE` | `/monitoring/projects/{project_id}/members/{user_id}` | Remove a member so they stop receiving that project's alerts. |
 | 29 | `GET` | `/monitoring/websites` | List monitored sites and their current up/down status. |
-| 30 | `GET` | `/monitoring/websites/summary` | Count the sites you can see by state: up, down, pending, paused. |
+| 30 | `GET` | `/monitoring/websites/summary` | Count the sites you can see by state: up, down, pending, maintenance, paused. |
 | 31 | `GET` | `/monitoring/websites/events` | Recent outages, recoveries, slow spells and expiring certificates on the sites you can see. |
 | 32 | `POST` | `/monitoring/websites` | Start monitoring a URL under a project, optionally with its own recipients. |
 | 33 | `GET` | `/monitoring/websites/{website_id}` | Return one monitored site with its live outage state. |
@@ -62,6 +62,9 @@ together, see [`hld.md`](hld.md).
 | 38 | `GET` | `/monitoring/websites/{website_id}/checks` | Return recent check results, newest first — the evidence behind alerts. |
 | 39 | `GET` | `/monitoring/websites/{website_id}/stats` | Uptime and response time over 24h, 7d, 30d or 90d, with a bucketed series for charts. |
 | 40 | `POST` | `/monitoring/websites/{website_id}/check` | Probe a site immediately instead of waiting for the next scheduled tick. |
+| 40a | `POST` | `/monitoring/websites/{website_id}/maintenance` | Start maintenance now (e.g. for 30 minutes), or schedule it: no checks or alerts until it ends. |
+| 40b | `POST` | `/monitoring/websites/{website_id}/maintenance/end` | End the maintenance in effect now. |
+| 40c | `DELETE` | `/monitoring/websites/{website_id}/maintenance/{window_id}` | Cancel maintenance that has not started yet. |
 | 41 | `GET` | `/monitoring/notifications` | The global notification settings: wording and email/Slack/Telegram/WhatsApp switches per kind. |
 | 42 | `PUT` | `/monitoring/notifications/{kind}` | Set the global wording and switches for one kind (admin/DevOps). |
 | 43 | `DELETE` | `/monitoring/notifications/{kind}` | Reset a kind's global settings to the built-in wording (admin/DevOps). |
@@ -379,13 +382,16 @@ project.
 List monitored sites with their current status, last check and outage state.
 Query: `limit` (1–100), `offset`, `status` (`unknown`/`up`/`down`),
 `is_enabled`, `project_id`, `check_type` (`http`, `ping` or `dns`), `q` (name or URL
-contains, case-insensitive), `sort` (`id` default, `name`, or `status`: down
-sites first, then by name)
+contains, case-insensitive), `in_maintenance` (`true`: only sites in a
+maintenance window now; `false`: only the rest), `sort` (`id` default, `name`,
+or `status`: down sites first, then by name; a site down during its
+maintenance is not put first)
 `200`
 
 ### `GET /api/v1/monitoring/websites/summary`
 How many of the sites you can see are `up`, `down`, `unknown` (enabled, not
-checked yet) and `paused`, plus the `total`. Takes the list's `project_id`,
+checked yet), in `maintenance` (enabled and in a maintenance window, whatever
+their status) and `paused`, plus the `total` they add up to. Takes the list's `project_id`,
 `check_type` and `q`, so a dashboard can page through one state and still show
 every count.
 `200`
@@ -455,7 +461,11 @@ Return one site with its live state: `status`, `last_checked_at`, `down_since`,
 and its alerting setup:
 `recipients`, `alert_emails`, `inherit_project_recipients`, `alert_channels`,
 `slack_channel_id`, `telegram_chat_id`, `whatsapp_recipients`, and
-`slack_token_hint` / `telegram_token_hint` when the site has its own bot.
+`slack_token_hint` / `telegram_token_hint` when the site has its own bot —
+and its `maintenance` (the window in effect now, or null) and
+`upcoming_maintenance` (windows still to come, soonest first), each with `id`,
+`starts_at`, `ends_at`, `reason` and `created_by_id`. The list returns the
+same fields for every site.
 `200` · `404` missing **or** not visible
 
 ### `PATCH /api/v1/monitoring/websites/{website_id}`
@@ -530,9 +540,50 @@ Probe now, through the same state machine as a scheduled check, so it can raise
 and clear alerts. The fastest way to test a new site or your SMTP setup.
 Returns the site, the check, and which notification it raised (if any): `down`,
 `still_down`, `recovered`, `ssl_expiring`, `slow_response`, `packet_loss` or
-`dns_changed`.
+`dns_changed`. During [maintenance](#maintenance-windows) the check is recorded
+but raises and clears nothing.
 `200` · `403` · `404` · `503` a ping check, and this server is not allowed to
 send pings (see `PING_PRIVILEGED` in the [technical reference](reference.md#ping-checks))
+
+#### Maintenance windows
+
+For deployments and other work that is expected to take a site down. While a
+window is in effect the scheduler does not check the site, so nothing alerts
+and its uptime is not dinged. When the window ends the site is checked on the
+next tick, picking up from the state it was in before the window: still down
+alerts as usual, and a site that was down before the window and is up now
+announces its recovery. A check made by hand during the window is kept in the
+history but changes nothing and alerts nobody. A site's windows never overlap,
+and one lasts at most 7 days (pause the site for longer). Ended windows are
+kept for `CHECK_RETENTION_DAYS`, then purged. All three calls need rights over
+the site's project, and return the site.
+
+### `POST /api/v1/monitoring/websites/{website_id}/maintenance`
+Start maintenance now, or schedule it. Body: `ends_at` **or**
+`duration_minutes` (1–10080), plus optional `starts_at` (omitted, or already
+past, means now) and `reason` (up to 255 characters, shown on the site's page).
+Times without a timezone are read as UTC.
+
+```json
+{"duration_minutes": 30, "reason": "Deploying 2.4"}
+{"starts_at": "2026-10-01T22:00:00Z", "ends_at": "2026-10-01T23:30:00Z", "reason": "Database upgrade"}
+```
+`201` the site, with the window in `maintenance` or `upcoming_maintenance` ·
+`403` · `404` · `409` overlaps a window the site already has · `422` both or
+neither of `ends_at` and `duration_minutes`, an end that is not after the start
+or not in the future, or longer than 7 days
+
+### `POST /api/v1/monitoring/websites/{website_id}/maintenance/end`
+End the window in effect now; the site is checked again on the next tick. The
+window stays on record, ending now. Does nothing when no window is in effect,
+so a click that lands just after it ran out is harmless.
+`200` · `403` · `404`
+
+### `DELETE /api/v1/monitoring/websites/{website_id}/maintenance/{window_id}`
+Cancel a window that has not started yet. One that has started is ended with
+`POST …/maintenance/end` instead.
+`200` · `403` · `404` no such upcoming window on this site · `409` it has
+already started
 
 A website also takes an optional `slow_threshold_ms` (send `null` for the
 server default), an `environment` (send `null` to clear it; sites that predate

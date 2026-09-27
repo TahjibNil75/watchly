@@ -3,8 +3,11 @@ import { checkType } from './checkTypes.js'
 import { environmentLabel } from './environments.js'
 import { duration, since, timeAgo } from './format.js'
 
-export function StatusBadge({ status, enabled = true }) {
+// `maintenance` is the site's window in effect, if any: it outranks the
+// status, which is not being checked meanwhile.
+export function StatusBadge({ status, enabled = true, maintenance = null }) {
   if (!enabled) return <span className="badge badge-paused">paused</span>
+  if (maintenance) return <span className="badge badge-maintenance">maintenance</span>
   const label = status === 'unknown' ? 'pending' : status
   return <span className={`badge badge-${status}`}>{label}</span>
 }
@@ -119,7 +122,11 @@ export function WebsiteTable({ sites, projectNames, emptyLabel }) {
           {sites.map((site) => (
             <tr key={site.id}>
               <td>
-                <StatusBadge status={site.status} enabled={site.is_enabled} />
+                <StatusBadge
+                  status={site.status}
+                  enabled={site.is_enabled}
+                  maintenance={site.maintenance}
+                />
               </td>
               <td>
                 <Link to={`/websites/${site.id}`} className="strong-link">

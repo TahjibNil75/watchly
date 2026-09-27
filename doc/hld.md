@@ -190,6 +190,7 @@ erDiagram
     websites ||--o{ website_checks : "poll history"
     websites ||--o{ website_check_hourly : "checks per hour"
     websites ||--o{ website_events : "alert feed"
+    websites ||--o{ maintenance_windows : "silenced during"
     projects ||--o{ notification_settings : "overrides"
     projects ||--o{ report_deliveries : "monthly reports sent"
 
@@ -352,6 +353,14 @@ erDiagram
         int threshold_ms
         timestamptz ssl_expires_at
     }
+    maintenance_windows {
+        int id PK
+        int website_id FK
+        timestamptz starts_at
+        timestamptz ends_at "after starts_at; set to now by End now"
+        string reason
+        int created_by_id FK "null once the user is deleted"
+    }
 ```
 
 **Enums** (native Postgres types, storing the declared string values):
@@ -403,7 +412,7 @@ sequenceDiagram
         alt another worker holds it
             PG-->>L: false → skip this tick
         else acquired
-            L->>PG: SELECT sites where interval elapsed
+            L->>PG: SELECT sites where interval elapsed, not in maintenance
             par probe concurrently, one shared client
                 L->>W: HTTP request, ICMP echo requests, or DNS queries to each resolver
                 W-->>L: status / timeout / connection error / replies / answers
@@ -453,6 +462,12 @@ down → still_down(5m) → still_down(10m) → still_down(15m) → [silence] �
 An immediate alert plus three follow-ups, each stating cumulative downtime, then
 quiet so a long outage does not flood inboxes. Recovery is announced **once**;
 nothing further until the next outage.
+
+**Maintenance windows** pause the machine. While a window is in effect the
+site is not checked, so no alert fires and no uptime is lost; a check made by
+hand is recorded but changes no state. The first check after the window picks
+up where the site was before it: still down alerts, and a site that was down
+before the window and is up again announces its recovery.
 
 In Slack the whole outage is **one thread**: the down alert is a new message,
 the still-down alerts reply under it, and the recovery replies too, with

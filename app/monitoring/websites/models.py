@@ -1,12 +1,14 @@
 import enum
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Enum as SAEnum,
+    Exists,
     Float,
     ForeignKey,
     Index,
@@ -16,6 +18,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    and_,
     desc,
     func,
     select,
@@ -360,6 +363,38 @@ class Website(Base, TimestampMixin):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    #: The windows in effect or still to come, soonest first. Ended ones stay
+    #: in the table but are not loaded. selectin for the same reason as
+    #: `project`; read-only, so windows are added and ended through their own
+    #: rows.
+    maintenance_windows: Mapped[list["MaintenanceWindow"]] = relationship(
+        "MaintenanceWindow",
+        primaryjoin=lambda: and_(
+            Website.id == MaintenanceWindow.website_id,
+            MaintenanceWindow.ends_at > func.now(),
+        ),
+        lazy="selectin",
+        viewonly=True,
+        order_by=lambda: MaintenanceWindow.starts_at,
+    )
+
+    def maintenance_at(self, moment: datetime) -> "MaintenanceWindow | None":
+        """The window `moment` falls in, if any."""
+        return next(
+            (w for w in self.maintenance_windows if w.starts_at <= moment < w.ends_at),
+            None,
+        )
+
+    @property
+    def maintenance(self) -> "MaintenanceWindow | None":
+        """The window in effect now: no scheduled checks and no alerts until it ends."""
+        return self.maintenance_at(datetime.now(UTC))
+
+    @property
+    def upcoming_maintenance(self) -> list["MaintenanceWindow"]:
+        """Windows that have not started yet, soonest first."""
+        now = datetime.now(UTC)
+        return [w for w in self.maintenance_windows if w.starts_at > now]
 
     @property
     def recipient_emails(self) -> list[str]:
@@ -566,6 +601,60 @@ class WebsiteEvent(Base):
 
     def __repr__(self) -> str:
         return f"<WebsiteEvent site={self.website_id} {self.kind!r}>"
+
+
+class MaintenanceWindow(Base):
+    """A stretch of time when a site is expected to fail, e.g. a deployment.
+
+    While one is in effect the scheduler does not check the site, so nothing
+    alerts and its uptime is not dinged; the first check after it picks up
+    from the state the site was in before. Started by hand ("30 minutes from
+    now") or scheduled ahead; ending one early sets `ends_at` to the moment it
+    ended. A site's windows never overlap. Purged after CHECK_RETENTION_DAYS,
+    like the feed.
+    """
+
+    __tablename__ = "maintenance_windows"
+    __table_args__ = (
+        CheckConstraint("ends_at > starts_at", name="ck_maintenance_windows_order"),
+        # Serves "this site's windows that have not ended", the only way
+        # they are read.
+        Index("ix_maintenance_windows_site_end", "website_id", "ends_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    website_id: Mapped[int] = mapped_column(
+        ForeignKey("websites.id", ondelete="CASCADE"), nullable=False
+    )
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: What is going on, e.g. "Deploying 2.4"; shown on the site's page.
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<MaintenanceWindow site={self.website_id} "
+            f"{self.starts_at.isoformat()} -> {self.ends_at.isoformat()}>"
+        )
+
+
+def maintenance_in_effect(at) -> Exists:
+    """SQL: the site has a window covering `at`, a datetime or SQL expression."""
+    return (
+        select(MaintenanceWindow.id)
+        .where(
+            MaintenanceWindow.website_id == Website.id,
+            MaintenanceWindow.starts_at <= at,
+            MaintenanceWindow.ends_at > at,
+        )
+        .exists()
+    )
 
 
 #: Lower edge, in ms, of each response-time bucket in

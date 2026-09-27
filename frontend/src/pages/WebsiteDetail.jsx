@@ -16,6 +16,7 @@ import {
 } from '../components.jsx'
 import { environmentLabel } from '../environments.js'
 import { dateTime, duration, since, timeAgo } from '../format.js'
+import Maintenance from '../Maintenance.jsx'
 import { canManageProject } from '../roles.js'
 import SiteHistory from '../SiteHistory.jsx'
 import { useApi } from '../useApi.js'
@@ -343,7 +344,12 @@ export default function WebsiteDetail() {
                   : 'resolvers disagree'
               }, ${c.response_time_ms} ms average answer`
             : `up · HTTP ${c.status_code} in ${c.response_time_ms} ms`
-      setNotice(`Checked just now: ${detail}${result.alert_sent ? ` · "${result.alert_sent}" alert sent` : ''}`)
+      const outcome = result.website.maintenance
+        ? ' · in maintenance, so no alerts and no change of status'
+        : result.alert_sent
+          ? ` · "${result.alert_sent}" alert sent`
+          : ''
+      setNotice(`Checked just now: ${detail}${outcome}`)
     })
 
   const toggleEnabled = () =>
@@ -383,7 +389,8 @@ export default function WebsiteDetail() {
       <PageHeader
         title={
           <>
-            {s.name} <StatusBadge status={s.status} enabled={s.is_enabled} />
+            {s.name}{' '}
+            <StatusBadge status={s.status} enabled={s.is_enabled} maintenance={s.maintenance} />
             <EnvironmentBadge environment={s.environment} />
             <CheckTypeBadge site={s} />
           </>
@@ -429,6 +436,13 @@ export default function WebsiteDetail() {
           {s.down_alerts_sent} of {s.max_down_alerts} alerts sent
         </div>
       )}
+
+      <Maintenance
+        site={s}
+        canManage={canManage}
+        onChange={site.setData}
+        onBoundary={site.reload}
+      />
 
       {editing && (
         <section className="card">

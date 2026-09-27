@@ -13,6 +13,10 @@ export function since(iso) {
   return duration((Date.now() - new Date(iso).getTime()) / 1000)
 }
 
+export function until(iso) {
+  return duration((new Date(iso).getTime() - Date.now()) / 1000)
+}
+
 export function timeAgo(iso) {
   if (!iso) return 'never'
   const seconds = (Date.now() - new Date(iso).getTime()) / 1000

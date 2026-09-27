@@ -10,6 +10,7 @@
   --up: #1c8f4e;
   --down: #d23a3a;
   --pending: #b7791f;
+  --maintenance: #7b52c7;
   /* Chart series, checked for colour-blind separation on --surface. */
   --series-1: #3a5bd9;
   --series-2: #eb6834;
@@ -39,6 +40,7 @@
     --up: #3dbb72;
     --down: #f16565;
     --pending: #e0a93b;
+    --maintenance: #a88cf0;
     --series-1: #6d8bff;
     --series-2: #d95926;
     --paused: #8b919c;
@@ -1988,6 +1990,9 @@ strong + .badge {
 .badge-paused {
   --tone: var(--paused);
 }
+.badge-maintenance {
+  --tone: var(--maintenance);
+}
 /* Environment: quiet for the lower tiers, so Production is what stands out. */
 .badge-env-development,
 .badge-env-testing {
@@ -2031,6 +2036,27 @@ strong + .badge {
   color: var(--text);
   border-color: color-mix(in srgb, var(--primary) 35%, transparent);
   background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+}
+
+/* ---------- Maintenance ---------- */
+
+.card-maintenance {
+  border-color: color-mix(in srgb, var(--maintenance) 45%, var(--border));
+  background: color-mix(in srgb, var(--maintenance) 6%, var(--surface));
+}
+.maint-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+.maint-row select {
+  width: auto;
+}
+.maint-grow {
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
 /* ---------- Dashboard ---------- */
@@ -2085,6 +2111,9 @@ strong + .badge {
 }
 .stat-paused {
   --tone: var(--paused);
+}
+.stat-maintenance {
+  --tone: var(--maintenance);
 }
 
 .toolbar {
