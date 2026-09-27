@@ -13,6 +13,10 @@
 
 [Features](#features) · [Quick start](#quick-start) · [Email alerts](#set-up-email-alerts-smtp) · [Configuration](#configuration) · [Docs](#documentation)
 
+<br>
+
+<img src="doc/images/landing.png" alt="Watchly landing page with an example status dashboard" width="900">
+
 </div>
 
 ---
@@ -38,14 +42,17 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **Team management**: invite by email, role-based access (Admin, DevOps, Project Manager, Developer, Viewer), suspension, and invite-only mode
 - **Account security**: JWT sessions with refresh tokens, login lockout and password reset by email
 
-## Tech stack
+## Screenshots
 
-| Layer    | Technology |
-| -------- | ---------- |
-| API      | FastAPI, async SQLAlchemy 2.0, Pydantic v2, Alembic |
-| Database | PostgreSQL 16 |
-| Web UI   | React 19, Vite, served by nginx |
-| Runtime  | Docker Compose, with a built-in background scheduler (no separate worker) |
+<p align="center">
+  <img src="doc/images/features.png" alt="Website, server and DNS checks, and the alerting features" width="900">
+  <br><em>Website, server and DNS checks, with alerts by email, Slack and webhook</em>
+</p>
+
+<p align="center">
+  <img src="doc/images/login.png" alt="Watchly sign-in page" width="900">
+  <br><em>Sign-in page</em>
+</p>
 
 ## Quick start
 
