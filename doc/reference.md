@@ -228,6 +228,7 @@ on the user.
 | `401`  | no such user **or** wrong password (indistinguishable) |
 | `403`  | credentials valid but the account is inactive          |
 | `422`  | a field is missing or invalid                          |
+| `429`  | the account is locked after `MAX_FAILED_LOGIN_ATTEMPTS` wrong passwords, or this client has used up `RATE_LIMIT_LOGIN` (default `10/minute`); see `Retry-After` |
 
 Two deliberate choices here, both to stop account enumeration:
 

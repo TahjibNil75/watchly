@@ -1,10 +1,22 @@
 import ipaddress
 import json
+import re
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, NamedTuple
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+
+class RateLimit(NamedTuple):
+    """At most `hits` requests every `seconds`."""
+
+    hits: int
+    seconds: int
+
+
+_RATE_LIMIT = re.compile(r"(\d+)\s*/\s*(\d*)\s*(second|minute|hour|day)s?", re.IGNORECASE)
+_RATE_LIMIT_UNITS = {"second": 1, "minute": 60, "hour": 3600, "day": 86_400}
 
 
 class Settings(BaseSettings):
@@ -58,6 +70,29 @@ class Settings(BaseSettings):
     #: How long sign-in stays locked after MAX_FAILED_LOGIN_ATTEMPTS. A
     #: temporary password from "forgot password" still gets in meanwhile.
     LOGIN_LOCKOUT_MINUTES: int = Field(default=15, ge=1)
+
+    # --- Rate limits on the endpoints that need no sign-in ------------------
+    #: Cap what one client (an IPv4 address, or an IPv6 /64) may send to the
+    #: public endpoints; past a limit they answer 429 with Retry-After. Clients
+    #: are told apart by address, so behind a reverse proxy uvicorn must trust
+    #: its X-Forwarded-For (FORWARDED_ALLOW_IPS), or every client shares the
+    #: proxy's limit. Turn off only when something in front already limits.
+    RATE_LIMIT_ENABLED: bool = True
+    #: Each limit is `<requests>/<period>`, e.g. `10/minute`, `5/hour` or
+    #: `20/15 minutes`. NoDecode: see ALERT_DEFAULT_EMAILS.
+    #:
+    #: Sign-in attempts, right or wrong, to any account. MAX_FAILED_LOGIN_ATTEMPTS
+    #: guards each account; this stops one client trying a few common
+    #: passwords on every account.
+    RATE_LIMIT_LOGIN: Annotated[RateLimit, NoDecode] = RateLimit(10, 60)
+    #: Accounts opened with `POST /auth/signup`.
+    RATE_LIMIT_SIGNUP: Annotated[RateLimit, NoDecode] = RateLimit(5, 3600)
+    #: Temporary passwords asked for, whichever addresses they go to, so the
+    #: form cannot be used to mail a list of inboxes.
+    RATE_LIMIT_FORGOT_PASSWORD: Annotated[RateLimit, NoDecode] = RateLimit(5, 3600)
+    #: Tokens from emailed links tried: previewing and accepting invitations,
+    #: and confirming a new email address.
+    RATE_LIMIT_EMAIL_LINKS: Annotated[RateLimit, NoDecode] = RateLimit(20, 60)
 
     # --- Monitoring -----------------------------------------------------
     MONITORING_ENABLED: bool = True
@@ -213,6 +248,29 @@ class Settings(BaseSettings):
             if any(day < 1 for day in days):
                 raise ValueError("SSL_EXPIRY_ALERT_DAYS entries must be 1 or more")
             return days
+        return value
+
+    @field_validator(
+        "RATE_LIMIT_LOGIN",
+        "RATE_LIMIT_SIGNUP",
+        "RATE_LIMIT_FORGOT_PASSWORD",
+        "RATE_LIMIT_EMAIL_LINKS",
+        mode="before",
+    )
+    @classmethod
+    def _parse_rate_limit(cls, value: object) -> object:
+        """Accept `10/minute` or `20/15 minutes`."""
+        if isinstance(value, str):
+            match = _RATE_LIMIT.fullmatch(value.strip())
+            if not match:
+                raise ValueError(
+                    f"{value!r} is not `<requests>/<period>`, e.g. `10/minute`"
+                )
+            hits, count, unit = match.groups()
+            seconds = int(count or 1) * _RATE_LIMIT_UNITS[unit.lower()]
+            if int(hits) < 1 or seconds < 1:
+                raise ValueError(f"{value!r} must allow at least 1 request per period")
+            return RateLimit(int(hits), seconds)
         return value
 
     @field_validator("DNS_RESOLVERS", mode="before")

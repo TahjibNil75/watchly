@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_auth_service, require_inviter
 from app.auth.routes import issue_tokens
 from app.auth.service import AuthService, UserAlreadyExistsError
+from app.core.rate_limit import RATE_LIMITED, rate_limit
 from app.db.models.invitation import InvitationStatus
 from app.db.models.user import User
 from app.db.session import get_db
@@ -150,14 +151,18 @@ async def revoke_invitation(
     responses={
         404: {"description": "No invitation matches this token"},
         **UNUSABLE,
+        **RATE_LIMITED,
     },
+    dependencies=[rate_limit("email_links")],
 )
 async def preview_invitation(
     payload: InvitationTokenRequest,
     service: InvitationService = Depends(get_invitation_service),
 ) -> InvitationPreview:
     """Show the invitee which address and role they are accepting, without using
-    the invitation up. No sign-in. A POST so the token stays out of access logs."""
+    the invitation up. No sign-in. A POST so the token stays out of access logs.
+    Each client may try `RATE_LIMIT_EMAIL_LINKS` tokens, shared with accepting
+    and with confirming an email address (`429` past that)."""
     try:
         invitation = await service.preview(payload.token)
     except InvitationNotFoundError as exc:
@@ -181,7 +186,9 @@ async def preview_invitation(
         404: {"description": "No invitation matches this token"},
         409: {"description": "Username taken, or the address registered meanwhile"},
         **UNUSABLE,
+        **RATE_LIMITED,
     },
+    dependencies=[rate_limit("email_links")],
 )
 async def accept_invitation(
     payload: AcceptInvitationRequest,
@@ -190,7 +197,8 @@ async def accept_invitation(
     auth: AuthService = Depends(get_auth_service),
 ) -> AcceptInvitationResponse:
     """Create the user with the email and role the invitation fixed, and sign
-    them in. No sign-in needed; the link works once."""
+    them in. No sign-in needed; the link works once. Rate-limited with
+    `POST /invitations/preview`."""
     try:
         user = await service.accept(payload)
     except InvitationNotFoundError as exc:

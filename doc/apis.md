@@ -8,6 +8,21 @@ Every endpoint in Watchly, with a one-line description.
 the two invitee endpoints (`/invitations/preview`, `/invitations/accept`) and
 `/health`.
 
+Those public endpoints except `GET /auth/signup` and `/health` are
+rate-limited per client (an IPv4 address, or an IPv6 /64), whether the request
+succeeds or not. Past a limit they answer `429` with `Retry-After` in seconds:
+
+| setting | default | counts |
+| ------- | ------- | ------ |
+| `RATE_LIMIT_LOGIN` | `10/minute` | `POST /auth/login` |
+| `RATE_LIMIT_SIGNUP` | `5/hour` | `POST /auth/signup` |
+| `RATE_LIMIT_FORGOT_PASSWORD` | `5/hour` | `POST /auth/forgot-password` |
+| `RATE_LIMIT_EMAIL_LINKS` | `20/minute` | `POST /auth/confirm-email`, `/invitations/preview` and `/invitations/accept`, together |
+
+`RATE_LIMIT_ENABLED=false` turns them off. `POST /auth/refresh` and
+`/auth/logout` are not limited: their token cannot be guessed, and a refused
+refresh would sign people out.
+
 A user who signed in with a temporary password (`must_change_password: true`)
 gets `403` from everything except `GET /users/me` and `POST /users/me/password`
 until they choose a new one.
@@ -90,7 +105,8 @@ With `ALLOW_PUBLIC_SIGNUP=false` the team is invite-only: that first account can
 still sign up, but every later signup gets `403`, and people join by
 [accepting an invitation](#post-apiv1invitationsaccept). The `403` comes before
 the checks for a taken email or username, so it reveals neither.
-`201` · `403` invite-only · `409` taken · `422` mismatch or invalid field
+`201` · `403` invite-only · `409` taken · `422` mismatch or invalid field ·
+`429` rate-limited
 
 ### `GET /api/v1/auth/signup`
 `{"open": true}` while `POST /auth/signup` would accept someone: always on an
@@ -113,8 +129,10 @@ from [forgot password](#post-apiv1authforgot-password) still signs in, so the
 owner is never shut out by someone else guessing. The lock does not suspend the
 account or end its sessions. Someone allowed to reinstate the account can lift
 it early with [reactivate](#patch-apiv1usersuser_idreactivate).
+The lock guards one account; `RATE_LIMIT_LOGIN` guards against one client trying
+a few passwords on every account instead, counting all its attempts.
 `200` · `401` wrong credentials or unknown user · `403` suspended · `422` invalid
-· `429` locked after too many wrong passwords
+· `429` locked after too many wrong passwords, or rate-limited
 
 ### `POST /api/v1/auth/forgot-password`
 Body: `{"email": "jane@example.com"}`. Emails that account a temporary password
@@ -125,7 +143,7 @@ keeps working until the temporary one is used, so asking for someone else
 cannot lock them out, and signing in with the current password cancels the
 temporary one. A second request within a minute is ignored. Suspended accounts
 are sent nothing.
-`202` · `422` invalid address
+`202` · `422` invalid address · `429` rate-limited
 
 ### `POST /api/v1/auth/confirm-email`
 Finish an email change started with `POST /users/me/email`. Body:
@@ -133,7 +151,7 @@ Finish an email change started with `POST /users/me/email`. Body:
 new address, so holding it proves the address is yours. The link works once.
 `200` the updated user · `403` suspended · `404` no pending change matches (used,
 cancelled or replaced) · `409` another account took the address meanwhile ·
-`410` expired
+`410` expired · `429` rate-limited
 
 ### `POST /api/v1/auth/refresh`
 No body. Trades the refresh cookie for `{access_token, token_type, expires_in}`
@@ -289,7 +307,8 @@ Public. Body: `{"token": "…"}` (from the email). Returns the `email`, `role`,
 `invited_by_name` and `expires_at` it is for, without using it up. A POST so the
 token stays out of access logs.
 `200` · `404` no such invitation · `410` already used, revoked or expired, or its
-sender is suspended, demoted below the role they offered, or deleted
+sender is suspended, demoted below the role they offered, or deleted ·
+`429` rate-limited
 
 ### `POST /api/v1/invitations/accept`
 Public. Body: `token`, `username`, `password`, `confirm_password`, and optionally
@@ -298,7 +317,7 @@ Creates the user and returns `{user, tokens}` like signup, so the invitee is
 signed in.
 `201` · `404` · `409` username taken (the invitation is not used up) or the
 address registered meanwhile · `410` as above · `422` passwords differ or invalid
-field
+field · `429` rate-limited
 
 ---
 

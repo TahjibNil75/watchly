@@ -40,6 +40,7 @@ from app.auth.service import (
     UserAlreadyExistsError,
 )
 from app.core.config import settings
+from app.core.rate_limit import RATE_LIMITED, rate_limit
 from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.user import UserRead
@@ -81,7 +82,9 @@ async def issue_tokens(
     responses={
         403: {"description": "Signup is invite-only (`ALLOW_PUBLIC_SIGNUP` is off)"},
         409: {"description": "Email or username already registered"},
+        **RATE_LIMITED,
     },
+    dependencies=[rate_limit("signup")],
 )
 async def signup(
     payload: SignupRequest,
@@ -95,7 +98,9 @@ async def signup(
     whoever installs the app signs up to administer it.
 
     With `ALLOW_PUBLIC_SIGNUP` off, only that first account can sign up; after
-    it, people join by accepting an invitation."""
+    it, people join by accepting an invitation.
+
+    Each client may try `RATE_LIMIT_SIGNUP` times (`429` past that)."""
     try:
         user = await service.signup(payload)
     except SignupClosedError as exc:
@@ -133,8 +138,12 @@ async def signup_status(
     responses={
         401: {"description": "Incorrect username/email or password"},
         403: {"description": "Account is inactive"},
-        429: {"description": "Too many wrong passwords; sign-in is locked for now"},
+        429: {
+            "description": "Too many wrong passwords, so sign-in is locked for now; "
+            "or too many attempts from this client. Retry after `Retry-After` seconds"
+        },
     },
+    dependencies=[rate_limit("login")],
 )
 async def login(
     payload: LoginRequest,
@@ -151,6 +160,10 @@ async def login(
     `MAX_FAILED_LOGIN_ATTEMPTS` wrong passwords in a row lock sign-in for
     `LOGIN_LOCKOUT_MINUTES` (`429`, with `Retry-After`), whatever password is
     sent — except a temporary password, which still signs in.
+
+    Separately, each client may try `RATE_LIMIT_LOGIN` times, right or wrong,
+    whichever accounts (`429` past that), so it cannot try a few passwords on
+    every account instead.
     """
     try:
         user = await service.authenticate(payload.identifier, payload.password)
@@ -256,7 +269,9 @@ async def logout(
         404: {"description": "No pending change matches this token"},
         409: {"description": "Another account took the address meanwhile"},
         410: {"description": "The link has expired"},
+        **RATE_LIMITED,
     },
+    dependencies=[rate_limit("email_links")],
 )
 async def confirm_email(
     payload: EmailConfirmRequest,
@@ -264,7 +279,10 @@ async def confirm_email(
 ) -> UserRead:
     """Finish an email change started with `POST /users/me/email`. No sign-in
     needed: the token was sent only to the new address, so holding it proves
-    the address is yours. The link works once."""
+    the address is yours. The link works once.
+
+    Each client may try `RATE_LIMIT_EMAIL_LINKS` tokens, shared with the
+    invitee's endpoints (`429` past that)."""
     try:
         user = await UserService(session).confirm_email_change(payload.token)
     except EmailLinkNotFoundError as exc:
@@ -283,6 +301,8 @@ async def confirm_email(
     response_model=ForgotPasswordResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Email a temporary password",
+    responses=RATE_LIMITED,
+    dependencies=[rate_limit("forgot_password")],
 )
 async def forgot_password(
     payload: ForgotPasswordRequest,
@@ -300,6 +320,8 @@ async def forgot_password(
     The current password keeps working until the temporary one is used, so
     asking for someone else cannot lock them out. The temporary password lasts
     `TEMP_PASSWORD_EXPIRE_MINUTES`; a second request within a minute is ignored.
+    Each client may ask `RATE_LIMIT_FORGOT_PASSWORD` times, whichever addresses
+    (`429` past that), so the form cannot be used to mail a list of inboxes.
     """
     issued = await service.issue_temporary_password(payload.email)
     if issued is not None:

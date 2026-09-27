@@ -36,5 +36,10 @@ Most problems in a self-hosted deployment come from its settings:
 - **Serve it over HTTPS** behind a reverse proxy, and keep PostgreSQL off the
   public internet: the Compose file publishes it on `POSTGRES_PORT` for local
   development.
+- **Tell the API which proxy to trust.** Sign-in, signup, forgot password and
+  the emailed-link endpoints are rate-limited per client address. Behind a
+  proxy that is not the Compose file's own nginx, set `FORWARDED_ALLOW_IPS` to
+  its address; otherwise every visitor shares the proxy's limit, and one
+  attacker can use it up for everyone.
 - **Keep `.env` out of version control.** It holds your SMTP password and API
   tokens; `.env.example` is the template to commit.
