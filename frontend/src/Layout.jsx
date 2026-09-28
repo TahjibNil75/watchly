@@ -140,7 +140,7 @@ export default function Layout() {
 
         <div className="side-footer">
           <MonitoringIndicator />
-          <button type="button" className="btn btn-block" onClick={logout}>
+          <button type="button" className="btn btn-block btn-danger" onClick={logout}>
             <Icon name="signout" />
             Sign out
           </button>

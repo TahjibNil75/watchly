@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="doc/images/logo.svg" alt="Watchly logo" width="72" height="72">
+
 # Watchly
 
 **Self-hosted uptime monitoring for teams. Know your site is down before your users do.**

@@ -160,7 +160,15 @@ a:hover {
   overflow-y: auto;
 }
 .sidebar-brand {
-  padding: 4px 12px 18px;
+  padding: 4px 12px 22px;
+}
+.sidebar-brand .brand {
+  gap: 12px;
+  font-size: 1.5rem;
+}
+.sidebar-brand .brand-mark {
+  width: 44px;
+  height: 44px;
 }
 .side-links {
   display: flex;
