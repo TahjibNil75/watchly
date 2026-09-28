@@ -213,47 +213,113 @@ a:hover {
   font-size: 1.3rem;
   margin-bottom: 8px;
 }
-/* BrandMark.jsx. The pupils glance about on one clock and the eyes blink on
-   another, so the two never fall into step; the face turns a little after its
-   gaze. Units in the keyframes are the mark's own 32x32 viewBox. */
+/* BrandMark.jsx. The head turns after its gaze and the eyes blink on a clock
+   of their own, so the two never fall into step. Each mood sets the skin's
+   colour, where the lids sit, which mouth shows, and how it all moves. Units
+   in the keyframes are the mark's own 32x32 viewBox. */
 .brand-mark {
   width: 24px;
   height: 24px;
   flex: none;
+  /* The glasses and the bead of sweat reach the edges; a turn of the head
+     takes them a hair past. */
+  overflow: visible;
+  --brand-ink: #111418;
+  --brand-skin: var(--up);
+}
+/* --pending reads brown on a whole face; the mark's yellow is brighter. */
+.brand-mark.is-slow {
+  --brand-skin: #f0b323;
+}
+.brand-mark.is-down {
+  --brand-skin: var(--down);
 }
 .brand-lg .brand-mark {
   width: 32px;
   height: 32px;
 }
-.brand-face {
-  fill: var(--up);
+.brand-mark * {
+  transform-box: fill-box;
+  transform-origin: center;
 }
-.brand-ink {
-  fill: #1a1d23;
+/* Turns about the face's centre, whatever else the head holds. */
+.brand-head {
+  transform-box: view-box;
+  transform-origin: 16px 18px;
+}
+.brand-skin {
+  fill: var(--brand-skin);
+  transition: fill 0.5s ease;
 }
 .brand-white {
   fill: #fff;
 }
+.brand-pupil {
+  fill: var(--brand-ink);
+  transition: transform 0.4s ease;
+}
 .brand-glasses,
 .brand-mouth {
   fill: none;
-  stroke: #1a1d23;
-  stroke-width: 1.6;
+  stroke: var(--brand-ink);
+  stroke-width: 1.9;
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .brand-mouth {
   stroke-width: 1.5;
 }
-.brand-glint {
-  fill: none;
-  stroke: #fff;
-  stroke-width: 1;
-  stroke-linecap: round;
-  opacity: 0.55;
+.brand-grin {
+  fill: var(--brand-ink);
 }
-.brand-mark g {
-  transform-box: fill-box;
-  transform-origin: center;
+.brand-sweat {
+  fill: #8fd3ff;
+  stroke: var(--brand-ink);
+  stroke-width: 0.8;
+}
+
+/* The faces. At rest the lids sit just outside the lenses, out of sight. */
+.brand-lid,
+.brand-grin,
+.brand-mouth,
+.brand-sweat {
+  transition:
+    fill 0.5s ease,
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+.brand-flat,
+.brand-wobble,
+.brand-sweat {
+  opacity: 0;
+}
+.brand-mark:not(.is-up) .brand-grin {
+  opacity: 0;
+}
+.brand-mark.is-slow .brand-flat,
+.brand-mark.is-down .brand-wobble,
+.brand-mark.is-down .brand-sweat {
+  opacity: 1;
+}
+/* Slow: heavy lids. */
+.brand-mark.is-slow .brand-lid {
+  transform: translateY(4.4px);
+}
+/* Down: lids slanting in, over pinpoint pupils. */
+.brand-mark.is-down .brand-lid-l {
+  transform: translateY(2.6px) rotate(16deg);
+}
+.brand-mark.is-down .brand-lid-r {
+  transform: translateY(2.6px) rotate(-16deg);
+}
+.brand-mark.is-down .brand-pupil {
+  transform: scale(0.7);
+}
+
+/* The motion. Up glances about on an easy loop with a hop now and then; slow
+   drifts and droops; down scans side to side, shivers and sweats. */
+.brand-head {
+  animation: brand-head 7.2s cubic-bezier(0.5, 0, 0.2, 1) infinite;
 }
 .brand-features {
   animation: brand-turn 7.2s cubic-bezier(0.5, 0, 0.2, 1) infinite;
@@ -264,13 +330,39 @@ a:hover {
 .brand-eyes {
   animation: brand-blink 9.2s ease-in-out infinite;
 }
+.brand-mark.is-up .brand-bounce {
+  animation: brand-hop 7.2s cubic-bezier(0.3, 0, 0.3, 1) infinite;
+}
+.brand-mark.is-slow .brand-head {
+  animation: brand-head-droop 11s ease-in-out infinite;
+}
+.brand-mark.is-slow .brand-features,
+.brand-mark.is-slow .brand-pupils {
+  animation-duration: 11s;
+  animation-timing-function: ease-in-out;
+}
+.brand-mark.is-down .brand-head {
+  animation: brand-head-tense 2.4s cubic-bezier(0.3, 0, 0.2, 1) infinite;
+}
+.brand-mark.is-down .brand-features {
+  animation: brand-turn-tense 2.4s cubic-bezier(0.3, 0, 0.2, 1) infinite;
+}
+.brand-mark.is-down .brand-pupils {
+  animation: brand-look-tense 2.4s cubic-bezier(0.3, 0, 0.2, 1) infinite;
+}
+.brand-mark.is-down .brand-bounce {
+  animation: brand-shiver 2.4s linear infinite;
+}
+.brand-mark.is-down .brand-sweat {
+  animation: brand-sweat 1.8s ease-in infinite;
+}
 @keyframes brand-look {
   0%, 12% { transform: translate(0, 0); }
-  15%, 30% { transform: translate(-1.8px, 0.3px); }
-  33%, 46% { transform: translate(1.8px, 0.3px); }
-  49%, 58% { transform: translate(1.2px, -1.3px); }
-  61%, 74% { transform: translate(-1.3px, -1.1px); }
-  77%, 88% { transform: translate(0.3px, 1.3px); }
+  15%, 30% { transform: translate(-2.3px, 0.3px); }
+  33%, 46% { transform: translate(2.3px, 0.3px); }
+  49%, 58% { transform: translate(1.6px, -1.8px); }
+  61%, 74% { transform: translate(-1.7px, -1.6px); }
+  77%, 88% { transform: translate(0.3px, 1.8px); }
   92%, 100% { transform: translate(0, 0); }
 }
 @keyframes brand-turn {
@@ -282,14 +374,77 @@ a:hover {
   77%, 88% { transform: translate(0.1px, 0.4px); }
   92%, 100% { transform: translate(0, 0); }
 }
+@keyframes brand-head {
+  0%, 12% { transform: translate(0, 0) rotate(0); }
+  15%, 30% { transform: translate(-0.5px, 0) rotate(-7deg); }
+  33%, 46% { transform: translate(0.5px, 0) rotate(7deg); }
+  49%, 58% { transform: translate(0.3px, -0.6px) rotate(4deg); }
+  61%, 74% { transform: translate(-0.3px, -0.6px) rotate(-4deg); }
+  77%, 88% { transform: translate(0, 0.6px) rotate(0); }
+  92%, 100% { transform: translate(0, 0) rotate(0); }
+}
+/* A little hop as it settles back to the middle, and one as it looks up. */
+@keyframes brand-hop {
+  0%, 8%, 47%, 55%, 100% { transform: translateY(0); }
+  3.5%, 51% { transform: translateY(-1.3px); }
+}
+@keyframes brand-head-droop {
+  0%, 12% { transform: translate(0, 0.5px) rotate(-6deg); }
+  15%, 30% { transform: translate(-0.4px, 0.7px) rotate(-10deg); }
+  33%, 46% { transform: translate(0.4px, 0.7px) rotate(6deg); }
+  49%, 58% { transform: translate(0.2px, 0.2px) rotate(8deg); }
+  61%, 74% { transform: translate(-0.2px, 0.2px) rotate(-4deg); }
+  77%, 88% { transform: translate(0, 0.9px) rotate(-8deg); }
+  92%, 100% { transform: translate(0, 0.5px) rotate(-6deg); }
+}
+@keyframes brand-look-tense {
+  0%, 8% { transform: translate(-2.3px, 0); }
+  12%, 28% { transform: translate(2.3px, 0); }
+  32%, 40% { transform: translate(-2.3px, -0.8px); }
+  44%, 60% { transform: translate(2.3px, -0.6px); }
+  64%, 76% { transform: translate(-2px, 0.6px); }
+  80%, 96% { transform: translate(2px, 0.4px); }
+  100% { transform: translate(-2.3px, 0); }
+}
+@keyframes brand-turn-tense {
+  0%, 8% { transform: translate(-0.5px, 0); }
+  12%, 28% { transform: translate(0.5px, 0); }
+  32%, 40% { transform: translate(-0.5px, -0.2px); }
+  44%, 60% { transform: translate(0.5px, -0.2px); }
+  64%, 76% { transform: translate(-0.45px, 0.2px); }
+  80%, 96% { transform: translate(0.45px, 0.1px); }
+  100% { transform: translate(-0.5px, 0); }
+}
+@keyframes brand-head-tense {
+  0%, 8% { transform: translate(-0.3px, 0.3px) rotate(-5deg); }
+  12%, 28% { transform: translate(0.3px, 0.3px) rotate(5deg); }
+  32%, 40% { transform: translate(-0.3px, 0.2px) rotate(-5deg); }
+  44%, 60% { transform: translate(0.3px, 0.2px) rotate(5deg); }
+  64%, 76% { transform: translate(-0.3px, 0.4px) rotate(-4deg); }
+  80%, 96% { transform: translate(0.3px, 0.4px) rotate(4deg); }
+  100% { transform: translate(-0.3px, 0.3px) rotate(-5deg); }
+}
+/* A shiver as the scan turns back. */
+@keyframes brand-shiver {
+  0%, 14%, 30%, 64%, 80%, 100% { transform: translate(0, 0); }
+  16%, 20%, 24%, 66%, 70%, 74% { transform: translate(-0.7px, 0); }
+  18%, 22%, 26%, 68%, 72%, 76% { transform: translate(0.7px, 0); }
+}
+@keyframes brand-sweat {
+  0% { transform: translate(0, -1px); opacity: 0; }
+  20%, 80% { opacity: 1; }
+  100% { transform: translate(0, 3px); opacity: 0; }
+}
 /* One blink, then a double blink. */
 @keyframes brand-blink {
   0%, 44%, 48%, 88%, 92%, 94%, 98%, 100% { transform: scaleY(1); }
   46%, 90%, 96% { transform: scaleY(0.1); }
 }
+/* Still, but the face still shows the mood. */
 @media (prefers-reduced-motion: reduce) {
-  .brand-mark g {
+  .brand-mark * {
     animation: none !important;
+    transition: none !important;
   }
 }
 
