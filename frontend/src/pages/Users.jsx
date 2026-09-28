@@ -1,11 +1,40 @@
 import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
-import { Empty, ErrorBanner, Loading, PageHeader } from '../components.jsx'
+import {
+  Avatar,
+  Empty,
+  ErrorBanner,
+  Loading,
+  PageHeader,
+  RolePill,
+  RoleSelect,
+} from '../components.jsx'
 import { dateTime, timeAgo } from '../format.js'
 import { InvitationList, InviteForm } from '../Invitations.jsx'
 import { ROLES, canChangeRole, canInvite, canManageUsers, canSuspend } from '../roles.js'
 import { useApi } from '../useApi.js'
+
+const STATUS_FILTERS = [
+  { value: '', label: 'Everyone' },
+  { value: 'true', label: 'Active' },
+  { value: 'false', label: 'Suspended' },
+]
+
+const LOCK_ICON = (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+    <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
+  </svg>
+)
 
 export default function Users() {
   const { user: me } = useAuth()
@@ -84,14 +113,23 @@ export default function Users() {
             ))}
           </select>
         </label>
-        <label className="inline-field">
-          <span>Status</span>
-          <select value={active} onChange={(e) => setActive(e.target.value)}>
-            <option value="">Everyone</option>
-            <option value="true">Active</option>
-            <option value="false">Suspended</option>
-          </select>
-        </label>
+        <div className="segmented" role="group" aria-label="Status">
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              aria-pressed={active === f.value}
+              onClick={() => setActive(f.value)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {users.data && (
+          <span className="toolbar-count muted small">
+            {users.data.total} {users.data.total === 1 ? 'user' : 'users'}
+          </span>
+        )}
       </div>
 
       <ErrorBanner error={actionError ?? users.error} />
@@ -102,7 +140,7 @@ export default function Users() {
         <Empty>No users match these filters.</Empty>
       ) : (
         <div className="table-wrap">
-          <table>
+          <table className="people-table">
             <thead>
               <tr>
                 <th>User</th>
@@ -116,49 +154,54 @@ export default function Users() {
               {items.map((u) => {
                 const busy = pending === u.id
                 return (
-                  <tr key={u.id}>
+                  <tr key={u.id} className={u.is_active ? undefined : 'is-suspended'}>
                     <td>
-                      <strong>{u.full_name || u.username}</strong>
-                      {u.id === me.id && <span className="muted small"> (you)</span>}
-                      <div className="muted small">
-                        @{u.username} · {u.email}
+                      <div className="person">
+                        <Avatar user={u} />
+                        <div className="person-text">
+                          <div className="person-name">
+                            <strong>{u.full_name || u.username}</strong>
+                            {u.id === me.id && <span className="you-pill">You</span>}
+                          </div>
+                          <div className="muted small truncate">
+                            @{u.username} · {u.email}
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td>
                       {canChangeRole(me, u) ? (
-                        <select
+                        <RoleSelect
                           value={u.role}
                           disabled={busy}
-                          onChange={(e) => update(u, () => api.setRole(u.id, e.target.value))}
-                        >
-                          {ROLES.map((r) => (
-                            <option key={r}>{r}</option>
-                          ))}
-                        </select>
+                          label={`Role for ${u.username}`}
+                          onChange={(r) => update(u, () => api.setRole(u.id, r))}
+                        />
                       ) : (
-                        u.role
+                        <RolePill role={u.role} />
                       )}
                     </td>
                     <td>
-                      {u.is_active ? (
-                        <span className="badge badge-up">active</span>
-                      ) : (
-                        <span className="badge badge-down">suspended</span>
-                      )}
+                      <span className={`status-dot ${u.is_active ? 'is-up' : 'is-down'}`}>
+                        {u.is_active ? 'Active' : 'Suspended'}
+                      </span>
                       {u.locked_until && new Date(u.locked_until) > new Date() ? (
-                        <div className="muted small">
-                          sign-in locked until {dateTime(u.locked_until)}
+                        <div className="user-flag is-locked">
+                          {LOCK_ICON}
+                          Sign-in locked until {dateTime(u.locked_until)}
                         </div>
                       ) : (
                         u.failed_login_attempts > 0 && (
-                          <div className="muted small">
+                          <div className="user-flag">
                             {u.failed_login_attempts} failed sign-in
                             {u.failed_login_attempts === 1 ? '' : 's'}
                           </div>
                         )
                       )}
                     </td>
-                    <td className="nowrap">{timeAgo(u.last_activity)}</td>
+                    <td className="nowrap" title={u.last_activity ? dateTime(u.last_activity) : undefined}>
+                      {timeAgo(u.last_activity)}
+                    </td>
                     <td className="right">
                       {canSuspend(me, u) &&
                         (u.is_active ? (

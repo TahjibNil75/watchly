@@ -1,7 +1,42 @@
 import { Link } from 'react-router-dom'
 import { checkType } from './checkTypes.js'
 import { environmentLabel } from './environments.js'
-import { duration, since, timeAgo } from './format.js'
+import { duration, initials, since, timeAgo } from './format.js'
+import { ROLES } from './roles.js'
+
+// 'Project Manager' -> 'role-project-manager', which sets the role's colour.
+const roleClass = (role) => `role-${role.toLowerCase().replace(/\s+/g, '-')}`
+
+export function RolePill({ role }) {
+  return <span className={`role-pill ${roleClass(role)}`}>{role}</span>
+}
+
+// A role picker that looks like RolePill, for the rows the viewer may change.
+export function RoleSelect({ value, onChange, disabled, label }) {
+  return (
+    <span className={`role-select ${roleClass(value)}`}>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+      >
+        {ROLES.map((r) => (
+          <option key={r}>{r}</option>
+        ))}
+      </select>
+    </span>
+  )
+}
+
+// A person's initials in their role's colour.
+export function Avatar({ user }) {
+  return (
+    <span className={`avatar ${roleClass(user.role)}`} aria-hidden="true">
+      {initials(user.full_name || user.username)}
+    </span>
+  )
+}
 
 // `maintenance` is the site's window in effect, if any: it outranks the
 // status, which is not being checked meanwhile.

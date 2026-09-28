@@ -15,6 +15,8 @@
   --series-1: #3a5bd9;
   --series-2: #eb6834;
   --paused: #7a808c;
+  /* The Developer role's colour, apart from the status tones. */
+  --teal: #0e8a9c;
   --radius: 10px;
   --shadow: 0 1px 2px rgb(16 24 40 / 0.05);
 
@@ -44,6 +46,7 @@
     --series-1: #6d8bff;
     --series-2: #d95926;
     --paused: #8b919c;
+    --teal: #3cc3d6;
     --shadow: none;
 
     color-scheme: dark;
@@ -118,6 +121,18 @@ a:hover {
 .text-pending {
   color: var(--pending);
   font-weight: 500;
+}
+/* Read out, not shown. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ---------- Layout ---------- */
@@ -2870,6 +2885,487 @@ strong + .badge {
   gap: 8px;
   font-size: 0.9rem;
   color: var(--muted);
+}
+
+/* ---------- Projects ---------- */
+
+/* The project cards (ProjectCard in Projects.jsx), tinted like the website
+   head with the colour of what their sites are doing. */
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+.project-card {
+  --tone: var(--muted);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--tone) 22%, var(--border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tone) 7%, var(--surface)),
+    var(--surface) 70%
+  );
+  box-shadow: var(--shadow);
+  color: inherit;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+.project-card:hover {
+  text-decoration: none;
+  border-color: color-mix(in srgb, var(--tone) 55%, var(--border));
+  box-shadow: 0 12px 24px -18px color-mix(in srgb, var(--tone) 80%, transparent);
+  transform: translateY(-2px);
+}
+.project-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.project-card.tone-up {
+  --tone: var(--up);
+}
+.project-card.tone-paused {
+  --tone: var(--paused);
+}
+/* Anything down: a stronger red, like the website head. */
+.project-card.tone-down {
+  --tone: var(--down);
+  border-color: color-mix(in srgb, var(--down) 55%, var(--border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--down) 13%, var(--surface)),
+    color-mix(in srgb, var(--down) 4%, var(--surface)) 70%
+  );
+}
+
+.project-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.project-mark {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 15%, transparent);
+}
+.project-mark.is-alarm::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid var(--tone);
+  animation: site-ring 1.8s ease-out infinite;
+}
+.project-card-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.project-card-name {
+  font-size: 1.02rem;
+  font-weight: 650;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-card-desc {
+  margin-top: 2px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* Pushed to the bottom, so the bars line up along a row of cards. */
+.project-card-health {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+.project-card-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--tone);
+}
+/* The sites' split, coloured like the dashboard's total. */
+.project-bar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.project-bar i {
+  flex: 0 1 0;
+  min-width: 3px;
+  transition: flex-grow 0.6s ease;
+}
+
+.project-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--tone) 14%, var(--border));
+}
+.project-people {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.project-faces {
+  display: flex;
+  flex: none;
+}
+.project-face {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface));
+}
+.project-face + .project-face {
+  margin-left: -7px;
+}
+.project-face.is-more {
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.project-channels {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.project-channels .channel-logo {
+  width: 18px;
+  height: 18px;
+}
+
+.empty-icon {
+  display: block;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 12px;
+  padding: 10px;
+  border-radius: 12px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+@media (max-width: 640px) {
+  .project-card {
+    padding: 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-card,
+  .project-bar i {
+    transition: none;
+  }
+  .project-card:hover {
+    transform: none;
+  }
+  .project-mark.is-alarm::after {
+    animation: none;
+  }
+}
+
+/* ---------- Users ---------- */
+
+/* Each role has a colour, quiet for the least access and loudest for Admin.
+   Set on RolePill, RoleSelect and Avatar in components.jsx. */
+.role-viewer {
+  --tone: var(--paused);
+}
+.role-developer {
+  --tone: var(--teal);
+}
+.role-project-manager {
+  --tone: var(--series-2);
+}
+.role-devops {
+  --tone: var(--maintenance);
+}
+.role-admin {
+  --tone: var(--primary);
+}
+
+/* Every role the same width, the widest's, so a column of them lines up; a
+   dot in the role's colour leads, on the pill and the picker alike. */
+.role-pill,
+.role-select {
+  --role-width: 12.5em;
+  font-size: 0.8rem;
+}
+.role-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  box-sizing: border-box;
+  width: var(--role-width);
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+}
+.role-pill::before,
+.role-select::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tone);
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--tone) 22%, transparent);
+}
+/* The same pill, with a chevron, over a native select. */
+.role-select {
+  position: relative;
+  display: inline-flex;
+}
+.role-select::before {
+  position: absolute;
+  top: 50%;
+  left: 11px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.role-select select {
+  appearance: none;
+  box-sizing: border-box;
+  width: var(--role-width);
+  padding: 3px 24px 3px 23px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--tone) 35%, transparent);
+  background: color-mix(in srgb, var(--tone) 12%, var(--surface));
+  color: var(--tone);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.role-select select:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--tone) 70%, transparent);
+  background: color-mix(in srgb, var(--tone) 18%, var(--surface));
+}
+.role-select select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.role-select select:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.role-select::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid var(--tone);
+  border-bottom: 1.5px solid var(--tone);
+  transform: translateY(-75%) rotate(45deg);
+  pointer-events: none;
+}
+
+.avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 15%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 22%, transparent);
+}
+.avatar-invite {
+  --tone: var(--muted);
+  border-radius: 10px;
+}
+.avatar svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* The user and invitation tables: a face beside each name, and rows centred
+   on it. Short of room they scroll, rather than squeeze every row tall. */
+.people-table th,
+.people-table td {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.person-text {
+  min-width: 0;
+}
+.person-text > .truncate {
+  display: block;
+}
+.people-table .truncate {
+  max-width: 260px;
+}
+.person-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.you-pill {
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+}
+.people-table tr.is-suspended .avatar {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+.people-table tr.is-suspended .person-name strong {
+  color: var(--muted);
+}
+
+.status-dot {
+  --tone: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.status-dot::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tone);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone) 18%, transparent);
+}
+.status-dot.is-up {
+  --tone: var(--up);
+}
+.status-dot.is-down {
+  --tone: var(--down);
+  color: var(--down);
+}
+/* Lockouts and failed sign-ins, under the status. */
+.user-flag {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  max-width: 16em;
+  margin-top: 4px;
+  white-space: normal;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.user-flag.is-locked {
+  color: var(--pending);
+  font-weight: 500;
+}
+.user-flag svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin-top: 0.15em;
+}
+
+/* A row of toggle buttons: one choice from a few. */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.segmented button {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.segmented button:hover {
+  color: var(--text);
+}
+.segmented button[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow:
+    0 1px 2px rgb(16 24 40 / 0.08),
+    0 0 0 1px var(--border);
+}
+.segmented button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.toolbar-count {
+  align-self: center;
+  margin-left: auto;
 }
 
 /* ---------- Tables ---------- */

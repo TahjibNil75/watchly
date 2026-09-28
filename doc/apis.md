@@ -278,7 +278,10 @@ table (`INVITABLE_BY` in `app/core/permissions.py`):
 Every invitation comes back as `id`, `email` (lower-cased), `role`, `status`
 (`pending`, `accepted`, `revoked` or `expired`), `invited_by_id`,
 `invited_by_name`, `expires_at`, `accepted_at`, `revoked_at` and `created_at`.
-The token is never part of it.
+The token is never part of it. Expired invitations are deleted on the next
+monitoring tick, so `expired` is rarely seen, and only the newest
+`INVITATION_HISTORY_KEEP` (default 50) accepted and revoked invitations are
+kept, each.
 
 ### `POST /api/v1/invitations`
 Body: `{"email": "jane@example.com", "role": "Developer"}`. The role is required.
@@ -306,7 +309,8 @@ revoke an invitation to Admin.
 Public. Body: `{"token": "…"}` (from the email). Returns the `email`, `role`,
 `invited_by_name` and `expires_at` it is for, without using it up. A POST so the
 token stays out of access logs.
-`200` · `404` no such invitation · `410` already used, revoked or expired, or its
+`200` · `404` no such invitation, or it expired and was deleted · `410` already
+used, revoked or expired, or its
 sender is suspended, demoted below the role they offered, or deleted ·
 `429` rate-limited
 

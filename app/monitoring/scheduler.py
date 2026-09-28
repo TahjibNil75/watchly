@@ -21,6 +21,7 @@ from app.auth.service import AuthService
 from app.core.config import settings
 from app.core.rate_limit import purge_closed_windows
 from app.db.session import AsyncSessionLocal, engine
+from app.invitations.service import InvitationService
 from app.monitoring.notifications.reports import ReportService
 from app.monitoring.service import MonitoringService
 from app.monitoring.websites.history import HistoryService
@@ -46,7 +47,8 @@ async def run_tick() -> int:
     """Run one round of due checks, then the housekeeping that follows them:
     rolling checks up by the hour, any monthly reports that are due, purging
     checks, feed events and ended maintenance past their retention, and
-    deleting expired refresh tokens and closed rate-limit windows.
+    deleting expired refresh tokens, expired and old invitations, and closed
+    rate-limit windows.
 
     Returns how many websites were probed.
     """
@@ -61,6 +63,7 @@ async def run_tick() -> int:
         "Maintenance purge", lambda s: WebsiteService(s).purge_old_maintenance()
     )
     await _run_guarded("Session purge", lambda s: AuthService(s).purge_expired_sessions())
+    await _run_guarded("Invitation purge", lambda s: InvitationService(s).purge())
     await _run_guarded("Rate limit purge", purge_closed_windows)
     return len(outcomes)
 

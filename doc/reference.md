@@ -487,6 +487,10 @@ not set up, or the mail server failed — and `email_sent: false` says so.
   you resend one. DevOps cannot replace or revoke an invitation for a role it
   could not have sent (an Admin invitation, say).
 - **The link works once** and expires after `INVITATION_EXPIRE_DAYS` (default 7).
+- **Old invitations are deleted.** An expired invitation goes on the next
+  monitoring tick (or the next time anyone sends one, if monitoring is off), and
+  only the newest `INVITATION_HISTORY_KEEP` (default 50) accepted invitations,
+  and as many revoked ones, are kept. Following a deleted link answers `404`.
 - **The token is the proof of owning the address.** It is emailed and never
   returned by the API; only its SHA-256 digest is stored. Accepting takes the
   email and role from the invitation, not from the request.

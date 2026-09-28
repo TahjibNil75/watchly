@@ -7,7 +7,7 @@ gets the raw token back from `invite()` and hands it to `mail.py`.
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy import ColumnElement, and_, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,8 +27,8 @@ class InvitationError(Exception):
 class InvitationNotFoundError(InvitationError):
     """No invitation with this id, or none matches this token."""
 
-    def __init__(self) -> None:
-        super().__init__("No such invitation.")
+    def __init__(self, message: str = "No such invitation.") -> None:
+        super().__init__(message)
 
 
 class InvitationUnusableError(InvitationError):
@@ -61,9 +61,11 @@ class RoleNotGrantableError(InvitationError):
         )
 
 
-def _status_filter(status: InvitationStatus) -> ColumnElement[bool]:
+def _status_filter(
+    status: InvitationStatus, now: datetime | None = None
+) -> ColumnElement[bool]:
     open_ = and_(Invitation.accepted_at.is_(None), Invitation.revoked_at.is_(None))
-    now = datetime.now(UTC)
+    now = now or datetime.now(UTC)
     match status:
         case InvitationStatus.ACCEPTED:
             return Invitation.accepted_at.is_not(None)
@@ -112,6 +114,43 @@ class InvitationService:
         )
         return list(rows), total or 0
 
+    async def purge(self, now: datetime | None = None) -> int:
+        """Delete expired invitations, and accepted and revoked ones past the
+        newest INVITATION_HISTORY_KEEP of each. Called on every tick; returns
+        how many were deleted."""
+        deleted = await self._purge(now or datetime.now(UTC))
+        await self.session.commit()
+        return deleted
+
+    async def _purge(self, now: datetime) -> int:
+        # An expired link is refused like an unknown one, so its row has
+        # nothing left to do.
+        result = await self.session.execute(
+            delete(Invitation)
+            .where(_status_filter(InvitationStatus.EXPIRED, now))
+            .execution_options(synchronize_session=False)
+        )
+        deleted = result.rowcount or 0
+        # Newest by when they were closed, so re-sending an old invitation
+        # does not push a recent acceptance out.
+        for status, closed_at in (
+            (InvitationStatus.ACCEPTED, Invitation.accepted_at),
+            (InvitationStatus.REVOKED, Invitation.revoked_at),
+        ):
+            kept = (
+                select(Invitation.id)
+                .where(_status_filter(status))
+                .order_by(closed_at.desc(), Invitation.id.desc())
+                .limit(settings.INVITATION_HISTORY_KEEP)
+            )
+            result = await self.session.execute(
+                delete(Invitation)
+                .where(_status_filter(status), Invitation.id.not_in(kept))
+                .execution_options(synchronize_session=False)
+            )
+            deleted += result.rowcount or 0
+        return deleted
+
     async def invite(
         self, actor: User, email: str, role: UserRole
     ) -> tuple[Invitation, str]:
@@ -139,6 +178,11 @@ class InvitationService:
         if await self._email_taken(email):
             raise UserAlreadyExistsError("email", email)
 
+        now = datetime.now(UTC)
+        # Also done on every tick; this covers installs that run with the
+        # scheduler off, as signing in does for expired sessions.
+        await self._purge(now)
+
         live = await self.session.scalars(
             select(Invitation)
             .where(
@@ -148,7 +192,6 @@ class InvitationService:
             )
             .with_for_update()
         )
-        now = datetime.now(UTC)
         for existing in live:
             # Replacing is withdrawing: an actor who could not have sent the old
             # invitation must not be able to void it by re-inviting.
@@ -210,7 +253,11 @@ class InvitationService:
             statement = statement.with_for_update()
         invitation = await self.session.scalar(statement)
         if invitation is None:
-            raise InvitationNotFoundError
+            # Expired invitations are deleted, so this is the usual answer to
+            # an old link.
+            raise InvitationNotFoundError(
+                "This invitation link is not valid, or it has expired. Ask for a new one."
+            )
 
         match invitation.status:
             case InvitationStatus.ACCEPTED:

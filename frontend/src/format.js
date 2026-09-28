@@ -23,6 +23,13 @@ export function timeAgo(iso) {
   return seconds < 5 ? 'just now' : `${duration(seconds)} ago`
 }
 
+// 'Monstar People' -> 'MP', 'client' -> 'CL': for a person's or project's tile.
+export function initials(name) {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  const letters = words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? '?').slice(0, 2)
+  return letters.toUpperCase()
+}
+
 // Floored, so 99.996% never reads as a perfect 100%.
 export const percent = (value) =>
   value == null ? '—' : value === 100 ? '100%' : `${(Math.floor(value * 100) / 100).toFixed(2)}%`

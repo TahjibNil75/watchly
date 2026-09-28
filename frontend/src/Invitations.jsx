@@ -1,16 +1,16 @@
 import { useState } from 'react'
 import { api } from './api.js'
-import { Empty, ErrorBanner, Loading } from './components.jsx'
+import { Empty, ErrorBanner, Loading, RolePill } from './components.jsx'
 import { duration, timeAgo } from './format.js'
 import { canManageInvitation, invitableRoles } from './roles.js'
 import { useApi } from './useApi.js'
 
-const STATUSES = ['pending', 'accepted', 'revoked', 'expired']
+// No 'expired': the server deletes invitations once they expire.
+const STATUSES = ['pending', 'accepted', 'revoked']
 const STATUS_BADGE = {
   pending: 'badge-unknown',
   accepted: 'badge-up',
   revoked: 'badge-paused',
-  expired: 'badge-down',
 }
 
 // What to tell the sender after an invitation is saved. The API saves it even
@@ -29,8 +29,6 @@ function when(invitation) {
   switch (invitation.status) {
     case 'pending':
       return `expires in ${duration((new Date(invitation.expires_at) - Date.now()) / 1000)}`
-    case 'expired':
-      return `expired ${timeAgo(invitation.expires_at)}`
     case 'accepted':
       return `accepted ${timeAgo(invitation.accepted_at)}`
     default:
@@ -67,6 +65,7 @@ export function InviteForm({ me, onNotice, onSent, onCancel }) {
 
   return (
     <form className="card form" onSubmit={submit}>
+      <h2>Invite a user</h2>
       <ErrorBanner error={error} />
       <div className="row-2">
         <label className="field">
@@ -132,16 +131,18 @@ export function InvitationList({ me, version, onNotice }) {
       <div className="section-head">
         <div>
           <h2>Invitations</h2>
-          <p className="muted small">Sent by email. Each link works once.</p>
+          <p className="muted small">
+            Sent by email. Each link works once. Expired invitations are deleted, and only the
+            latest accepted and revoked ones are kept.
+          </p>
         </div>
-        <label className="inline-field">
-          <span>Status</span>
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            {STATUSES.map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
-        </label>
+        <div className="segmented" role="group" aria-label="Invitation status">
+          {STATUSES.map((s) => (
+            <button key={s} type="button" aria-pressed={status === s} onClick={() => setStatus(s)}>
+              {s[0].toUpperCase() + s.slice(1)}
+            </button>
+          ))}
+        </div>
       </div>
 
       <ErrorBanner error={actionError ?? invitations.error} />
@@ -152,7 +153,7 @@ export function InvitationList({ me, version, onNotice }) {
         <Empty>No {status} invitations.</Empty>
       ) : (
         <div className="table-wrap">
-          <table>
+          <table className="people-table">
             <thead>
               <tr>
                 <th>Invitee</th>
@@ -166,20 +167,38 @@ export function InvitationList({ me, version, onNotice }) {
               {items.map((inv) => {
                 const busy = pending === inv.id
                 const mine = canManageInvitation(me, inv)
-                const open = inv.status === 'pending' || inv.status === 'expired'
                 return (
                   <tr key={inv.id}>
                     <td>
-                      <strong>{inv.email}</strong>
-                      <div className="muted small">{when(inv)}</div>
+                      <div className="person">
+                        <span className="avatar avatar-invite" aria-hidden="true">
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.9"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <rect x="3.5" y="5.5" width="17" height="13" rx="2" />
+                            <path d="m4 7 8 6 8-6" />
+                          </svg>
+                        </span>
+                        <div className="person-text">
+                          <strong className="truncate">{inv.email}</strong>
+                          <div className="muted small">{when(inv)}</div>
+                        </div>
+                      </div>
                     </td>
-                    <td>{inv.role}</td>
+                    <td>
+                      <RolePill role={inv.role} />
+                    </td>
                     <td>
                       <span className={`badge ${STATUS_BADGE[inv.status]}`}>{inv.status}</span>
                     </td>
                     <td>{inv.invited_by_name ?? <span className="muted">—</span>}</td>
                     <td className="right nowrap">
-                      {open && mine && (
+                      {inv.status === 'pending' && mine && (
                         <button
                           type="button"
                           className="btn btn-sm"

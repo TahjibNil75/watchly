@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     ALLOW_PUBLIC_SIGNUP: bool = True
     #: How long an emailed invitation link stays usable.
     INVITATION_EXPIRE_DAYS: int = Field(default=7, ge=1)
+    #: Accepted and revoked invitations kept, the newest of each; older ones
+    #: are deleted. Expired invitations are deleted as soon as they expire.
+    INVITATION_HISTORY_KEEP: int = Field(default=50, ge=0)
     #: How long the link confirming a new email address stays usable.
     EMAIL_CHANGE_EXPIRE_HOURS: int = Field(default=24, ge=1)
     #: How long a temporary password from "forgot password" can be used to sign in.

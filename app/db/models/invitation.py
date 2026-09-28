@@ -12,7 +12,8 @@ class InvitationStatus(str, enum.Enum):
     PENDING = "pending"
     ACCEPTED = "accepted"
     REVOKED = "revoked"
-    #: Never acted on and past `expires_at`. Derived, not stored.
+    #: Never acted on and past `expires_at`. Derived, not stored, and only
+    #: until the next purge deletes it — see InvitationService.purge.
     EXPIRED = "expired"
 
 
@@ -21,14 +22,16 @@ class Invitation(TimestampMixin, Base):
 
     The emailed token is the only proof of owning the address, so only its
     SHA-256 digest is stored — a database read cannot be turned into a working
-    link. Accepting creates the user and stamps `accepted_at`; nothing is ever
-    deleted, so who invited whom stays on record.
+    link. Accepting creates the user and stamps `accepted_at`. Expired
+    invitations are deleted, and only the newest INVITATION_HISTORY_KEEP
+    accepted and revoked ones are kept, so who invited whom stays on record for
+    recent arrivals only.
     """
 
     __tablename__ = "invitations"
     __table_args__ = (
         # One live invitation per address. Accepted and revoked rows drop out of
-        # the index, so history can pile up while re-inviting stays possible.
+        # the index, so history can build up while re-inviting stays possible.
         Index(
             "uq_invitations_open_email",
             "email",
