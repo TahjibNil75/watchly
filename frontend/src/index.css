@@ -215,13 +215,14 @@ a:hover {
 }
 /* BrandMark.jsx. The head turns after its gaze and the eyes blink on a clock
    of their own, so the two never fall into step. Each mood sets the skin's
-   colour, where the lids sit, which mouth shows, and how it all moves. Units
-   in the keyframes are the mark's own 32x32 viewBox. */
+   colour, where the lids sit, how high the head peeks over the window, which
+   trace the window shows, and how it all moves. Units in the keyframes are the
+   mark's own 32x32 viewBox. */
 .brand-mark {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   flex: none;
-  /* The glasses and the bead of sweat reach the edges; a turn of the head
+  /* The glasses, hands and bead of sweat reach the edges; a turn of the head
      takes them a hair past. */
   overflow: visible;
   --brand-ink: #111418;
@@ -235,8 +236,8 @@ a:hover {
   --brand-skin: var(--down);
 }
 .brand-lg .brand-mark {
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
 }
 .brand-mark * {
   transform-box: fill-box;
@@ -245,7 +246,7 @@ a:hover {
 /* Turns about the face's centre, whatever else the head holds. */
 .brand-head {
   transform-box: view-box;
-  transform-origin: 16px 18px;
+  transform-origin: 16px 15.5px;
 }
 .brand-skin {
   fill: var(--brand-skin);
@@ -258,54 +259,80 @@ a:hover {
   fill: var(--brand-ink);
   transition: transform 0.4s ease;
 }
-.brand-glasses,
-.brand-mouth {
+.brand-glasses {
   fill: none;
   stroke: var(--brand-ink);
   stroke-width: 1.9;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.brand-mouth {
-  stroke-width: 1.5;
-}
-.brand-grin {
-  fill: var(--brand-ink);
-}
 .brand-sweat {
   fill: #8fd3ff;
   stroke: var(--brand-ink);
   stroke-width: 0.8;
 }
+.brand-hand {
+  stroke: var(--brand-ink);
+  stroke-width: 0.9;
+}
+/* The site being watched: a white window on either theme. */
+.brand-window {
+  fill: #fff;
+  stroke: var(--brand-ink);
+  stroke-width: 1.6;
+}
+.brand-chrome {
+  fill: #b9bfc9;
+}
+/* The site's pulse. The window stays white, so the traces keep the light
+   theme's status colours on either theme, the yellow darkened to read on
+   white. */
+.brand-trace {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.brand-trace-up {
+  stroke: #1c8f4e;
+}
+.brand-trace-slow {
+  stroke: #d99a0b;
+}
+.brand-trace-down {
+  stroke: #d23a3a;
+}
 
 /* The faces. At rest the lids sit just outside the lenses, out of sight. */
 .brand-lid,
-.brand-grin,
-.brand-mouth,
+.brand-trace,
 .brand-sweat {
   transition:
     fill 0.5s ease,
     opacity 0.4s ease,
     transform 0.4s ease;
 }
-.brand-flat,
-.brand-wobble,
+.brand-rise {
+  transition: transform 0.6s ease;
+}
+.brand-trace,
 .brand-sweat {
   opacity: 0;
 }
-.brand-mark:not(.is-up) .brand-grin {
-  opacity: 0;
-}
-.brand-mark.is-slow .brand-flat,
-.brand-mark.is-down .brand-wobble,
+.brand-mark.is-up .brand-trace-up,
+.brand-mark.is-slow .brand-trace-slow,
+.brand-mark.is-down .brand-trace-down,
 .brand-mark.is-down .brand-sweat {
   opacity: 1;
 }
-/* Slow: heavy lids. */
+/* Slow: heavy lids, and the head slumps down behind the window. */
 .brand-mark.is-slow .brand-lid {
   transform: translateY(4.4px);
 }
-/* Down: lids slanting in, over pinpoint pupils. */
+.brand-mark.is-slow .brand-rise {
+  transform: translateY(1.5px);
+}
+/* Down: lids slanting in, over pinpoint pupils, and the head ducks a little. */
 .brand-mark.is-down .brand-lid-l {
   transform: translateY(2.6px) rotate(16deg);
 }
@@ -314,6 +341,9 @@ a:hover {
 }
 .brand-mark.is-down .brand-pupil {
   transform: scale(0.7);
+}
+.brand-mark.is-down .brand-rise {
+  transform: translateY(0.7px);
 }
 
 /* The motion. Up glances about on an easy loop with a hop now and then; slow
@@ -355,6 +385,16 @@ a:hover {
 }
 .brand-mark.is-down .brand-sweat {
   animation: brand-sweat 1.8s ease-in infinite;
+}
+/* A gap runs along the trace, as a monitor's erase bar does: briskly when up,
+   at a crawl when slow. A flatline has nothing to sweep. */
+.brand-trace-up,
+.brand-trace-slow {
+  stroke-dasharray: 0.82 0.18;
+  animation: brand-sweep 1.5s linear infinite;
+}
+.brand-trace-slow {
+  animation-duration: 3.4s;
 }
 @keyframes brand-look {
   0%, 12% { transform: translate(0, 0); }
@@ -435,16 +475,23 @@ a:hover {
   20%, 80% { opacity: 1; }
   100% { transform: translate(0, 3px); opacity: 0; }
 }
+@keyframes brand-sweep {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
 /* One blink, then a double blink. */
 @keyframes brand-blink {
   0%, 44%, 48%, 88%, 92%, 94%, 98%, 100% { transform: scaleY(1); }
   46%, 90%, 96% { transform: scaleY(0.1); }
 }
-/* Still, but the face still shows the mood. */
+/* Still, but the face still shows the mood, over an unbroken trace. */
 @media (prefers-reduced-motion: reduce) {
   .brand-mark * {
     animation: none !important;
     transition: none !important;
+  }
+  .brand-trace {
+    stroke-dasharray: none;
   }
 }
 

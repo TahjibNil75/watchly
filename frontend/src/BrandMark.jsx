@@ -2,15 +2,19 @@ import { useEffect, useId, useState } from 'react'
 import { useMediaQuery } from './useMediaQuery.js'
 
 // Watchly's mark: the status dot, grown a face and a pair of round glasses too
-// big for it. Its head and eyes keep glancing about, as a watcher should, and
-// it blinks now and then. The motion lives in index.css (.brand-mark).
+// big for it, hanging on to the top of a browser window and peering over at
+// the site it watches. The window shows the site's pulse. Its head and eyes
+// keep glancing about, as a watcher should, and it blinks now and then. The
+// motion lives in index.css (.brand-mark).
 //
 // It plays through a site's moods, one every few seconds:
-//   up    green and a little happy: a grin and a hop now and then
-//   slow  yellow and fed up with waiting: heavy lids, a flat mouth, a droop
+//   up    green and a little happy: a heartbeat on the screen and a hop now
+//         and then
+//   slow  yellow and fed up with waiting: heavy lids, a slouch, a droop and a
+//         lazy wave on the screen
 //   down  red and tense: slanted lids, pinpoint pupils darting side to side,
-//         a wobbly mouth, a shiver and a bead of sweat
-// Every mood's lids and mouth are drawn, and CSS shows the current one's, so
+//         a shiver, a bead of sweat, and a flatline on the screen
+// Every mood's lids and trace are drawn, and CSS shows the current one's, so
 // a change of mood eases from one face to the next. Visitors who ask for
 // reduced motion get the happy face, still.
 
@@ -36,10 +40,11 @@ function useMood(still) {
   return still ? 'up' : mood
 }
 
-// 32x32, the lenses reaching past the head on both sides. The ink and eye
-// whites are fixed, so the eyes read on every face. The clip id is per
-// instance: a url(#id) that lands on a copy inside a hidden element (the
-// drawer's top bar on wide screens) clips to nothing.
+// 32x32: the head up top, its glasses resting on the window's top edge and its
+// hands on the corners. The ink, eye whites and window are fixed, so they read
+// on every face and either theme. The clip id is per instance: a url(#id) that
+// lands on a copy inside a hidden element (the drawer's top bar on wide
+// screens) clips to nothing.
 export default function BrandMark() {
   const mood = useMood(useMediaQuery('(prefers-reduced-motion: reduce)'))
   const lens = `${useId()}lens`
@@ -47,44 +52,52 @@ export default function BrandMark() {
     <svg className={`brand-mark is-${mood}`} viewBox="0 0 32 32" aria-hidden="true">
       <defs>
         <clipPath id={lens}>
-          <circle cx="8.4" cy="14.8" r="6.2" />
-          <circle cx="23.6" cy="14.8" r="6.2" />
+          <circle cx="9.4" cy="11.6" r="5.4" />
+          <circle cx="22.6" cy="11.6" r="5.4" />
         </clipPath>
       </defs>
-      <g className="brand-head">
-        <g className="brand-bounce">
-          <circle className="brand-skin" cx="16" cy="18" r="12.5" />
-          <g className="brand-features">
-            <circle className="brand-skin" cx="8.4" cy="14.8" r="6.3" />
-            <circle className="brand-skin" cx="23.6" cy="14.8" r="6.3" />
-            <g className="brand-eyes">
-              <circle className="brand-white" cx="8.4" cy="14.8" r="6.3" />
-              <circle className="brand-white" cx="23.6" cy="14.8" r="6.3" />
-              <g className="brand-pupils">
-                <circle className="brand-pupil" cx="8.4" cy="14.8" r="3.4" />
-                <circle className="brand-pupil" cx="23.6" cy="14.8" r="3.4" />
-                <circle className="brand-white" cx="9.7" cy="13.5" r="1.2" />
-                <circle className="brand-white" cx="24.9" cy="13.5" r="1.2" />
-                <circle className="brand-white" cx="7.3" cy="16.1" r="0.55" />
-                <circle className="brand-white" cx="22.5" cy="16.1" r="0.55" />
+      <g className="brand-rise">
+        <g className="brand-head">
+          <g className="brand-bounce">
+            <circle className="brand-skin" cx="16" cy="15.5" r="11.5" />
+            <g className="brand-features">
+              <circle className="brand-skin" cx="9.4" cy="11.6" r="5.5" />
+              <circle className="brand-skin" cx="22.6" cy="11.6" r="5.5" />
+              <g className="brand-eyes">
+                <circle className="brand-white" cx="9.4" cy="11.6" r="5.5" />
+                <circle className="brand-white" cx="22.6" cy="11.6" r="5.5" />
+                <g className="brand-pupils">
+                  <circle className="brand-pupil" cx="9.4" cy="11.6" r="3" />
+                  <circle className="brand-pupil" cx="22.6" cy="11.6" r="3" />
+                  <circle className="brand-white" cx="10.55" cy="10.45" r="1.05" />
+                  <circle className="brand-white" cx="23.75" cy="10.45" r="1.05" />
+                </g>
+              </g>
+              <g clipPath={`url(#${lens})`}>
+                <rect className="brand-skin brand-lid brand-lid-l" x="1" y="-2.8" width="15" height="9" />
+                <rect className="brand-skin brand-lid brand-lid-r" x="16" y="-2.8" width="15" height="9" />
+              </g>
+              <g className="brand-glasses">
+                <circle cx="9.4" cy="11.6" r="6.2" />
+                <circle cx="22.6" cy="11.6" r="6.2" />
+                <path d="M15.3 9.9q.7-.7 1.4 0" />
               </g>
             </g>
-            <g clipPath={`url(#${lens})`}>
-              <rect className="brand-skin brand-lid brand-lid-l" x="0.4" y="-0.6" width="16" height="9.2" />
-              <rect className="brand-skin brand-lid brand-lid-r" x="15.6" y="-0.6" width="16" height="9.2" />
-            </g>
-            <g className="brand-glasses">
-              <circle cx="8.4" cy="14.8" r="7.1" />
-              <circle cx="23.6" cy="14.8" r="7.1" />
-              <path d="M15.1 12.4q.9-.9 1.8 0" />
-            </g>
-            <path className="brand-grin" d="M12.6 25.2h6.8q-.4 3.8-3.4 3.8t-3.4-3.8z" />
-            <path className="brand-mouth brand-flat" d="M13.2 27h5.6" />
-            <path className="brand-mouth brand-wobble" d="M12.2 27q.95-1 1.9 0t1.9 0 1.9 0 1.9 0" />
+            <path className="brand-sweat" d="M29.2 1.2q-2 3-2 4.3a2 2 0 0 0 4 0q0-1.3-2-4.3z" />
           </g>
-          <path className="brand-sweat" d="M29.2 1.6q-2 3-2 4.3a2 2 0 0 0 4 0q0-1.3-2-4.3z" />
         </g>
       </g>
+      <rect className="brand-window" x="1.6" y="18.6" width="28.8" height="12" rx="2.4" />
+      <g className="brand-chrome">
+        <circle cx="4.6" cy="21.3" r="0.8" />
+        <circle cx="6.9" cy="21.3" r="0.8" />
+        <circle cx="9.2" cy="21.3" r="0.8" />
+      </g>
+      <path className="brand-trace brand-trace-up" pathLength="1" d="M4.6 26.4h7.2l1.5-3.1 2.1 5.5 1.7-4.2 1.2 1.8h9.1" />
+      <path className="brand-trace brand-trace-slow" pathLength="1" d="M4.6 26.4h8.8q1.7-2.4 3.4 0t3.4 0h7.2" />
+      <path className="brand-trace brand-trace-down" d="M4.6 26.4h22.8" />
+      <circle className="brand-skin brand-hand" cx="4.3" cy="18.8" r="1.9" />
+      <circle className="brand-skin brand-hand" cx="27.7" cy="18.8" r="1.9" />
     </svg>
   )
 }
