@@ -103,23 +103,21 @@ function CountUp({ from, to }) {
   return shown
 }
 
-// One status card, which filters the table below. Down stays red, and gets
-// louder while anything is down; any other empty state greys out. A refresh
-// that changes the count runs the number to its new value, rings the card
-// once and leaves a +1 or −1 until the next refresh.
+// One status card, which filters the table below, in its state's colour
+// whatever the count. Down gets louder while anything is down. A refresh that
+// changes the count runs the number to its new value, rings the card once and
+// leaves a +1 or −1 until the next refresh.
 function StatCard({ filter, counts, change, round, still, active, onPick }) {
   const { key, label } = filter
   const n = counts?.[filter.count]
   const loaded = n !== undefined
   const alarm = key === 'down' && n > 0
-  const empty = n === 0 && key !== 'all' && key !== 'down'
   const better = key === 'down' ? change < 0 : key === 'up' ? change > 0 : null
   const className = [
     'stat',
     `stat-${key}`,
     active && 'is-active',
     alarm && 'is-alarm',
-    empty && 'is-zero',
   ]
     .filter(Boolean)
     .join(' ')
@@ -242,10 +240,7 @@ export default function Dashboard() {
 
   return (
     <>
-      <PageHeader
-        title="Websites"
-        subtitle="Live status of every site, pinged host and DNS record you can see. Refreshes every 30 seconds."
-      >
+      <PageHeader title="Websites">
         {creator && (
           <Link to="/websites/new" className="btn btn-primary">
             Add website

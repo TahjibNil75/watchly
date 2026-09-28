@@ -2372,10 +2372,6 @@ strong + .badge {
 .stat-maintenance {
   --tone: var(--maintenance);
 }
-/* An empty state goes grey, except Down, which stays red. */
-.stat.is-zero {
-  --tone: var(--paused);
-}
 .stat:not(.stat-all) {
   background: color-mix(in srgb, var(--tone) 7%, var(--surface));
   border-color: color-mix(in srgb, var(--tone) 25%, var(--border));
