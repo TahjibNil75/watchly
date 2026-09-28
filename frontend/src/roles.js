@@ -3,6 +3,9 @@
 
 export const ROLES = ['Viewer', 'Developer', 'Project Manager', 'DevOps', 'Admin']
 
+// 'Project Manager' -> 'role-project-manager', which sets the role's colour.
+export const roleClass = (role) => `role-${role.toLowerCase().replace(/\s+/g, '-')}`
+
 const ROLE_MANAGERS = ['Admin', 'DevOps']
 const USER_MANAGERS = [...ROLE_MANAGERS, 'Project Manager']
 

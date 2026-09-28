@@ -1,8 +1,101 @@
 import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
-import { ErrorBanner, PageHeader } from '../components.jsx'
-import { dateTime } from '../format.js'
+import { Avatar, ErrorBanner, PageHeader, RolePill } from '../components.jsx'
+import { dateTime, timeAgo } from '../format.js'
+import { roleClass } from '../roles.js'
+
+// 24x24 strokes for the card heads, drawn like the sidebar's.
+const ICONS = {
+  details: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 20a8 8 0 0 1 16 0" />
+    </>
+  ),
+  email: (
+    <>
+      <rect x="3.5" y="5.5" width="17" height="13" rx="2" />
+      <path d="m4 7 8 6 8-6" />
+    </>
+  ),
+  password: (
+    <>
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+      <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5M12 14.5v2" />
+    </>
+  ),
+}
+
+function Icon({ name }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {ICONS[name]}
+    </svg>
+  )
+}
+
+// A card's title beside its icon, like the notification cards.
+function CardHead({ icon, title, note }) {
+  return (
+    <div className="card-head">
+      <span className="card-icon">
+        <Icon name={icon} />
+      </span>
+      <div>
+        <h2>{title}</h2>
+        <p className="muted small">{note}</p>
+      </div>
+    </div>
+  )
+}
+
+const day = (iso) =>
+  iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—'
+
+// Who is signed in, in their role's colour, like the head of a website's page.
+function ProfileHero({ user }) {
+  return (
+    <section className={`profile-hero ${roleClass(user.role)}`}>
+      <div className="profile-hero-head">
+        <Avatar user={user} className="avatar-lg" />
+        <div className="profile-hero-title">
+          <h2>
+            {user.full_name || user.username}
+            <RolePill role={user.role} />
+          </h2>
+          <p className="muted">
+            @{user.username} · {user.email}
+          </p>
+        </div>
+      </div>
+      <dl className="profile-facts">
+        <div>
+          <dt>Member since</dt>
+          <dd>{day(user.created_at)}</dd>
+        </div>
+        <div>
+          <dt>Last active</dt>
+          <dd>{timeAgo(user.last_activity)}</dd>
+        </div>
+        {user.pending_email && (
+          <div>
+            <dt>Email change</dt>
+            <dd className="text-pending">Waiting for {user.pending_email}</dd>
+          </div>
+        )}
+      </dl>
+    </section>
+  )
+}
 
 // Each card is its own form, with its own busy state, error and notice.
 function useAction() {
@@ -48,19 +141,21 @@ function DetailsCard({ user, updateUser }) {
 
   return (
     <form className="card form" onSubmit={submit}>
-      <h2>Details</h2>
+      <CardHead icon="details" title="Details" note="How your name shows to your team." />
       <ErrorBanner error={error} />
       <Notice>{notice}</Notice>
-      <div className="row-2">
-        <label className="field">
-          <span>Username</span>
-          <input value={user.username} readOnly disabled />
-        </label>
-        <label className="field">
-          <span>Role</span>
-          <input value={user.role} readOnly disabled />
-        </label>
-      </div>
+      <dl className="profile-fixed">
+        <div>
+          <dt>Username</dt>
+          <dd>@{user.username}</dd>
+        </div>
+        <div>
+          <dt>Role</dt>
+          <dd>
+            <RolePill role={user.role} />
+          </dd>
+        </div>
+      </dl>
       <label className="field">
         <span>Full name</span>
         <input
@@ -110,13 +205,13 @@ function EmailCard({ user, updateUser }) {
 
   return (
     <form className="card form" onSubmit={submit}>
-      <h2>Email</h2>
+      <CardHead icon="email" title="Email" note="Where sign-in links and your alerts go." />
       <ErrorBanner error={error} />
       <Notice>{notice}</Notice>
-      <label className="field">
-        <span>Current address</span>
-        <input type="email" value={user.email} readOnly disabled />
-      </label>
+      <div className="profile-current">
+        <span className="muted small">Current address</span>
+        <strong>{user.email}</strong>
+      </div>
       {pending && (
         <div className={`banner ${expired ? 'banner-error' : 'banner-info'}`}>
           {expired
@@ -166,6 +261,8 @@ function PasswordCard() {
   const [form, setForm] = useState(EMPTY_PASSWORDS)
   const { busy, error, notice, run } = useAction()
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+  // Said once both are typed in, not on the first keystroke.
+  const matches = form.confirm_password ? form.new_password === form.confirm_password : null
 
   const submit = (event) => {
     event.preventDefault()
@@ -181,7 +278,11 @@ function PasswordCard() {
 
   return (
     <form className="card form" onSubmit={submit}>
-      <h2>Password</h2>
+      <CardHead
+        icon="password"
+        title="Password"
+        note="Changing it signs you out everywhere else."
+      />
       <ErrorBanner error={error} />
       <Notice>{notice}</Notice>
       <label className="field">
@@ -220,6 +321,13 @@ function PasswordCard() {
           />
         </label>
       </div>
+      <p className={`match-hint${matches === null ? '' : matches ? ' is-ok' : ' is-bad'}`}>
+        {matches === null
+          ? 'At least 8 characters.'
+          : matches
+            ? 'The new passwords match.'
+            : 'The new passwords do not match yet.'}
+      </p>
       <div className="form-actions">
         <button className="btn btn-primary" disabled={busy}>
           {busy ? 'Changing…' : 'Change password'}
@@ -234,7 +342,8 @@ export default function Profile() {
   return (
     <>
       <PageHeader title="Profile" subtitle="Your name, email address and password." />
-      <div className="grid-2">
+      <ProfileHero user={user} />
+      <div className="grid-2 profile-grid">
         <DetailsCard user={user} updateUser={updateUser} />
         <EmailCard user={user} updateUser={updateUser} />
       </div>

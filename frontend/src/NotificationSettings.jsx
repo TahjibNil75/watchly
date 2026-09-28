@@ -1,7 +1,72 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
+import ChannelLogo from './ChannelLogo.jsx'
+import { CHANNELS } from './channels.js'
 import { ErrorBanner, Loading } from './components.jsx'
 import { useApi } from './useApi.js'
+
+// Each kind's colour, icon (24x24 strokes, like the dashboard's) and group. A
+// kind missing here still shows, under "Other".
+const KIND_META = {
+  down: { tone: 'down', group: 'outages', icon: <path d="M12 3.5 2.5 20h19zM12 10v4M12 17v.01" /> },
+  still_down: {
+    tone: 'down',
+    group: 'outages',
+    icon: <path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3" />,
+  },
+  recovered: {
+    tone: 'up',
+    group: 'outages',
+    icon: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="m8 12.5 2.8 2.8L16.5 9.5" />
+      </>
+    ),
+  },
+  ssl_expiring: {
+    tone: 'pending',
+    group: 'warnings',
+    icon: (
+      <>
+        <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+        <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
+      </>
+    ),
+  },
+  slow_response: {
+    tone: 'pending',
+    group: 'warnings',
+    icon: <path d="M4.5 18a8.5 8.5 0 1 1 15 0M12 14l4-4" />,
+  },
+  packet_loss: { tone: 'pending', group: 'warnings', icon: <path d="M5 20v-4M10 20v-8M15 20v-3M20 20V5" /> },
+  dns_changed: {
+    tone: 'maintenance',
+    group: 'warnings',
+    icon: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+      </>
+    ),
+  },
+  monthly_report: { tone: 'info', group: 'reports', icon: <path d="M4 20h16M7 16v-5M12 16V7M17 16v-8" /> },
+}
+
+const GROUPS = [
+  { key: 'outages', title: 'Outages', note: 'When a site stops answering, and when it answers again.' },
+  { key: 'warnings', title: 'Early warnings', note: 'Trouble spotted while a site is still up.' },
+  { key: 'reports', title: 'Reports', note: 'How each project did last month, sent on the 1st.' },
+  { key: 'other', title: 'Other' },
+]
+
+const groupOf = (kind) => KIND_META[kind]?.group ?? 'other'
+
+// The channels a kind can go out on, in CHANNELS order, with their switch.
+const TOGGLES = CHANNELS.filter((ch) => ch.id !== 'webhook').map((ch) => ({
+  ...ch,
+  field: `${ch.id}_enabled`,
+}))
 
 const FIELDS = [
   'email_enabled',
@@ -249,8 +314,6 @@ function WhatsAppPreview({ text }) {
 // Live preview, rendered by the API exactly as it would be sent.
 // ---------------------------------------------------------------------------
 
-const TAB_LABELS = { email: 'Email', slack: 'Slack', telegram: 'Telegram', whatsapp: 'WhatsApp' }
-
 function Preview({ kind, subject, body }) {
   const [tab, setTab] = useState('email')
   const [state, setState] = useState({ data: null, error: null })
@@ -280,16 +343,17 @@ function Preview({ kind, subject, body }) {
   return (
     <div className="preview">
       <div className="tabs" role="tablist">
-        {Object.keys(TAB_LABELS).map((name) => (
+        {TOGGLES.map((ch) => (
           <button
-            key={name}
+            key={ch.id}
             type="button"
             role="tab"
-            aria-selected={tab === name}
-            className={tab === name ? 'tab active' : 'tab'}
-            onClick={() => setTab(name)}
+            aria-selected={tab === ch.id}
+            className={tab === ch.id ? 'tab active' : 'tab'}
+            onClick={() => setTab(ch.id)}
           >
-            {TAB_LABELS[name]}
+            <ChannelLogo channel={ch.id} />
+            {ch.name}
           </button>
         ))}
         <span className="muted small tabs-note">Preview with sample data</span>
@@ -324,7 +388,7 @@ function Preview({ kind, subject, body }) {
 // One notification kind
 // ---------------------------------------------------------------------------
 
-function KindEditor({ setting, scope, canEdit, channels, onSave, onReset }) {
+function KindEditor({ setting, scope, canEdit, channels, titleTag: Title, onSave, onReset }) {
   const [draft, setDraft] = useState(() => pickDraft(setting))
   const [seen, setSeen] = useState(setting)
   const [open, setOpen] = useState(false)
@@ -379,38 +443,60 @@ function KindEditor({ setting, scope, canEdit, channels, onSave, onReset }) {
     })
   }
 
-  const toggle = (field, label, channel) => (
-    <label className="check">
-      <input
-        type="checkbox"
-        checked={draft[field]}
-        disabled={!canEdit || busy}
-        onChange={(e) => setDraft({ ...draft, [field]: e.target.checked })}
-      />
-      <span>
-        {label}
-        {!hasChannel(channel) && <span className="muted small"> (not set up)</span>}
-      </span>
-    </label>
-  )
+  const meta = KIND_META[setting.kind] ?? { tone: 'muted', icon: <circle cx="12" cy="12" r="9" /> }
+  // A switch for a channel the project has not set up sends nothing, so it
+  // does not count.
+  const usable = TOGGLES.filter((ch) => hasChannel(ch.id))
+  const on = usable.filter((ch) => draft[ch.field]).length
 
   return (
-    <div className="notif">
+    <div className={`notif tone-${meta.tone}`}>
       <div className="notif-head">
-        <div>
-          <h3>
+        <span className="notif-icon" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            {meta.icon}
+          </svg>
+        </span>
+        <div className="notif-title">
+          <Title className="notif-name">
             {setting.label}
             {customized && <span className="badge badge-unknown">customized</span>}
             {inherits && <span className="badge badge-paused">global wording</span>}
-          </h3>
+          </Title>
           <p className="muted small">{setting.description}</p>
         </div>
-        <div className="notif-toggles">
-          {toggle('email_enabled', 'Email', 'email')}
-          {toggle('slack_enabled', 'Slack', 'slack')}
-          {toggle('telegram_enabled', 'Telegram', 'telegram')}
-          {toggle('whatsapp_enabled', 'WhatsApp', 'whatsapp')}
-        </div>
+        <span className={`notif-count${on ? '' : ' is-off'}`}>
+          {on ? `${on} of ${usable.length} ${usable.length === 1 ? 'channel' : 'channels'}` : 'Not sent'}
+        </span>
+      </div>
+
+      <div className="notif-toggles" role="group" aria-label={`Send “${setting.label}” by`}>
+        {TOGGLES.map((ch) => (
+          <label
+            key={ch.id}
+            className={`channel-toggle${draft[ch.field] ? ' is-on' : ''}${hasChannel(ch.id) ? '' : ' is-unset'}`}
+            title={hasChannel(ch.id) ? undefined : `${ch.name} is not set up for this project`}
+          >
+            <input
+              type="checkbox"
+              className="visually-hidden"
+              checked={draft[ch.field]}
+              disabled={!canEdit || busy}
+              onChange={(e) => setDraft({ ...draft, [ch.field]: e.target.checked })}
+            />
+            <ChannelLogo channel={ch.id} />
+            <span>{ch.name}</span>
+            {!hasChannel(ch.id) && <span className="channel-toggle-note">not set up</span>}
+            <span className="switch" aria-hidden="true" />
+          </label>
+        ))}
       </div>
 
       <details className="advanced" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
@@ -547,20 +633,38 @@ export default function NotificationSettings({ projectId, canEdit, channels }) {
       await (projectId ? api.resetProjectNotification(projectId, kind) : api.resetNotification(kind)),
     )
 
+  // On its own page the groups are the top headings; under a project's
+  // "Notifications" heading they sit one level down.
+  const level = projectId ? 3 : 2
+  const GroupTitle = `h${level}`
+
   return (
     <div>
       <ErrorBanner error={list.error} />
-      {list.data.items.map((setting) => (
-        <KindEditor
-          key={setting.kind}
-          setting={setting}
-          scope={scope}
-          canEdit={canEdit}
-          channels={channels}
-          onSave={save}
-          onReset={reset}
-        />
-      ))}
+      {GROUPS.map((group) => {
+        const items = list.data.items.filter((s) => groupOf(s.kind) === group.key)
+        if (!items.length) return null
+        return (
+          <section key={group.key} className="notif-group">
+            <div className="notif-group-head">
+              <GroupTitle className="notif-group-title">{group.title}</GroupTitle>
+              {group.note && <p className="muted small">{group.note}</p>}
+            </div>
+            {items.map((setting) => (
+              <KindEditor
+                key={setting.kind}
+                setting={setting}
+                scope={scope}
+                canEdit={canEdit}
+                channels={channels}
+                titleTag={`h${level + 1}`}
+                onSave={save}
+                onReset={reset}
+              />
+            ))}
+          </section>
+        )
+      })}
     </div>
   )
 }

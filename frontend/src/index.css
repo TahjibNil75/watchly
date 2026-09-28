@@ -3095,6 +3095,11 @@ strong + .badge {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .channel-toggle,
+  .channel-toggle .channel-logo,
+  .switch,
+  .switch::after,
+  .notif .advanced > summary::before,
   .project-card,
   .project-bar i {
     transition: none;
@@ -3366,6 +3371,161 @@ strong + .badge {
 .toolbar-count {
   align-self: center;
   margin-left: auto;
+}
+
+/* ---------- Profile ---------- */
+
+/* Who is signed in (ProfileHero in Profile.jsx), in their role's colour, like
+   the head of a website's page. */
+.profile-hero {
+  padding: 20px;
+  margin-bottom: 20px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--tone) 28%, var(--border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tone) 9%, var(--surface)),
+    var(--surface) 75%
+  );
+  box-shadow: var(--shadow);
+}
+.profile-hero-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.avatar-lg {
+  width: 60px;
+  height: 60px;
+  font-size: 1.2rem;
+}
+.profile-hero-title {
+  min-width: 0;
+}
+.profile-hero-title h2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  font-size: 1.35rem;
+}
+.profile-hero-title p {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+/* Beside a name, the pill needs no column to line up with. */
+.profile-hero .role-pill,
+.profile-fixed .role-pill {
+  width: auto;
+}
+.profile-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--tone) 18%, var(--border));
+}
+.profile-facts > div {
+  display: flex;
+  flex-direction: column;
+}
+.profile-facts dt,
+.profile-fixed dt,
+.profile-current > span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.profile-facts dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* A card's icon and title, like the notification cards. */
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.card-head h2 {
+  margin: 0;
+}
+.card-head p {
+  margin: 2px 0 0;
+}
+.card-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+.card-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* What only an admin can change, and the address in use: read, not edited. */
+.profile-fixed,
+.profile-current {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.profile-fixed {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.profile-fixed > div,
+.profile-current {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.profile-fixed dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.profile-current strong {
+  overflow-wrap: anywhere;
+}
+
+/* Side by side, the two cards' buttons line up along the bottom. */
+.profile-grid > .form > .form-actions {
+  margin-top: auto;
+}
+
+/* Under the new passwords: the rule, then whether the two agree. */
+.match-hint {
+  margin: -6px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.match-hint.is-ok {
+  color: var(--up);
+}
+.match-hint.is-bad {
+  color: var(--down);
+}
+
+@media (max-width: 640px) {
+  .profile-hero {
+    padding: 16px;
+  }
+  .avatar-lg {
+    width: 48px;
+    height: 48px;
+    font-size: 1rem;
+  }
 }
 
 /* ---------- Tables ---------- */
@@ -3905,22 +4065,74 @@ textarea {
   margin-bottom: 0;
 }
 
+/* The kinds, grouped (NotificationSettings.jsx). Each card takes its kind's
+   colour on its icon, like the dashboard's cards and the website tiles. */
+.notif-group + .notif-group {
+  margin-top: 28px;
+}
+.notif-group-head {
+  margin-bottom: 12px;
+}
+.notif-group-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.notif-group-head p {
+  margin: 2px 0 0;
+}
+
 .notif {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  --tone: var(--muted);
   padding: 16px 18px;
   margin-bottom: 12px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--tone) 18%, var(--border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tone) 5%, var(--surface)),
+    var(--surface) 60%
+  );
+  box-shadow: var(--shadow);
+}
+.notif.tone-down {
+  --tone: var(--down);
+}
+.notif.tone-up {
+  --tone: var(--up);
+}
+.notif.tone-pending {
+  --tone: var(--pending);
+}
+.notif.tone-maintenance {
+  --tone: var(--maintenance);
+}
+.notif.tone-info {
+  --tone: var(--primary);
 }
 .notif-head {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: 14px;
 }
-.notif-head h3 {
+.notif-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+}
+.notif-icon svg {
+  width: 21px;
+  height: 21px;
+}
+.notif-title {
+  flex: 1;
+  min-width: 0;
+}
+.notif-name {
   margin: 0 0 2px;
   font-size: 1rem;
   display: flex;
@@ -3928,17 +4140,167 @@ textarea {
   gap: 8px;
   flex-wrap: wrap;
 }
-.notif-head p {
-  margin: 0;
-  max-width: 62ch;
+.notif-name .badge {
+  margin-left: 0;
 }
+.notif-title p {
+  margin: 0;
+  max-width: 68ch;
+}
+/* How many channels it goes out on: quiet, or red when none. */
+.notif-count {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.notif-count.is-off {
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 12%, transparent);
+}
+
+/* One switch per channel, with its logo: bright when on, faded when off. */
 .notif-toggles {
   display: flex;
-  gap: 18px;
-  padding-top: 2px;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  padding-left: 54px;
 }
+.channel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.channel-toggle .channel-logo {
+  width: 18px;
+  height: 18px;
+  filter: grayscale(1);
+  opacity: 0.55;
+  transition:
+    filter 0.15s ease,
+    opacity 0.15s ease;
+}
+.channel-toggle:hover {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+.channel-toggle.is-on {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+}
+.channel-toggle.is-on .channel-logo {
+  filter: none;
+  opacity: 1;
+}
+.channel-toggle:has(input:disabled) {
+  cursor: default;
+}
+.channel-toggle:has(input:disabled):hover {
+  border-color: var(--border);
+}
+.channel-toggle.is-on:has(input:disabled):hover {
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+}
+.channel-toggle:has(input:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+/* On, but the project has no such channel: kept, and plainly not in use. */
+.channel-toggle.is-unset {
+  border-style: dashed;
+  color: var(--muted);
+  background: var(--surface);
+}
+.channel-toggle.is-unset .channel-logo {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+.channel-toggle.is-unset .switch {
+  opacity: 0.5;
+}
+.channel-toggle-note {
+  font-size: 0.75rem;
+  color: var(--pending);
+}
+/* A small on/off switch at the end of each chip. */
+.switch {
+  position: relative;
+  flex: none;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 35%, var(--surface-2));
+  transition: background-color 0.15s ease;
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  transition: transform 0.15s ease;
+}
+.is-on > .switch {
+  background: var(--primary);
+}
+.is-on > .switch::after {
+  transform: translateX(12px);
+}
+.channel-toggle:has(input:disabled) .switch {
+  opacity: 0.6;
+}
+
+/* "Customize wording and preview": a disclosure with a turning chevron. */
 .notif .advanced {
-  margin-top: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--tone) 12%, var(--border));
+}
+.notif .advanced > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  list-style: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.notif .advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.notif .advanced > summary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+.notif .advanced[open] > summary::before {
+  transform: rotate(45deg);
 }
 .notif .advanced > .field,
 .notif .advanced > p {
@@ -3999,6 +4361,12 @@ textarea {
 .tab.active {
   color: var(--text);
   border-bottom-color: var(--primary);
+}
+.tab .channel-logo {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  vertical-align: -3px;
 }
 .tabs-note {
   margin-left: auto;
@@ -4147,6 +4515,22 @@ textarea {
 }
 
 @media (max-width: 640px) {
+  .notif {
+    padding: 14px;
+  }
+  .notif-head {
+    flex-wrap: wrap;
+  }
+  .notif-count {
+    margin-left: auto;
+  }
+  .notif-title {
+    order: 1;
+    flex-basis: 100%;
+  }
+  .notif-toggles {
+    padding-left: 0;
+  }
   .sp-fields {
     grid-template-columns: 1fr;
   }

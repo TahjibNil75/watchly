@@ -2,10 +2,7 @@ import { Link } from 'react-router-dom'
 import { checkType } from './checkTypes.js'
 import { environmentLabel } from './environments.js'
 import { duration, initials, since, timeAgo } from './format.js'
-import { ROLES } from './roles.js'
-
-// 'Project Manager' -> 'role-project-manager', which sets the role's colour.
-const roleClass = (role) => `role-${role.toLowerCase().replace(/\s+/g, '-')}`
+import { ROLES, roleClass } from './roles.js'
 
 export function RolePill({ role }) {
   return <span className={`role-pill ${roleClass(role)}`}>{role}</span>
@@ -29,10 +26,10 @@ export function RoleSelect({ value, onChange, disabled, label }) {
   )
 }
 
-// A person's initials in their role's colour.
-export function Avatar({ user }) {
+// A person's initials in their role's colour. `className` adds a size, e.g. avatar-lg.
+export function Avatar({ user, className = '' }) {
   return (
-    <span className={`avatar ${roleClass(user.role)}`} aria-hidden="true">
+    <span className={`avatar ${roleClass(user.role)} ${className}`.trim()} aria-hidden="true">
       {initials(user.full_name || user.username)}
     </span>
   )
