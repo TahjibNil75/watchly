@@ -2322,18 +2322,25 @@ strong + .badge {
 
 /* ---------- Dashboard ---------- */
 
+/* The status cards (StatCard in Dashboard.jsx): a wider card for the total,
+   with a bar of how its sites split, then one per state, tinted with its
+   colour. The columns follow the room the page has, sidebar or not. */
+.stats-wrap {
+  container-type: inline-size;
+  margin-bottom: 16px;
+}
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: minmax(0, 1.6fr) repeat(5, minmax(0, 1fr));
   gap: 12px;
-  margin-bottom: 16px;
 }
 .stat {
   --tone: var(--text);
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  padding: 14px 16px;
+  min-width: 0;
+  padding: 14px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface);
@@ -2342,24 +2349,13 @@ strong + .badge {
   color: inherit;
   cursor: pointer;
   text-align: left;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.3s ease,
+    box-shadow 0.2s ease;
 }
 .stat:hover {
   border-color: color-mix(in srgb, var(--tone) 40%, var(--border));
-}
-.stat.is-active {
-  border-color: var(--tone);
-  box-shadow: inset 0 0 0 1px var(--tone);
-}
-.stat-value {
-  font-size: 1.7rem;
-  font-weight: 700;
-  line-height: 1.1;
-  color: var(--tone);
-  font-variant-numeric: tabular-nums;
-}
-.stat-label {
-  font-size: 0.85rem;
-  color: var(--muted);
 }
 .stat-up {
   --tone: var(--up);
@@ -2375,6 +2371,208 @@ strong + .badge {
 }
 .stat-maintenance {
   --tone: var(--maintenance);
+}
+/* An empty state goes grey, except Down, which stays red. */
+.stat.is-zero {
+  --tone: var(--paused);
+}
+.stat:not(.stat-all) {
+  background: color-mix(in srgb, var(--tone) 7%, var(--surface));
+  border-color: color-mix(in srgb, var(--tone) 25%, var(--border));
+}
+.stat:not(.stat-all):hover {
+  border-color: color-mix(in srgb, var(--tone) 55%, var(--border));
+}
+.stat-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--muted);
+  overflow-wrap: break-word;
+}
+.stat-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin-top: 6px;
+}
+.stat-value {
+  font-size: 1.85rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--tone);
+  font-variant-numeric: tabular-nums;
+  transition: color 0.3s ease;
+}
+.stat-icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 5.5px;
+  border-radius: 8px;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 13%, transparent);
+  transition:
+    color 0.3s ease,
+    background-color 0.3s ease;
+}
+.stat-note {
+  margin-top: 2px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* Down, while anything is down: a stronger red, with a live dot. */
+.stat.stat-down.is-alarm {
+  background: color-mix(in srgb, var(--down) 15%, var(--surface));
+  border-color: color-mix(in srgb, var(--down) 60%, var(--border));
+}
+.stat-down.is-alarm .stat-note {
+  color: var(--down);
+  font-weight: 600;
+}
+.stat-ping {
+  position: relative;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--down);
+}
+.stat-ping::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: inherit;
+  animation: ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* The total's split, in the order of SPLIT. */
+.stat-bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  margin-top: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.stat-bar i {
+  flex: 0 1 0;
+  min-width: 3px;
+  transition: flex-grow 0.6s ease;
+}
+.stat-bar-up {
+  background: var(--up);
+}
+.stat-bar-down {
+  background: var(--down);
+}
+.stat-bar-unknown {
+  background: var(--pending);
+}
+.stat-bar-maintenance {
+  background: var(--maintenance);
+}
+.stat-bar-paused {
+  background: var(--paused);
+}
+
+/* The chosen filter, filled deeper than the tint. Qualified to outrank the
+   tints and Down's red. */
+.stats .stat.is-active {
+  border-color: var(--tone);
+  box-shadow: inset 0 0 0 1px var(--tone);
+  background: color-mix(in srgb, var(--tone) 16%, var(--surface));
+}
+.stats .stat-all.is-active {
+  background: color-mix(in srgb, var(--tone) 5%, var(--surface));
+}
+
+/* What the last refresh changed: the card rings once, and a +1 or -1 stays
+   until the next refresh, green when it's good news and red when it's bad. */
+.stat-delta {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.stat-delta.is-good {
+  color: var(--up);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+.stat-delta.is-bad {
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 14%, transparent);
+}
+.stat-flash {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: stat-flash 1.3s ease-out forwards;
+}
+@keyframes stat-flash {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--tone) 60%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 12px color-mix(in srgb, var(--tone) 0%, transparent);
+  }
+}
+
+/* Narrower: the total takes a row of its own above the five states. */
+@container (max-width: 880px) {
+  .stats {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .stat-all {
+    grid-column: 1 / -1;
+  }
+}
+/* A phone: the total, then Down and Up side by side, then the quiet three. */
+@container (max-width: 640px) {
+  .stats {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .stat {
+    grid-column: span 2;
+    padding: 12px;
+  }
+  .stat-down,
+  .stat-up {
+    grid-column: span 3;
+  }
+  .stat-all {
+    grid-column: 1 / -1;
+  }
+  .stat-value {
+    font-size: 1.5rem;
+  }
+  .stat-unknown .stat-note,
+  .stat-maintenance .stat-note,
+  .stat-paused .stat-note {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stat,
+  .stat-value,
+  .stat-icon,
+  .stat-bar i {
+    transition: none;
+  }
+  .stat-ping::after {
+    animation: none;
+  }
 }
 
 .toolbar {
