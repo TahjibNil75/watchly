@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 import { Empty, ErrorBanner, Loading } from './components.jsx'
 import { saveFile } from './download.js'
+import { percent } from './format.js'
 import { useApi } from './useApi.js'
 
 const RANGES = [
@@ -32,9 +33,6 @@ const uptimeTier = (b) =>
         ? 'is-degraded'
         : 'is-down'
 
-// Floored, so 99.996% never reads as a perfect 100%.
-const percent = (value) =>
-  value == null ? '—' : value === 100 ? '100%' : `${(Math.floor(value * 100) / 100).toFixed(2)}%`
 const ms = (value) => (value == null ? '—' : `${value.toLocaleString()} ms`)
 const tickMs = (value) => (value >= 1000 ? `${value / 1000} s` : `${value} ms`)
 const loss = (value) => (value == null ? '—' : `${Math.round(value * 100) / 100}%`)

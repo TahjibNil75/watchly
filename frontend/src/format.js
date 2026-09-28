@@ -23,6 +23,10 @@ export function timeAgo(iso) {
   return seconds < 5 ? 'just now' : `${duration(seconds)} ago`
 }
 
+// Floored, so 99.996% never reads as a perfect 100%.
+export const percent = (value) =>
+  value == null ? '—' : value === 100 ? '100%' : `${(Math.floor(value * 100) / 100).toFixed(2)}%`
+
 export function dateTime(iso) {
   return iso ? new Date(iso).toLocaleString() : '—'
 }

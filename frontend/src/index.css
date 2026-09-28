@@ -2320,6 +2320,293 @@ strong + .badge {
   min-width: 0;
 }
 
+/* ---------- Website detail ---------- */
+
+/* The head (SiteHero in WebsiteDetail.jsx) and the tiles below it take the
+   colour of what they report, like the dashboard's cards. */
+:is(.site-hero, .site-stat) {
+  --tone: var(--muted);
+}
+:is(.site-hero, .site-stat).tone-up {
+  --tone: var(--up);
+}
+:is(.site-hero, .site-stat).tone-down {
+  --tone: var(--down);
+}
+:is(.site-hero, .site-stat).tone-pending {
+  --tone: var(--pending);
+}
+:is(.site-hero, .site-stat).tone-maintenance {
+  --tone: var(--maintenance);
+}
+:is(.site-hero, .site-stat).tone-paused {
+  --tone: var(--paused);
+}
+.site-stat.tone-info {
+  --tone: var(--primary);
+}
+
+.site-hero {
+  padding: 20px;
+  margin-bottom: 16px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--tone) 30%, var(--border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tone) 9%, var(--surface)),
+    var(--surface) 75%
+  );
+  box-shadow: var(--shadow);
+}
+.site-hero.tone-down {
+  border-color: color-mix(in srgb, var(--down) 60%, var(--border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--down) 15%, var(--surface)),
+    color-mix(in srgb, var(--down) 4%, var(--surface)) 75%
+  );
+}
+.site-hero-head {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 14px 16px;
+}
+.site-hero-icon {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+}
+.site-hero-icon svg {
+  width: 24px;
+  height: 24px;
+}
+/* Down: a ring keeps leaving the icon. */
+.site-hero-icon.is-alarm::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid var(--tone);
+  animation: site-ring 1.8s ease-out infinite;
+}
+@keyframes site-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.45);
+    opacity: 0;
+  }
+}
+.site-hero-title {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.site-hero-title h1 {
+  font-size: 1.5rem;
+  gap: 8px;
+}
+.site-hero-title h1 .badge {
+  margin-left: 0;
+}
+.site-hero-url {
+  margin: 3px 0 0;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.site-hero-url a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.site-hero-out {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.site-hero .actions {
+  margin-left: auto;
+}
+.site-hero-body {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--tone) 18%, var(--border));
+}
+.site-hero-status {
+  margin: 0;
+  color: var(--muted);
+}
+.site-hero-status strong {
+  color: var(--tone);
+  font-weight: 650;
+}
+.site-hero-tally {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.site-hero-error {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 10%, transparent);
+  overflow-wrap: anywhere;
+}
+.site-hero .strip {
+  height: 40px;
+  margin: 12px 0 0;
+  background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+}
+
+/* The tiles and the two columns follow the room the page has. */
+.site-body {
+  container: site / inline-size;
+}
+.site-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.site-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--tone) 25%, var(--border));
+  background: color-mix(in srgb, var(--tone) 6%, var(--surface));
+  box-shadow: var(--shadow);
+}
+.site-stat-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+.site-stat-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.site-stat-value {
+  min-width: 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--tone);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.site-stat-icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 5.5px;
+  border-radius: 8px;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 13%, transparent);
+}
+.site-stat-note {
+  margin-top: 2px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* Data on the left, settings on the right. */
+.site-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  column-gap: 20px;
+  align-items: start;
+}
+.card-danger {
+  border-color: color-mix(in srgb, var(--down) 30%, var(--border));
+}
+.card-danger p {
+  margin: 0 0 12px;
+}
+
+/* Settings in the narrow column: labels take less room, and the
+   maintenance controls stack. */
+@container site (min-width: 1001px) {
+  .site-side .kv > div {
+    grid-template-columns: 120px minmax(0, 1fr);
+  }
+  .site-side .maint-row .maint-grow {
+    flex: 1 1 0;
+  }
+  .site-side .maint-row .btn {
+    flex: 1 1 100%;
+  }
+  .site-side .row-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Stacked, the data comes first, then the settings, two up. */
+@container site (max-width: 1000px) {
+  .site-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container site (min-width: 641px) and (max-width: 1000px) {
+  .site-side-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .site-side-pair > .card {
+    margin-bottom: 0;
+  }
+}
+@container site (max-width: 640px) {
+  .site-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .site-stat {
+    padding: 12px;
+  }
+  .site-stat-value {
+    font-size: 1.35rem;
+  }
+}
+@media (max-width: 640px) {
+  .site-hero {
+    padding: 16px;
+  }
+  .site-hero .actions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .site-hero .actions .btn {
+    flex: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-hero-icon.is-alarm::after {
+    animation: none;
+  }
+}
+
 /* ---------- Dashboard ---------- */
 
 /* The status cards (StatCard in Dashboard.jsx): a wider card for the total,
