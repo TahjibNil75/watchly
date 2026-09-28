@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
+import BrandMark from '../BrandMark.jsx'
 import { ErrorBanner, Loading } from '../components.jsx'
 import { useApi } from '../useApi.js'
 
@@ -10,7 +11,7 @@ function Shell({ children }) {
     <div className="auth-screen">
       <div className="card auth-card">
         <div className="brand brand-lg">
-          <span className="brand-mark" aria-hidden="true" />
+          <BrandMark />
           Watchly
         </div>
         {children}
@@ -83,7 +84,7 @@ export default function AcceptInvite() {
     <div className="auth-screen">
       <form className="card auth-card" onSubmit={submit}>
         <div className="brand brand-lg">
-          <span className="brand-mark" aria-hidden="true" />
+          <BrandMark />
           Watchly
         </div>
         <h1>Accept your invitation</h1>

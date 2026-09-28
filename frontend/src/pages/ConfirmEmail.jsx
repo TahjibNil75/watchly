@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
+import BrandMark from '../BrandMark.jsx'
 import { ErrorBanner } from '../components.jsx'
 
 /**
@@ -41,7 +42,7 @@ export default function ConfirmEmail() {
     <div className="auth-screen">
       <div className="card auth-card">
         <div className="brand brand-lg">
-          <span className="brand-mark" aria-hidden="true" />
+          <BrandMark />
           Watchly
         </div>
         {confirmed ? (

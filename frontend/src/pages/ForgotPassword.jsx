@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
+import BrandMark from '../BrandMark.jsx'
 import { ErrorBanner } from '../components.jsx'
 
 export default function ForgotPassword() {
@@ -27,7 +28,7 @@ export default function ForgotPassword() {
     <div className="auth-screen">
       <form className="card auth-card" onSubmit={submit}>
         <Link to="/" className="brand brand-lg">
-          <span className="brand-mark" aria-hidden="true" />
+          <BrandMark />
           Watchly
         </Link>
         <h1>Forgot your password?</h1>

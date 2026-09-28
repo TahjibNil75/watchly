@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import AlertPreviews from '../AlertPreviews.jsx'
 import { useSignupOpen } from '../auth.jsx'
+import BrandMark from '../BrandMark.jsx'
 import LiveDemo from '../LiveDemo.jsx'
 
 // What a signed-out visitor sees at the site's root: what Watchly does, and
@@ -219,7 +220,7 @@ export default function Landing() {
     <div className="landing">
       <header className="landing-nav">
         <Link to="/" className="brand">
-          <span className="brand-mark" aria-hidden="true" />
+          <BrandMark />
           Watchly
         </Link>
         <nav className="landing-nav-links" aria-label="Page sections">
@@ -333,7 +334,7 @@ export default function Landing() {
 
       <footer className="landing-footer">
         <span className="brand">
-          <span className="brand-mark" aria-hidden="true" />
+          <BrandMark />
           Watchly
         </span>
         <span className="muted small">Uptime, ping and DNS monitoring.</span>

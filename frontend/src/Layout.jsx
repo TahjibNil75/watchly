@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { api } from './api.js'
 import { useAuth } from './auth.jsx'
+import BrandMark from './BrandMark.jsx'
 import EventToasts from './EventToasts.jsx'
 import { canEditNotificationDefaults, canManageUsers } from './roles.js'
 import { useApi } from './useApi.js'
@@ -74,7 +75,7 @@ function MonitoringIndicator() {
 function Brand({ onClick }) {
   return (
     <NavLink to="/" className="brand" onClick={onClick}>
-      <span className="brand-mark" aria-hidden="true" />
+      <BrandMark />
       Watchly
     </NavLink>
   )

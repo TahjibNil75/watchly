@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth, useSignupOpen } from '../auth.jsx'
+import BrandMark from '../BrandMark.jsx'
 import { ErrorBanner, Loading } from '../components.jsx'
 
 export default function Signup() {
@@ -49,7 +50,7 @@ export default function Signup() {
       <div className="auth-screen">
         <div className="card auth-card">
           <Link to="/" className="brand brand-lg">
-            <span className="brand-mark" aria-hidden="true" />
+            <BrandMark />
             Watchly
           </Link>
           <h1>Invitation only</h1>
@@ -69,7 +70,7 @@ export default function Signup() {
     <div className="auth-screen">
       <form className="card auth-card" onSubmit={submit}>
         <Link to="/" className="brand brand-lg">
-          <span className="brand-mark" aria-hidden="true" />
+          <BrandMark />
           Watchly
         </Link>
         <h1>Create an account</h1>

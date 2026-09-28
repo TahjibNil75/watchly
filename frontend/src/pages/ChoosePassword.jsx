@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
+import BrandMark from '../BrandMark.jsx'
 import { ErrorBanner } from '../components.jsx'
 
 /**
@@ -36,7 +37,7 @@ export default function ChoosePassword() {
     <div className="auth-screen">
       <form className="card auth-card" onSubmit={submit}>
         <div className="brand brand-lg">
-          <span className="brand-mark" aria-hidden="true" />
+          <BrandMark />
           Watchly
         </div>
         <h1>Choose a new password</h1>

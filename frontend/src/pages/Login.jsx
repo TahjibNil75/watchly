@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth, useSignupOpen } from '../auth.jsx'
+import BrandMark from '../BrandMark.jsx'
 import { ErrorBanner } from '../components.jsx'
 
 export default function Login() {
@@ -32,7 +33,7 @@ export default function Login() {
     <div className="auth-screen">
       <form className="card auth-card" onSubmit={submit}>
         <Link to="/" className="brand brand-lg">
-          <span className="brand-mark" aria-hidden="true" />
+          <BrandMark />
           Watchly
         </Link>
         <h1>Sign in</h1>

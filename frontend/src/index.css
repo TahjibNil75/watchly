@@ -213,12 +213,84 @@ a:hover {
   font-size: 1.3rem;
   margin-bottom: 8px;
 }
+/* BrandMark.jsx. The pupils glance about on one clock and the eyes blink on
+   another, so the two never fall into step; the face turns a little after its
+   gaze. Units in the keyframes are the mark's own 32x32 viewBox. */
 .brand-mark {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--up);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--up) 25%, transparent);
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+.brand-lg .brand-mark {
+  width: 32px;
+  height: 32px;
+}
+.brand-face {
+  fill: var(--up);
+}
+.brand-ink {
+  fill: #1a1d23;
+}
+.brand-white {
+  fill: #fff;
+}
+.brand-glasses,
+.brand-mouth {
+  fill: none;
+  stroke: #1a1d23;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.brand-mouth {
+  stroke-width: 1.5;
+}
+.brand-glint {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+.brand-mark g {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.brand-features {
+  animation: brand-turn 7.2s cubic-bezier(0.5, 0, 0.2, 1) infinite;
+}
+.brand-pupils {
+  animation: brand-look 7.2s cubic-bezier(0.5, 0, 0.2, 1) infinite;
+}
+.brand-eyes {
+  animation: brand-blink 9.2s ease-in-out infinite;
+}
+@keyframes brand-look {
+  0%, 12% { transform: translate(0, 0); }
+  15%, 30% { transform: translate(-1.8px, 0.3px); }
+  33%, 46% { transform: translate(1.8px, 0.3px); }
+  49%, 58% { transform: translate(1.2px, -1.3px); }
+  61%, 74% { transform: translate(-1.3px, -1.1px); }
+  77%, 88% { transform: translate(0.3px, 1.3px); }
+  92%, 100% { transform: translate(0, 0); }
+}
+@keyframes brand-turn {
+  0%, 12% { transform: translate(0, 0); }
+  15%, 30% { transform: translate(-0.6px, 0.1px); }
+  33%, 46% { transform: translate(0.6px, 0.1px); }
+  49%, 58% { transform: translate(0.4px, -0.4px); }
+  61%, 74% { transform: translate(-0.45px, -0.35px); }
+  77%, 88% { transform: translate(0.1px, 0.4px); }
+  92%, 100% { transform: translate(0, 0); }
+}
+/* One blink, then a double blink. */
+@keyframes brand-blink {
+  0%, 44%, 48%, 88%, 92%, 94%, 98%, 100% { transform: scaleY(1); }
+  46%, 90%, 96% { transform: scaleY(0.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark g {
+    animation: none !important;
+  }
 }
 
 .health {
@@ -378,18 +450,6 @@ a:hover {
 /* A failed submit remounts the banner, so it shakes again each time. */
 .auth-card > .banner-error {
   animation: auth-shake 0.4s ease-in-out;
-}
-/* The brand dot pings like a live check. */
-.auth-card .brand-mark {
-  position: relative;
-}
-.auth-card .brand-mark::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: var(--up);
-  animation: ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 .auth-card .btn-primary {
   transition:
@@ -756,7 +816,6 @@ a:hover {
 @media (prefers-reduced-motion: reduce) {
   .auth-card,
   .auth-card > *,
-  .auth-card .brand-mark::after,
   .auth-card .btn-primary,
   .auth-aside::before,
   .auth-aside *,
