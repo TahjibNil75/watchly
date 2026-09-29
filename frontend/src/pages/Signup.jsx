@@ -61,7 +61,7 @@ export default function Signup() {
         <div className="card auth-card">
           <Link to="/" className="brand brand-lg">
             <BrandMark />
-            Watchly
+            <span className="brand-word">Watchly</span>
           </Link>
           <h1>Invitation only</h1>
           <p className="muted small">
@@ -81,7 +81,7 @@ export default function Signup() {
       <form className="card auth-card" onSubmit={submit}>
         <Link to="/" className="brand brand-lg">
           <BrandMark />
-          Watchly
+          <span className="brand-word">Watchly</span>
         </Link>
         <h1>Create an account</h1>
         <p className="muted small">
@@ -90,12 +90,7 @@ export default function Signup() {
         </p>
         <ErrorBanner error={error} />
         <label className="field">
-          <span>
-            Username{' '}
-            <span className="muted">
-              ({USERNAME_MIN_LENGTH}–{USERNAME_MAX_LENGTH} characters, no spaces)
-            </span>
-          </span>
+          <span>Username</span>
           <input
             value={form.username}
             onChange={set('username', withoutSpaces)}

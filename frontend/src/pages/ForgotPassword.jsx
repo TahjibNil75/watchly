@@ -30,7 +30,7 @@ export default function ForgotPassword() {
       <form className="card auth-card" onSubmit={submit}>
         <Link to="/" className="brand brand-lg">
           <BrandMark />
-          Watchly
+          <span className="brand-word">Watchly</span>
         </Link>
         <h1>Forgot your password?</h1>
         {done ? (

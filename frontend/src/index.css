@@ -7,6 +7,9 @@
   --muted: #676e7b;
   --primary: #3a5bd9;
   --primary-text: #ffffff;
+  /* Filled action buttons. Darker than --up so white text passes 4.5:1. */
+  --action: #177a42;
+  --action-text: #ffffff;
   --up: #1c8f4e;
   --down: #d23a3a;
   --pending: #b7791f;
@@ -39,6 +42,8 @@
     --muted: #9aa1ad;
     --primary: #6d8bff;
     --primary-text: #0f1116;
+    --action: #3dbb72;
+    --action-text: #0f1116;
     --up: #3dbb72;
     --down: #f16565;
     --pending: #e0a93b;
@@ -233,8 +238,23 @@ a:hover {
   text-decoration: none;
 }
 .brand-lg {
-  font-size: 1.3rem;
+  gap: 14px;
+  font-size: 2.4rem;
   margin-bottom: 8px;
+}
+/* The name, lettered like a sticker: green with the mark's own ink outline,
+   ringed by eight shadows and a ninth dropped down-right. */
+.brand-word {
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--up);
+  text-shadow:
+    0.045em 0 0 #111418, -0.045em 0 0 #111418,
+    0 0.045em 0 #111418, 0 -0.045em 0 #111418,
+    0.032em 0.032em 0 #111418, -0.032em 0.032em 0 #111418,
+    0.032em -0.032em 0 #111418, -0.032em -0.032em 0 #111418,
+    0.06em 0.09em 0 #111418;
 }
 /* BrandMark.jsx. The head turns after its gaze and the eyes blink on a clock
    of their own, so the two never fall into step. Each mood sets the skin's
@@ -259,8 +279,8 @@ a:hover {
   --brand-skin: var(--down);
 }
 .brand-lg .brand-mark {
-  width: 38px;
-  height: 38px;
+  width: 58px;
+  height: 58px;
 }
 .brand-mark * {
   transform-box: fill-box;
@@ -615,7 +635,8 @@ a:hover {
 }
 .auth-card {
   width: 100%;
-  max-width: 420px;
+  max-width: 480px;
+  font-size: 1.1rem;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -624,8 +645,22 @@ a:hover {
 .auth-card .brand-lg {
   align-self: center;
 }
+/* The fields turn green, not the app's blue, while you type in them. */
+.auth-card :is(input, select, textarea):focus {
+  outline-color: color-mix(in srgb, var(--up) 45%, transparent);
+  border-color: var(--up);
+}
 .auth-card h1 {
-  font-size: 1.3rem;
+  font-size: 1.65rem;
+}
+.auth-card .small {
+  font-size: 0.95rem;
+}
+.auth-card .field > span {
+  font-size: 1rem;
+}
+.auth-card .password-rules {
+  font-size: 0.92rem;
 }
 .password-input {
   position: relative;
@@ -684,7 +719,7 @@ a:hover {
 }
 .auth-card .btn-primary:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--primary) 70%, transparent);
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--action) 70%, transparent);
 }
 .auth-card .btn-primary:active:not(:disabled) {
   transform: none;
@@ -718,14 +753,14 @@ a:hover {
   gap: 24px;
   padding: 48px clamp(32px, 5vw, 72px);
   border-left: 1px solid var(--border);
-  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+  background: color-mix(in srgb, var(--up) 7%, var(--surface));
 }
 .auth-aside::before {
   content: '';
   position: absolute;
   inset: -20%;
   background:
-    radial-gradient(40% 35% at 30% 30%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 70%),
+    radial-gradient(40% 35% at 30% 30%, color-mix(in srgb, var(--up) 18%, transparent), transparent 70%),
     radial-gradient(35% 30% at 72% 72%, color-mix(in srgb, var(--up) 12%, transparent), transparent 70%);
   animation: drift 18s ease-in-out infinite alternate;
   pointer-events: none;
@@ -1076,6 +1111,14 @@ a:hover {
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
 }
+.landing-nav .brand {
+  gap: 14px;
+  font-size: 2.4rem;
+}
+.landing-nav .brand-mark {
+  width: 58px;
+  height: 58px;
+}
 .landing-nav-links {
   display: flex;
   gap: 22px;
@@ -1162,7 +1205,7 @@ a:hover {
 }
 .landing-actions .btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--primary) 70%, transparent);
+  box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--action) 70%, transparent);
   text-decoration: none;
 }
 .landing-note {
@@ -2193,48 +2236,59 @@ a.toast-body:hover strong {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 14px;
-  border-radius: 8px;
+  padding: 8px 18px;
+  border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 .btn:hover:not(:disabled) {
   background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--text) 18%, var(--border));
   text-decoration: none;
 }
+.btn:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
 .btn:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: default;
 }
 .btn-primary {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-text);
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--action-text);
 }
 .btn-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--primary) 88%, black);
+  background: color-mix(in srgb, var(--action) 86%, black);
+  border-color: color-mix(in srgb, var(--action) 86%, black);
 }
 .btn-danger {
   color: var(--down);
+  border-color: color-mix(in srgb, var(--down) 35%, var(--border));
 }
 .btn-danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--down) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--down) 55%, var(--border));
 }
 .btn-ghost {
   border-color: transparent;
   background: transparent;
 }
 .btn-sm {
-  padding: 4px 10px;
+  padding: 4px 12px;
   font-size: 0.85rem;
 }
 .btn-lg {
-  padding: 11px 20px;
+  padding: 11px 24px;
   font-size: 1rem;
 }
 .btn-block {

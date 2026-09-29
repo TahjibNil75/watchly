@@ -14,7 +14,7 @@ function Shell({ children }) {
       <div className="card auth-card">
         <div className="brand brand-lg">
           <BrandMark />
-          Watchly
+          <span className="brand-word">Watchly</span>
         </div>
         {children}
       </div>
@@ -99,7 +99,7 @@ export default function AcceptInvite() {
       <form className="card auth-card" onSubmit={submit}>
         <div className="brand brand-lg">
           <BrandMark />
-          Watchly
+          <span className="brand-word">Watchly</span>
         </div>
         <h1>Accept your invitation</h1>
         <p className="muted small">

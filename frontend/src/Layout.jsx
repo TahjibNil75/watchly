@@ -76,7 +76,7 @@ function Brand({ onClick }) {
   return (
     <NavLink to="/" className="brand" onClick={onClick}>
       <BrandMark />
-      Watchly
+      <span className="brand-word">Watchly</span>
     </NavLink>
   )
 }

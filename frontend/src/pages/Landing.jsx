@@ -221,7 +221,7 @@ export default function Landing() {
       <header className="landing-nav">
         <Link to="/" className="brand">
           <BrandMark />
-          Watchly
+          <span className="brand-word">Watchly</span>
         </Link>
         <nav className="landing-nav-links" aria-label="Page sections">
           <a href="#checks">What it checks</a>
@@ -335,7 +335,7 @@ export default function Landing() {
       <footer className="landing-footer">
         <span className="brand">
           <BrandMark />
-          Watchly
+          <span className="brand-word">Watchly</span>
         </span>
         <span className="muted small">Uptime, ping and DNS monitoring.</span>
       </footer>

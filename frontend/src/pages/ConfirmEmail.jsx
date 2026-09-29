@@ -43,7 +43,7 @@ export default function ConfirmEmail() {
       <div className="card auth-card">
         <div className="brand brand-lg">
           <BrandMark />
-          Watchly
+          <span className="brand-word">Watchly</span>
         </div>
         {confirmed ? (
           <>

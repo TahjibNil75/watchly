@@ -44,7 +44,7 @@ export default function ChoosePassword() {
       <form className="card auth-card" onSubmit={submit}>
         <div className="brand brand-lg">
           <BrandMark />
-          Watchly
+          <span className="brand-word">Watchly</span>
         </div>
         <h1>Choose a new password</h1>
         <p className="muted small">

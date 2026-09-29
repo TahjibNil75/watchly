@@ -130,7 +130,7 @@ export default function Projects() {
         )}
       </PageHeader>
 
-      {creating && (
+      {creating ? (
         <section className="card">
           <h2>New project</h2>
           {users.loading ? (
@@ -146,37 +146,39 @@ export default function Projects() {
             />
           )}
         </section>
-      )}
-
-      <ErrorBanner error={projects.error} />
-      {projects.loading ? (
-        <Loading />
-      ) : items.length === 0 ? (
-        <Empty>
-          <svg
-            className="empty-icon"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-          </svg>
-          {canViewAllProjects(user)
-            ? 'No projects yet. Create one to start monitoring websites.'
-            : creator
-              ? "You don't own or belong to any project yet. Create one, or ask an admin to add you to one."
-              : "You aren't a member of any project yet. Ask an admin to add you to one."}
-        </Empty>
       ) : (
-        <div className="project-grid">
-          {items.map((p) => (
-            <ProjectCard key={p.id} project={p} counts={counts[p.id]} />
-          ))}
-        </div>
+        <>
+          <ErrorBanner error={projects.error} />
+          {projects.loading ? (
+            <Loading />
+          ) : items.length === 0 ? (
+            <Empty>
+              <svg
+                className="empty-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              </svg>
+              {canViewAllProjects(user)
+                ? 'No projects yet. Create one to start monitoring websites.'
+                : creator
+                  ? "You don't own or belong to any project yet. Create one, or ask an admin to add you to one."
+                  : "You aren't a member of any project yet. Ask an admin to add you to one."}
+            </Empty>
+          ) : (
+            <div className="project-grid">
+              {items.map((p) => (
+                <ProjectCard key={p.id} project={p} counts={counts[p.id]} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </>
   )

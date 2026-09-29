@@ -34,7 +34,7 @@ export default function Login() {
       <form className="card auth-card" onSubmit={submit}>
         <Link to="/" className="brand brand-lg">
           <BrandMark />
-          Watchly
+          <span className="brand-word">Watchly</span>
         </Link>
         <h1>Sign in</h1>
         <ErrorBanner error={error} />
