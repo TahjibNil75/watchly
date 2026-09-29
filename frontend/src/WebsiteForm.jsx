@@ -4,6 +4,10 @@ import { ErrorBanner, UserChecklist } from './components.jsx'
 import { ENVIRONMENTS } from './environments.js'
 import { duration, parseEmails, parsePhoneNumbers } from './format.js'
 
+const NAME_MAX_WORDS = 25
+
+const countWords = (text) => text.trim().split(/\s+/).filter(Boolean).length
+
 const METHODS = ['GET', 'HEAD', 'POST', 'OPTIONS']
 const INTERVALS = [30, 60, 120, 300, 600, 900, 1800, 3600, 21600, 86400]
 // Each type's default timeout: a ping waits for echo replies, not pages, and
@@ -268,7 +272,7 @@ export default function WebsiteForm({
   }
 
   return (
-    <form className="form" onSubmit={submit}>
+    <form className="form website-form" onSubmit={submit}>
       <ErrorBanner error={error} />
 
       {/* Fixed once created: each keeps a different history. */}
@@ -324,7 +328,15 @@ export default function WebsiteForm({
           <span>Name</span>
           <input
             value={form.name}
-            onChange={set('name')}
+            onChange={(e) => {
+              // Native validation blocks the submit and points at this field.
+              e.target.setCustomValidity(
+                countWords(e.target.value) > NAME_MAX_WORDS
+                  ? `The name can be at most ${NAME_MAX_WORDS} words.`
+                  : '',
+              )
+              set('name')(e)
+            }}
             placeholder={ping ? 'Core router' : dns ? 'Mail servers (MX)' : 'Marketing site'}
             required
             maxLength={255}
@@ -529,7 +541,7 @@ export default function WebsiteForm({
 
       {http && (
         <details className="advanced">
-          <summary>Request options</summary>
+          <summary className="summary-yellow">Request options</summary>
           <div className="row-3">
             <label className="field">
               <span>Method</span>
@@ -720,7 +732,7 @@ export default function WebsiteForm({
           {busy ? 'Saving…' : submitLabel}
         </button>
         {onCancel && (
-          <button type="button" className="btn btn-ghost" onClick={onCancel}>
+          <button type="button" className="btn btn-danger-solid" onClick={onCancel}>
             Cancel
           </button>
         )}

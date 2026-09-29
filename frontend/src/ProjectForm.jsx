@@ -1,6 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ErrorBanner, UserChecklist } from './components.jsx'
 import { parseEmails, parsePhoneNumbers } from './format.js'
+
+const NAME_MIN_WORDS = 3
+const NAME_MAX_WORDS = 25
+const DESCRIPTION_MIN_WORDS = 5
+const DESCRIPTION_MAX_WORDS = 150
+const POPUP_MS = 6000
+
+const countWords = (text) => text.trim().split(/\s+/).filter(Boolean).length
 
 /**
  * Create mode when `initial` is absent (adds the member picker and extra
@@ -31,6 +39,14 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
   const [memberIds, setMemberIds] = useState([])
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  // The word limits are not shown on the form; breaking one pops this up.
+  const [popup, setPopup] = useState(null)
+
+  useEffect(() => {
+    if (!popup) return undefined
+    const timer = setTimeout(() => setPopup(null), POPUP_MS)
+    return () => clearTimeout(timer)
+  }, [popup])
 
   const set = (key) => (e) =>
     setForm({ ...form, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
@@ -89,6 +105,16 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
 
   async function submit(event) {
     event.preventDefault()
+    const words = countWords(form.description)
+    if (words > 0 && (words < DESCRIPTION_MIN_WORDS || words > DESCRIPTION_MAX_WORDS)) {
+      setPopup(
+        words < DESCRIPTION_MIN_WORDS
+          ? `The description is too short. Add a few more words (${DESCRIPTION_MIN_WORDS} or more).`
+          : `The description is too long. Shorten it to ${DESCRIPTION_MAX_WORDS} words or fewer (it has ${words}).`,
+      )
+      return
+    }
+    setPopup(null)
     setBusy(true)
     setError(null)
     try {
@@ -101,13 +127,23 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
   }
 
   return (
-    <form className="form" onSubmit={submit}>
+    <form className="form project-form" onSubmit={submit}>
       <ErrorBanner error={error} />
       <label className="field">
         <span>Name</span>
         <input
           value={form.name}
-          onChange={set('name')}
+          onChange={(e) => {
+            // Native validation blocks the submit and points at this field. Only new
+            // projects are held to it; older, shorter names must stay editable.
+            const words = countWords(e.target.value)
+            e.target.setCustomValidity(
+              creating && words > 0 && (words < NAME_MIN_WORDS || words > NAME_MAX_WORDS)
+                ? `The name must be ${NAME_MIN_WORDS} to ${NAME_MAX_WORDS} words.`
+                : '',
+            )
+            set('name')(e)
+          }}
           placeholder="Client or product name"
           required
           maxLength={255}
@@ -295,11 +331,33 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
           {busy ? 'Saving…' : submitLabel ?? (creating ? 'Create project' : 'Save')}
         </button>
         {onCancel && (
-          <button type="button" className="btn btn-ghost" onClick={onCancel}>
+          <button type="button" className="btn btn-danger-solid" onClick={onCancel}>
             Cancel
           </button>
         )}
       </div>
+
+      {popup && (
+        <section className="toasts" aria-live="assertive" aria-label="Form error">
+          <div className="toast tone-down" role="alert">
+            <span className="toast-dot" aria-hidden="true" />
+            <div className="toast-body">
+              <strong>Check the description</strong>
+              <span className="muted">{popup}</span>
+            </div>
+            <button
+              type="button"
+              className="toast-close"
+              aria-label="Dismiss"
+              onClick={() => setPopup(null)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+        </section>
+      )}
     </form>
   )
 }

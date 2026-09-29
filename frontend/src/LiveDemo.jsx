@@ -1,7 +1,9 @@
 import { useEffect, useReducer } from 'react'
+import BrandMark from './BrandMark.jsx'
 import ChannelLogo from './ChannelLogo.jsx'
 import { CHANNELS } from './channels.js'
 import { EnvironmentBadge, StatusBadge } from './components.jsx'
+import { TONE_MOODS } from './EventToasts.jsx'
 import { duration } from './format.js'
 import { useMediaQuery } from './useMediaQuery.js'
 
@@ -208,7 +210,9 @@ function LiveToast({ toast }) {
       className={`toast live-toast tone-${toast.tone}`}
       style={{ '--life': `${TOAST_TICKS * TICK_MS}ms` }}
     >
-      <span className="toast-dot" />
+      <span className="toast-mark">
+        <BrandMark mood={TONE_MOODS[toast.tone] ?? 'up'} />
+      </span>
       <div className="toast-body">
         <strong>{toast.title}</strong>
         <span className="muted">{toast.detail}</span>

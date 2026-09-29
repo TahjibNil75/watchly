@@ -1,37 +1,49 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { api } from './api.js'
 import { useAuth } from './auth.jsx'
 import BrandMark from './BrandMark.jsx'
 import EventToasts from './EventToasts.jsx'
 import { canEditNotificationDefaults, canManageUsers } from './roles.js'
-import { useApi } from './useApi.js'
 
 // 24x24 stroke icons, drawn inline so the sidebar needs no icon package.
 const ICONS = {
   websites: (
     <>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01" />
     </>
   ),
-  projects: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,
+  projects: (
+    <path d="M20 17a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.9a2 2 0 0 1-1.69-.9l-.81-1.2a2 2 0 0 0-1.67-.9H8a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2zM2 8v11a2 2 0 0 0 2 2h14" />
+  ),
   notifications: (
-    <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    <>
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <path d="M12 9v4M12 17h.01" />
+    </>
   ),
   users: (
     <>
-      <circle cx="9" cy="8" r="3.5" />
-      <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5" />
+      <circle cx="12" cy="7" r="3" />
+      <path d="M6 20a6 6 0 0 1 12 0" />
+      <circle cx="4.5" cy="9.5" r="2" />
+      <path d="M1 19a4 4 0 0 1 3-3.5" />
+      <circle cx="19.5" cy="9.5" r="2" />
+      <path d="M23 19a4 4 0 0 0-3-3.5" />
     </>
   ),
   profile: (
     <>
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 21a8 8 0 0 1 16 0" />
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
     </>
   ),
-  signout: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
+  signout: (
+    <>
+      <path d="M13 4h3a2 2 0 0 1 2 2v14M2 20h3M13 20h9M10 12v.01" />
+      <path d="M13 4.56v16.16a1 1 0 0 1-1.24.97L5 20V5.56a2 2 0 0 1 1.52-1.94l4-1A2 2 0 0 1 13 4.56z" />
+    </>
+  ),
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   close: <path d="M6 6l12 12M18 6L6 18" />,
 }
@@ -50,25 +62,6 @@ function Icon({ name }) {
     >
       {ICONS[name]}
     </svg>
-  )
-}
-
-function MonitoringIndicator() {
-  const { data, error } = useApi(() => api.health(), [], { pollMs: 60000 })
-  let state = 'unknown'
-  let label = 'Checking API…'
-  if (error) {
-    state = 'down'
-    label = 'API unreachable'
-  } else if (data) {
-    state = data.monitoring === 'on' ? 'up' : 'paused'
-    label = data.monitoring === 'on' ? 'Monitoring on' : 'Monitoring off'
-  }
-  return (
-    <span className="health" title={label}>
-      <span className={`dot dot-${state}`} />
-      <span>{label}</span>
-    </span>
   )
 }
 
@@ -139,8 +132,7 @@ export default function Layout() {
         </nav>
 
         <div className="side-footer">
-          <MonitoringIndicator />
-          <button type="button" className="btn btn-block btn-danger" onClick={logout}>
+          <button type="button" className="btn btn-block btn-danger-solid" onClick={logout}>
             <Icon name="signout" />
             Sign out
           </button>

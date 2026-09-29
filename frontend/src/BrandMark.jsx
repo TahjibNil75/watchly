@@ -14,6 +14,7 @@ import { useMediaQuery } from './useMediaQuery.js'
 //         lazy wave on the screen
 //   down  red and tense: slanted lids, pinpoint pupils darting side to side,
 //         a shiver, a bead of sweat, and a flatline on the screen
+// Given a `mood`, the mark holds that one instead, as it does on an alert.
 // Every mood's lids and trace are drawn, and CSS shows the current one's, so
 // a change of mood eases from one face to the next. Visitors who ask for
 // reduced motion get the happy face, still.
@@ -45,8 +46,9 @@ function useMood(still) {
 // on every face and either theme. The clip id is per instance: a url(#id) that
 // lands on a copy inside a hidden element (the drawer's top bar on wide
 // screens) clips to nothing.
-export default function BrandMark() {
-  const mood = useMood(useMediaQuery('(prefers-reduced-motion: reduce)'))
+export default function BrandMark({ mood: fixed }) {
+  const cycling = useMood(useMediaQuery('(prefers-reduced-motion: reduce)') || Boolean(fixed))
+  const mood = fixed ?? cycling
   const lens = `${useId()}lens`
   return (
     <svg className={`brand-mark is-${mood}`} viewBox="0 0 32 32" aria-hidden="true">

@@ -198,6 +198,16 @@ def dns_values(record_type: DnsRecordType, values: list[str]) -> list[str]:
     return normalized
 
 
+NAME_MAX_WORDS = 25
+
+
+def check_name_length(value: str | None) -> str | None:
+    """A site name runs to at most 25 words."""
+    if value is not None and len(value.split()) > NAME_MAX_WORDS:
+        raise ValueError(f"name must be at most {NAME_MAX_WORDS} words")
+    return value
+
+
 class WebsiteBase(BaseModel):
     # Before `url`, whose validation depends on it.
     check_type: CheckType = Field(
@@ -364,6 +374,8 @@ class WebsiteBase(BaseModel):
         ),
     )
 
+    _name_length = field_validator("name")(check_name_length)
+
     @field_validator("url")
     @classmethod
     def _valid_target(cls, value: str, info: ValidationInfo) -> str:
@@ -521,6 +533,7 @@ class WebsiteUpdate(BaseModel):
         ),
     )
 
+    _name_length = field_validator("name")(check_name_length)
     _known_method = field_validator("method")(WebsiteBase.known_method.__func__)
     _content_rules = field_validator("must_contain", "must_not_contain")(_blank_to_none)
     _bot_token = field_validator("slack_bot_token")(

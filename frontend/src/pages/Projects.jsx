@@ -132,7 +132,7 @@ export default function Projects() {
 
       {creating ? (
         <section className="card">
-          <h2>New project</h2>
+          <h2 className="heading-yellow">New project</h2>
           {users.loading ? (
             <Loading />
           ) : (

@@ -267,6 +267,38 @@ def check_alert_channels(
         )
 
 
+DESCRIPTION_MIN_WORDS = 5
+DESCRIPTION_MAX_WORDS = 150
+
+
+def check_description_length(value: str | None) -> str | None:
+    """A description, when given, runs from 5 to 150 words."""
+    if value is None:
+        return value
+    words = len(value.split())
+    if words < DESCRIPTION_MIN_WORDS or words > DESCRIPTION_MAX_WORDS:
+        raise ValueError(
+            f"description must be {DESCRIPTION_MIN_WORDS} to "
+            f"{DESCRIPTION_MAX_WORDS} words (it has {words})"
+        )
+    return value
+
+
+NAME_MIN_WORDS = 3
+NAME_MAX_WORDS = 25
+
+
+def check_name_length(value: str) -> str:
+    """A new project's name runs from 3 to 25 words."""
+    words = len(value.split())
+    if words < NAME_MIN_WORDS or words > NAME_MAX_WORDS:
+        raise ValueError(
+            f"name must be {NAME_MIN_WORDS} to {NAME_MAX_WORDS} words "
+            f"(it has {words})"
+        )
+    return value
+
+
 class ProjectBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
@@ -285,8 +317,8 @@ class ProjectCreate(ProjectBase, SlackSettings, TelegramSettings, WhatsAppSettin
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "name": "Monstar People",
-                "description": "Client marketing site",
+                "name": "Monstar People Marketing Site",
+                "description": "Marketing website for our client Monstar People",
                 "member_ids": [3, 7],
                 "extra_emails": ["oncall@example.com"],
                 "slack_bot_token": "xoxb-your-bot-token",
@@ -304,6 +336,9 @@ class ProjectCreate(ProjectBase, SlackSettings, TelegramSettings, WhatsAppSettin
         default_factory=list,
         description="Users responsible for this project; they receive its alerts.",
     )
+
+    _name_length = field_validator("name")(check_name_length)
+    _description_length = field_validator("description")(check_description_length)
 
     @model_validator(mode="after")
     def at_least_one_alert_channel(self) -> "ProjectCreate":
@@ -327,6 +362,8 @@ class ProjectUpdate(SlackSettings, TelegramSettings, WhatsAppSettings):
     extra_emails: list[EmailStr] | None = Field(
         default=None, description="Replaces the whole list when supplied."
     )
+
+    _description_length = field_validator("description")(check_description_length)
 
 
 class ProjectMembersUpdate(BaseModel):

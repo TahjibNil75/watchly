@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from './api.js'
+import BrandMark from './BrandMark.jsx'
 import { dateTime, duration, timeAgo } from './format.js'
 import { SITE_EVENTS } from './useApi.js'
 
@@ -17,6 +18,9 @@ const SHOWN = 4
 const DISMISS_MS = 8000
 const LEAVE_MS = 200
 const DAY_MS = 86400000
+
+// The mascot's face for each tone: happy, fed up, tense.
+export const TONE_MOODS = { up: 'up', pending: 'slow', down: 'down' }
 
 const seenKey = (userId) => `watchly.lastEventId.${userId}`
 
@@ -135,7 +139,9 @@ function Toast({ toast, onDismiss }) {
       onFocus={() => setFocused(true)}
       onBlur={release(setFocused)}
     >
-      <span className="toast-dot" aria-hidden="true" />
+      <span className="toast-mark">
+        <BrandMark mood={TONE_MOODS[toast.tone] ?? 'up'} />
+      </span>
       <Link to={toast.href} className="toast-body" onClick={() => onDismiss(key)}>
         <strong>{toast.title}</strong>
         <span className="muted">{toast.detail}</span>
