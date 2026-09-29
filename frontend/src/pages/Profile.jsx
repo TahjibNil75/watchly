@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
-import { Avatar, ErrorBanner, PageHeader, RolePill } from '../components.jsx'
+import { Avatar, ErrorBanner, PageHeader, PasswordChecklist, RolePill } from '../components.jsx'
+import { withoutSpaces } from '../fields.js'
+import { isStrongPassword, WEAK_PASSWORD } from '../password.js'
 import { dateTime, timeAgo } from '../format.js'
 import { roleClass } from '../roles.js'
 
@@ -227,7 +229,7 @@ function EmailCard({ user, updateUser }) {
         <input
           type="email"
           value={newEmail}
-          onChange={(e) => setNewEmail(e.target.value)}
+          onChange={(e) => setNewEmail(withoutSpaces(e.target.value))}
           autoComplete="email"
           required
         />
@@ -257,16 +259,20 @@ function EmailCard({ user, updateUser }) {
 
 const EMPTY_PASSWORDS = { current_password: '', new_password: '', confirm_password: '' }
 
-function PasswordCard() {
+function PasswordCard({ user }) {
   const [form, setForm] = useState(EMPTY_PASSWORDS)
   const { busy, error, notice, run } = useAction()
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+  const identity = { username: user.username, email: user.email, fullName: user.full_name }
   // Said once both are typed in, not on the first keystroke.
   const matches = form.confirm_password ? form.new_password === form.confirm_password : null
 
   const submit = (event) => {
     event.preventDefault()
     run(async () => {
+      if (!isStrongPassword(form.new_password, identity)) {
+        throw new Error(WEAK_PASSWORD)
+      }
       if (form.new_password !== form.confirm_password) {
         throw new Error('The new passwords do not match.')
       }
@@ -303,6 +309,7 @@ function PasswordCard() {
             value={form.new_password}
             onChange={set('new_password')}
             autoComplete="new-password"
+            aria-describedby="password-rules"
             required
             minLength={8}
             maxLength={128}
@@ -321,13 +328,12 @@ function PasswordCard() {
           />
         </label>
       </div>
-      <p className={`match-hint${matches === null ? '' : matches ? ' is-ok' : ' is-bad'}`}>
-        {matches === null
-          ? 'At least 8 characters.'
-          : matches
-            ? 'The new passwords match.'
-            : 'The new passwords do not match yet.'}
-      </p>
+      <PasswordChecklist id="password-rules" password={form.new_password} identity={identity} />
+      {matches !== null && (
+        <p className={`match-hint ${matches ? 'is-ok' : 'is-bad'}`}>
+          {matches ? 'The new passwords match.' : 'The new passwords do not match yet.'}
+        </p>
+      )}
       <div className="form-actions">
         <button className="btn btn-primary" disabled={busy}>
           {busy ? 'Changing…' : 'Change password'}
@@ -347,7 +353,7 @@ export default function Profile() {
         <DetailsCard user={user} updateUser={updateUser} />
         <EmailCard user={user} updateUser={updateUser} />
       </div>
-      <PasswordCard />
+      <PasswordCard user={user} />
     </>
   )
 }

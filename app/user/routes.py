@@ -11,6 +11,7 @@ from app.db.models.user import User, UserRole
 from app.db.session import get_db
 from app.auth.cookies import set_refresh_cookie
 from app.auth.service import AuthService, UserAlreadyExistsError
+from app.core.password_policy import WeakPasswordError
 from app.schemas.user import UserRead
 from app.user.mail import send_email_confirmation
 from app.user.schemas import (
@@ -81,7 +82,7 @@ async def update_me(
     responses={
         400: {
             "description": "The current password is incorrect, or the new one is "
-            "the same"
+            "the same, too weak, or holds the username, email or name"
         }
     },
 )
@@ -104,7 +105,7 @@ async def change_my_password(
         user = await service.change_password(
             current_user, payload.current_password, payload.new_password
         )
-    except (IncorrectPasswordError, SamePasswordError) as exc:
+    except (IncorrectPasswordError, SamePasswordError, WeakPasswordError) as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     set_refresh_cookie(response, await AuthService(service.session).start_session(user))
     return ProfileRead.model_validate(user)

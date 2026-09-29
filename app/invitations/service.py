@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.service import UserAlreadyExistsError
 from app.core.config import settings
+from app.core.password_policy import check_password
 from app.core.permissions import can_invite_role
 from app.core.security import generate_hash_password, hash_token, new_link_token
 from app.db.models.invitation import Invitation, InvitationStatus
@@ -305,9 +306,17 @@ class InvitationService:
             InvitationUnusableError: as for :meth:`preview`.
             UserAlreadyExistsError: the username is taken, or the address
                 registered on its own in the meantime.
+            WeakPasswordError: the password breaks a rule, or holds the
+                username, the invited address or the name.
         """
         # Locked, so two clicks on the same link cannot both create an account.
         invitation = await self._get_usable(payload.token, lock=True)
+        check_password(
+            payload.password,
+            username=payload.username,
+            email=invitation.email,
+            full_name=payload.full_name,
+        )
 
         if await self.session.scalar(
             select(User.id).where(User.username == payload.username)

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from './api.js'
 import { Empty, ErrorBanner, Loading, RolePill } from './components.jsx'
+import { withoutSpaces } from './fields.js'
 import { duration, timeAgo } from './format.js'
 import { canManageInvitation, invitableRoles } from './roles.js'
 import { useApi } from './useApi.js'
@@ -73,7 +74,7 @@ export function InviteForm({ me, onNotice, onSent, onCancel }) {
           <input
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => setEmail(withoutSpaces(e.target.value))}
             placeholder="name@company.com"
             autoComplete="off"
             autoFocus

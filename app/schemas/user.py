@@ -1,8 +1,54 @@
 from datetime import datetime
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    EmailStr,
+    Field,
+)
+from pydantic_core import PydanticCustomError
 
 from app.db.models.user import UserRole
+
+USERNAME_MIN_LENGTH = 4
+USERNAME_MAX_LENGTH = 12
+
+
+def _drop_spaces(value: Any) -> Any:
+    """Spaces are never part of a username or an address, so they are not
+    counted: " jane doe " is "janedoe"."""
+    return "".join(value.split()) if isinstance(value, str) else value
+
+
+def _username_length(value: str) -> str:
+    # Checked here rather than with Field(min_length=...), which after a
+    # BeforeValidator words its error as "at least 4 items".
+    if not USERNAME_MIN_LENGTH <= len(value) <= USERNAME_MAX_LENGTH:
+        raise PydanticCustomError(
+            "username_length",
+            "Usernames are {min}–{max} characters, not counting spaces.",
+            {"min": USERNAME_MIN_LENGTH, "max": USERNAME_MAX_LENGTH},
+        )
+    return value
+
+
+#: A username someone is choosing now. Older accounts may have longer ones,
+#: which is why what the API returns is not held to this.
+NewUsername = Annotated[
+    str,
+    BeforeValidator(_drop_spaces),
+    AfterValidator(_username_length),
+    Field(
+        description=f"{USERNAME_MIN_LENGTH}–{USERNAME_MAX_LENGTH} characters. "
+        "Spaces are dropped."
+    ),
+]
+
+#: An address typed in, with any spaces dropped before it is checked.
+EmailInput = Annotated[EmailStr, BeforeValidator(_drop_spaces)]
 
 
 class UserBase(BaseModel):

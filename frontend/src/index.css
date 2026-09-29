@@ -3525,6 +3525,66 @@ strong + .badge {
   color: var(--down);
 }
 
+/* Under a new password: each rule, its circle filling with a tick once met. */
+.password-rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin: -4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.password-rules li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transition: color 0.15s ease;
+}
+.password-rules svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.password-rules path {
+  stroke: transparent;
+  stroke-width: 1.8;
+  stroke-dasharray: 10;
+  stroke-dashoffset: 10;
+  transition: stroke-dashoffset 0.2s ease;
+}
+.password-rules circle {
+  transition: fill 0.15s ease;
+}
+.password-rules li.is-met {
+  color: var(--up);
+}
+.password-rules li.is-met circle {
+  fill: var(--up);
+}
+.password-rules li.is-met path {
+  stroke: var(--surface);
+  stroke-dashoffset: 0;
+}
+@media (max-width: 480px) {
+  .password-rules {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .password-rules li,
+  .password-rules circle,
+  .password-rules path {
+    transition: none;
+  }
+}
+
 @media (max-width: 640px) {
   .profile-hero {
     padding: 16px;

@@ -4,14 +4,13 @@ from pydantic import (
     AliasChoices,
     BaseModel,
     ConfigDict,
-    EmailStr,
     Field,
     field_validator,
     model_validator,
 )
 
 from app.db.models.user import UserRole
-from app.schemas.user import UserRead
+from app.schemas.user import EmailInput, UserRead
 
 
 class RoleUpdateRequest(BaseModel):
@@ -91,7 +90,7 @@ class EmailChangeRequest(BaseModel):
         }
     )
 
-    new_email: EmailStr
+    new_email: EmailInput
     current_password: str = Field(min_length=1, max_length=128)
 
 

@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import BrandMark from '../BrandMark.jsx'
-import { ErrorBanner } from '../components.jsx'
+import { ErrorBanner, PasswordChecklist } from '../components.jsx'
+import { isStrongPassword, WEAK_PASSWORD } from '../password.js'
 
 /**
  * Shown instead of the app after signing in with a temporary password. The API
@@ -16,9 +17,14 @@ export default function ChoosePassword() {
   const [busy, setBusy] = useState(false)
 
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+  const identity = { username: user.username, email: user.email, fullName: user.full_name }
 
   async function submit(event) {
     event.preventDefault()
+    if (!isStrongPassword(form.new_password, identity)) {
+      setError(new Error(WEAK_PASSWORD))
+      return
+    }
     if (form.new_password !== form.confirm_password) {
       setError(new Error('The new passwords do not match.'))
       return
@@ -64,11 +70,13 @@ export default function ChoosePassword() {
             value={form.new_password}
             onChange={set('new_password')}
             autoComplete="new-password"
+            aria-describedby="password-rules"
             required
             minLength={8}
             maxLength={128}
           />
         </label>
+        <PasswordChecklist id="password-rules" password={form.new_password} identity={identity} />
         <label className="field">
           <span>Confirm new password</span>
           <input

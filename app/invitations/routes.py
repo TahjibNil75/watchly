@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_auth_service, require_inviter
 from app.auth.routes import issue_tokens
 from app.auth.service import AuthService, UserAlreadyExistsError
+from app.core.password_policy import WeakPasswordError
 from app.core.rate_limit import RATE_LIMITED, rate_limit
 from app.db.models.invitation import InvitationStatus
 from app.db.models.user import User
@@ -185,6 +186,7 @@ async def preview_invitation(
     responses={
         404: {"description": "No invitation matches this token"},
         409: {"description": "Username taken, or the address registered meanwhile"},
+        422: {"description": "The password is too weak, or holds the username, address or name"},
         **UNUSABLE,
         **RATE_LIMITED,
     },
@@ -207,6 +209,8 @@ async def accept_invitation(
         raise HTTPException(status.HTTP_410_GONE, str(exc)) from exc
     except UserAlreadyExistsError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except WeakPasswordError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
     return AcceptInvitationResponse(
         user=UserRead.model_validate(user),

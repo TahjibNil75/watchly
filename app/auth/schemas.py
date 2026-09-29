@@ -1,6 +1,8 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import PydanticCustomError
 
-from app.schemas.user import UserRead
+from app.core.password_policy import WeakPasswordError, check_password
+from app.schemas.user import EmailInput, NewUsername, UserRead
 
 
 class SignupRequest(BaseModel):
@@ -19,8 +21,8 @@ class SignupRequest(BaseModel):
         }
     )
 
-    username: str = Field(min_length=3, max_length=50)
-    email: EmailStr
+    username: NewUsername
+    email: EmailInput
     full_name: str | None = Field(default=None, max_length=255)
     password: str = Field(min_length=8, max_length=128)
     confirm_password: str = Field(min_length=8, max_length=128)
@@ -29,6 +31,16 @@ class SignupRequest(BaseModel):
     def passwords_match(self) -> "SignupRequest":
         if self.password != self.confirm_password:
             raise ValueError("password and confirm_password do not match")
+        try:
+            check_password(
+                self.password,
+                username=self.username,
+                email=self.email,
+                full_name=self.full_name,
+            )
+        except WeakPasswordError as exc:
+            # A custom error, so the message is not prefixed "Value error, ".
+            raise PydanticCustomError("weak_password", str(exc)) from exc
         return self
 
 
@@ -52,7 +64,7 @@ class LoginRequest(BaseModel):
 class ForgotPasswordRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {"email": "jane@example.com"}})
 
-    email: EmailStr
+    email: EmailInput
 
 
 class ForgotPasswordResponse(BaseModel):

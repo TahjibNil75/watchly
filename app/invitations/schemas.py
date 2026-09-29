@@ -1,10 +1,11 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.auth.schemas import AuthResponse
 from app.db.models.invitation import InvitationStatus
 from app.db.models.user import UserRole
+from app.schemas.user import EmailInput, NewUsername
 
 
 class InvitationCreate(BaseModel):
@@ -14,7 +15,7 @@ class InvitationCreate(BaseModel):
         json_schema_extra={"example": {"email": "jane@example.com", "role": "Developer"}}
     )
 
-    email: EmailStr
+    email: EmailInput
     role: UserRole = Field(
         description="The role the new account starts with. Which roles you may "
         "grant depends on your own (see INVITABLE_BY)."
@@ -93,7 +94,7 @@ class AcceptInvitationRequest(InvitationTokenRequest):
         }
     )
 
-    username: str = Field(min_length=3, max_length=50)
+    username: NewUsername
     full_name: str | None = Field(default=None, max_length=255)
     password: str = Field(min_length=8, max_length=128)
     confirm_password: str = Field(min_length=8, max_length=128)

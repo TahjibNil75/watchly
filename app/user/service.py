@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.service import AuthService, InactiveUserError, UserAlreadyExistsError
 from app.core.config import settings
+from app.core.password_policy import check_password
 from app.core.permissions import can_change_role, can_suspend_user
 from app.core.security import (
     generate_hash_password,
@@ -226,11 +227,16 @@ class UserService:
         Raises:
             IncorrectPasswordError: `current_password` is wrong.
             SamePasswordError: the new password is the current one.
+            WeakPasswordError: the new password breaks a rule, or holds the
+                username, email or name.
         """
         if not verify_password(current_password, user.password_hash):
             raise IncorrectPasswordError
         if verify_password(new_password, user.password_hash):
             raise SamePasswordError
+        check_password(
+            new_password, username=user.username, email=user.email, full_name=user.full_name
+        )
 
         user.password_hash = generate_hash_password(new_password)
         user.must_change_password = False

@@ -3,7 +3,9 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import BrandMark from '../BrandMark.jsx'
-import { ErrorBanner, Loading } from '../components.jsx'
+import { ErrorBanner, Loading, PasswordChecklist } from '../components.jsx'
+import { USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH, withoutSpaces } from '../fields.js'
+import { isStrongPassword, WEAK_PASSWORD } from '../password.js'
 import { useApi } from '../useApi.js'
 
 function Shell({ children }) {
@@ -36,10 +38,22 @@ export default function AcceptInvite() {
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+  const set =
+    (key, clean = (value) => value) =>
+    (e) =>
+      setForm({ ...form, [key]: clean(e.target.value) })
+  const identity = {
+    username: form.username,
+    email: invitation.data?.email,
+    fullName: form.full_name,
+  }
 
   async function submit(event) {
     event.preventDefault()
+    if (!isStrongPassword(form.password, identity)) {
+      setError(new Error(WEAK_PASSWORD))
+      return
+    }
     if (form.password !== form.confirm_password) {
       setError(new Error('Passwords do not match.'))
       return
@@ -104,15 +118,20 @@ export default function AcceptInvite() {
           <input type="email" value={email} readOnly disabled />
         </label>
         <label className="field">
-          <span>Username</span>
+          <span>
+            Username{' '}
+            <span className="muted">
+              ({USERNAME_MIN_LENGTH}–{USERNAME_MAX_LENGTH} characters, no spaces)
+            </span>
+          </span>
           <input
             value={form.username}
-            onChange={set('username')}
+            onChange={set('username', withoutSpaces)}
             autoComplete="username"
             autoFocus
             required
-            minLength={3}
-            maxLength={50}
+            minLength={USERNAME_MIN_LENGTH}
+            maxLength={USERNAME_MAX_LENGTH}
           />
         </label>
         <label className="field">
@@ -129,8 +148,10 @@ export default function AcceptInvite() {
               value={form.password}
               onChange={set('password')}
               autoComplete="new-password"
+              aria-describedby="password-rules"
               required
               minLength={8}
+              maxLength={128}
             />
           </label>
           <label className="field">
@@ -142,9 +163,11 @@ export default function AcceptInvite() {
               autoComplete="new-password"
               required
               minLength={8}
+              maxLength={128}
             />
           </label>
         </div>
+        <PasswordChecklist id="password-rules" password={form.password} identity={identity} />
         <button className="btn btn-primary btn-block" disabled={busy}>
           {busy && <span className="spinner" aria-hidden="true" />}
           {busy ? 'Creating account…' : 'Create account'}

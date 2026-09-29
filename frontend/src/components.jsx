@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { checkType } from './checkTypes.js'
 import { environmentLabel } from './environments.js'
 import { duration, initials, since, timeAgo } from './format.js'
+import { passwordRules } from './password.js'
 import { ROLES, roleClass } from './roles.js'
 
 export function RolePill({ role }) {
@@ -194,5 +195,25 @@ export function WebsiteTable({ sites, projectNames, emptyLabel }) {
         </tbody>
       </table>
     </div>
+  )
+}
+
+// Under a new password: each rule, ticked as soon as the password meets it.
+// `identity` is what is known of the account: { username, email, fullName }.
+export function PasswordChecklist({ password, identity, id }) {
+  const rules = passwordRules(password, identity)
+  return (
+    <ul className="password-rules" id={id} aria-label="Password requirements">
+      {rules.map((rule) => (
+        <li key={rule.key} className={rule.met ? 'is-met' : undefined}>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="7" />
+            <path d="m5 8.2 2 2 4-4.4" />
+          </svg>
+          {rule.label}
+          <span className="visually-hidden">{rule.met ? ' (done)' : ' (not yet)'}</span>
+        </li>
+      ))}
+    </ul>
   )
 }

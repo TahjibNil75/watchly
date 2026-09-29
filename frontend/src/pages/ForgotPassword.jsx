@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import BrandMark from '../BrandMark.jsx'
 import { ErrorBanner } from '../components.jsx'
+import { withoutSpaces } from '../fields.js'
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('')
@@ -48,7 +49,7 @@ export default function ForgotPassword() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => setEmail(withoutSpaces(e.target.value))}
                 autoComplete="email"
                 autoFocus
                 required
