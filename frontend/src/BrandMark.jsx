@@ -43,14 +43,20 @@ function useMood(still) {
   return still ? 'up' : mood
 }
 
+// The mood a mark shows: `fixed` if given, else the one the clock is on. For
+// pages that dress to match the mark, as the sign-in page does.
+export function useBrandMood(fixed) {
+  const cycling = useMood(useMediaQuery('(prefers-reduced-motion: reduce)') || Boolean(fixed))
+  return fixed ?? cycling
+}
+
 // 32x32: the head up top, its glasses resting on the window's top edge and its
 // hands on the corners. The ink, eye whites and window are fixed, so they read
 // on every face and either theme. The clip id is per instance: a url(#id) that
 // lands on a copy inside a hidden element (the drawer's top bar on wide
 // screens) clips to nothing.
 export default function BrandMark({ mood: fixed }) {
-  const cycling = useMood(useMediaQuery('(prefers-reduced-motion: reduce)') || Boolean(fixed))
-  const mood = fixed ?? cycling
+  const mood = useBrandMood(fixed)
   const lens = `${useId()}lens`
   return (
     <svg className={`brand-mark is-${mood}`} viewBox="0 0 32 32" aria-hidden="true">

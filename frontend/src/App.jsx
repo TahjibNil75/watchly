@@ -45,8 +45,9 @@ export default function App() {
         {/* The site's root introduces Watchly; any other page asks to sign in,
             then returns there. */}
         <Route index element={<Landing />} />
+        {/* Sign in is a full-screen page of its own, without the demo board. */}
+        <Route path="/login" element={<Login />} />
         <Route element={<AuthLayout />}>
-          <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
