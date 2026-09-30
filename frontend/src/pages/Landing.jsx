@@ -69,7 +69,7 @@ const CHECKS = [
     title: 'Websites',
     lead: 'Request a URL on its own interval and judge the answer.',
     points: [
-      'The status you expect, and text the page must or must not contain',
+      'The status you expect, and text the page should or should not contain',
       'Where the time went: DNS, connect, TLS, first byte',
       'SSL certificate reminders at 14 and 7 days',
     ],

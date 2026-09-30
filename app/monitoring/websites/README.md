@@ -90,6 +90,14 @@ A site counts as up when its status code equals `expected_status` (default
 the text in `must_contain` and lacks the text in `must_not_contain`
 (case-sensitive, first 1 MB, so GET or POST only).
 
+`request_headers` adds up to 10 headers to every request: a token for a page
+behind a login, a `Host` for one virtual host, or a `User-Agent` in place of
+Watchly's, which a site's own header replaces. Each value is encrypted like a
+bot token and never returned; the API shows names and a masked tail. On
+update the list is replaced whole, and a header sent with `value: null` keeps
+the value stored under its name. Headers follow redirects; httpx drops only
+`Authorization` when one leaves the host.
+
 A failed probe is repeated `retries_on_failure` times (default 1),
 `CHECK_RETRY_DELAY_SECONDS` apart, inside `check_website`. Only the last result
 is recorded, so a one-off blip leaves no failed check and raises no alert; set

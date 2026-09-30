@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import {
+  ConfirmDialog,
   ErrorBanner,
   Loading,
   PageHeader,
@@ -27,6 +28,7 @@ export default function ProjectDetail() {
   const [actionError, setActionError] = useState(null)
   const [reportResult, setReportResult] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const project = useApi(() => api.getProject(id), [id])
   const sites = useApi(() => api.listWebsites({ project_id: id }), [id], { pollMs: 30000 })
@@ -58,9 +60,6 @@ export default function ProjectDetail() {
   }
 
   const remove = () => {
-    const n = sites.data?.total ?? 0
-    const warning = n ? ` This also stops monitoring its ${n} website(s) and deletes their history.` : ''
-    if (!window.confirm(`Delete project "${p.name}"?${warning}`)) return
     run(async () => {
       await api.deleteProject(p.id)
       navigate('/projects')
@@ -139,10 +138,15 @@ export default function ProjectDetail() {
             <Link to={`/websites/new?project=${p.id}`} className="btn btn-primary">
               Add website
             </Link>
-            <button type="button" className="btn" onClick={() => setEditing(!editing)}>
+            <button type="button" className="btn btn-warn" onClick={() => setEditing(!editing)}>
               {editing ? 'Close editor' : 'Edit'}
             </button>
-            <button type="button" className="btn btn-danger" onClick={remove} disabled={busy}>
+            <button
+              type="button"
+              className="btn btn-danger-solid"
+              onClick={() => setConfirmingDelete(true)}
+              disabled={busy}
+            >
               Delete
             </button>
           </>
@@ -150,6 +154,19 @@ export default function ProjectDetail() {
       </PageHeader>
 
       <ErrorBanner error={actionError} />
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={`Delete project ${p.name}?`}
+          busy={busy}
+          onConfirm={remove}
+          onCancel={() => setConfirmingDelete(false)}
+        >
+          Deletes this project.
+          {(sites.data?.total ?? 0) > 0 &&
+            ` This also stops monitoring its ${sites.data.total} website(s) and deletes their history.`}{' '}
+          This can&apos;t be undone.
+        </ConfirmDialog>
+      )}
       {reportResult &&
         (reportResult.delivered_by.length ? (
           <div className="banner banner-info">

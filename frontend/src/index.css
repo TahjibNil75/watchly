@@ -4288,6 +4288,20 @@ textarea {
   margin-top: 10px;
 }
 
+/* One request header: name, value, remove. */
+.header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.advanced .header-row .btn {
+  margin-top: 0;
+}
+.header-add {
+  align-self: flex-start;
+}
+
 .checklist {
   max-height: 200px;
   overflow-y: auto;
@@ -4319,6 +4333,12 @@ textarea {
   .row-2,
   .row-3 {
     grid-template-columns: 1fr;
+  }
+  .header-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .header-row input:nth-child(2) {
+    grid-row: 2;
   }
   .kv > div {
     grid-template-columns: 120px 1fr;
@@ -4887,4 +4907,32 @@ textarea {
   .preview-frame {
     height: 420px;
   }
+}
+
+/* Confirmation dialog for destructive actions. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.5);
+}
+.modal {
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-color: color-mix(in srgb, var(--down) 30%, var(--border));
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
+}
+.modal h2,
+.modal-body {
+  margin: 0;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }

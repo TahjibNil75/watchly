@@ -5,6 +5,7 @@ import { useAuth } from '../auth.jsx'
 import { isDns, isPing, recordText, rtt } from '../checkTypes.js'
 import {
   CheckTypeBadge,
+  ConfirmDialog,
   Empty,
   EnvironmentBadge,
   ErrorBanner,
@@ -859,6 +860,7 @@ export default function WebsiteDetail() {
   const [notice, setNotice] = useState(null)
   const [actionError, setActionError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const site = useApi(() => api.getWebsite(id), [id], { pollMs: 30000 })
   const checks = useApi(() => api.listChecks(id, CHECKS_SHOWN), [id], { pollMs: 30000 })
@@ -930,7 +932,6 @@ export default function WebsiteDetail() {
     run(async () => site.setData(await api.updateWebsite(s.id, { is_enabled: !s.is_enabled })))
 
   const remove = () => {
-    if (!window.confirm(`Stop monitoring "${s.name}" and delete its check history?`)) return
     run(async () => {
       await api.deleteWebsite(s.id)
       navigate(project.data ? `/projects/${project.data.id}` : '/')
@@ -1097,14 +1098,23 @@ export default function WebsiteDetail() {
                   </div>
                   {s.must_contain && (
                     <div>
-                      <dt>Must contain</dt>
+                      <dt>Contains</dt>
                       <dd className="truncate">{s.must_contain}</dd>
                     </div>
                   )}
                   {s.must_not_contain && (
                     <div>
-                      <dt>Must not contain</dt>
+                      <dt>Does not contain</dt>
                       <dd className="truncate">{s.must_not_contain}</dd>
+                    </div>
+                  )}
+                  {s.request_headers?.length > 0 && (
+                    <div>
+                      <dt>Request headers</dt>
+                      {/* Names only: the values may be secrets. */}
+                      <dd className="truncate">
+                        {s.request_headers.map((h) => h.name).join(', ')}
+                      </dd>
                     </div>
                   )}
                   <div>
@@ -1223,10 +1233,25 @@ export default function WebsiteDetail() {
               Stops monitoring {s.name} and deletes its check history. This can&apos;t be
               undone.
             </p>
-            <button type="button" className="btn btn-danger-solid" onClick={remove} disabled={busy}>
+            <button
+              type="button"
+              className="btn btn-danger-solid"
+              onClick={() => setConfirmingDelete(true)}
+              disabled={busy}
+            >
               Delete
             </button>
           </section>
+        )}
+        {confirmingDelete && (
+          <ConfirmDialog
+            title={`Delete ${s.name}?`}
+            busy={busy}
+            onConfirm={remove}
+            onCancel={() => setConfirmingDelete(false)}
+          >
+            Stops monitoring {s.name} and deletes its check history. This can&apos;t be undone.
+          </ConfirmDialog>
         )}
       </div>
     </>

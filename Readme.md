@@ -34,7 +34,7 @@ It runs on your own infrastructure with a single `docker compose up`.
 
 ## Features
 
-- **HTTP(S) monitoring**: poll any URL on its own interval, with retries before declaring it down
+- **HTTP(S) monitoring**: poll any URL on its own interval, with retries before declaring it down; expect a status code, require (or forbid) text in the page, and send your own headers, such as a token for a page behind a login
 - **Ping monitoring**: ICMP checks for hosts, including packet-loss alerts
 - **DNS monitoring**: query several public resolvers at once and alert when records change or drift from what you expect
 - **Early warnings**: SSL certificates and domain registrations about to expire, changed nameservers, slow responses and packet loss, not just "down"

@@ -60,6 +60,70 @@ def _blank_to_none(cls, value):
     return value if value and value.strip() else None
 
 
+#: Headers one site may add to its requests.
+MAX_REQUEST_HEADERS = 10
+#: A header name: an HTTP token (RFC 9110 §5.6.2).
+_HEADER_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+#: Headers the HTTP client works out itself, or that belong to one connection.
+_CLIENT_HEADERS = frozenset(
+    {"connection", "content-length", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade"}
+)
+
+
+class RequestHeader(BaseModel):
+    """One header an HTTP check sends with every request."""
+
+    name: str = Field(min_length=1, max_length=100, examples=["Authorization"])
+    value: str = Field(max_length=1024, description="Stored encrypted and never returned.")
+
+    @field_validator("name")
+    @classmethod
+    def _valid_name(cls, value: str) -> str:
+        name = value.strip()
+        if not _HEADER_NAME.match(name):
+            raise ValueError(f"'{name}' is not a valid header name")
+        if name.lower() in _CLIENT_HEADERS:
+            raise ValueError(f"{name} is set by the HTTP client and cannot be given")
+        return name
+
+    @field_validator("value")
+    @classmethod
+    def _valid_value(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        # A line break would start a header, or a body, of the caller's choosing.
+        if any((ord(c) < 32 and c != "\t") or ord(c) == 127 for c in value):
+            raise ValueError("a header value cannot contain line breaks or control characters")
+        return value
+
+
+class RequestHeaderUpdate(RequestHeader):
+    value: str | None = Field(
+        default=None,
+        max_length=1024,
+        description="Null keeps the value already stored under this name.",
+    )
+
+
+def unique_header_names(cls, headers: list[RequestHeader] | None):
+    """Header names compare without case, so each may be given once."""
+    seen: set[str] = set()
+    for header in headers or []:
+        if header.name.lower() in seen:
+            raise ValueError(f"the {header.name} header is given twice")
+        seen.add(header.name.lower())
+    return headers
+
+
+class RequestHeaderRead(BaseModel):
+    name: str
+    value_hint: str | None = Field(
+        default=None,
+        description="Masked tail of the stored value, e.g. `…9f2a`; null when it is empty or unreadable.",
+    )
+
+
 def http_url(value: str) -> str:
     """An http(s) URL, normalized as pydantic does, e.g. with a trailing slash
     after a bare host."""
@@ -268,6 +332,16 @@ class WebsiteBase(BaseModel):
         max_length=255,
         description="The response body must not contain this text, or the check fails.",
     )
+    request_headers: list[RequestHeader] = Field(
+        default_factory=list,
+        max_length=MAX_REQUEST_HEADERS,
+        description=(
+            "HTTP checks: headers sent with every request, e.g. `Authorization` "
+            "for a page behind a login, or `User-Agent` in place of Watchly's. "
+            "Values are stored encrypted and never returned. Ignored for other "
+            "check types."
+        ),
+    )
     environment: WebsiteEnvironment | None = Field(
         default=None,
         description="Which deployment this is: development, testing, uat, staging or production.",
@@ -404,6 +478,8 @@ class WebsiteBase(BaseModel):
             # also slip it past the one-check-per-target rule.
             self.dns_record_type = None
             self.dns_expected_values = []
+        if self.check_type is not CheckType.HTTP:
+            self.request_headers = []
         return self
 
     _bot_token = field_validator("slack_bot_token")(
@@ -422,6 +498,7 @@ class WebsiteBase(BaseModel):
         WhatsAppSettings.looks_like_phone_numbers.__func__
     )
     _content_rules = field_validator("must_contain", "must_not_contain")(_blank_to_none)
+    _header_names = field_validator("request_headers")(unique_header_names)
 
 
 class WebsiteCreate(WebsiteBase):
@@ -470,6 +547,14 @@ class WebsiteUpdate(BaseModel):
     )
     must_not_contain: str | None = Field(
         default=None, max_length=255, description="Send null to remove the rule."
+    )
+    request_headers: list[RequestHeaderUpdate] | None = Field(
+        default=None,
+        max_length=MAX_REQUEST_HEADERS,
+        description=(
+            "HTTP checks only. Replaces the whole list; send [] to remove them "
+            "all. A header sent with `value: null` keeps its stored value."
+        ),
     )
     environment: WebsiteEnvironment | None = Field(
         default=None, description="Send null to clear it."
@@ -537,6 +622,7 @@ class WebsiteUpdate(BaseModel):
     _name_length = field_validator("name")(check_name_length)
     _known_method = field_validator("method")(WebsiteBase.known_method.__func__)
     _content_rules = field_validator("must_contain", "must_not_contain")(_blank_to_none)
+    _header_names = field_validator("request_headers")(unique_header_names)
     _bot_token = field_validator("slack_bot_token")(
         SlackSettings.looks_like_a_bot_token.__func__
     )
@@ -791,6 +877,11 @@ class WebsiteRead(BaseModel):
     retries_on_failure: int
     must_contain: str | None = None
     must_not_contain: str | None = None
+    request_headers: list[RequestHeaderRead] = Field(
+        default_factory=list,
+        validation_alias="request_header_hints",
+        description="The headers sent with every request; values masked.",
+    )
     environment: WebsiteEnvironment | None = None
     slow_threshold_ms: int | None = None
     recipients: list[WebsiteRecipientRead]

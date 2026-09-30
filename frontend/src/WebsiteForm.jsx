@@ -29,6 +29,9 @@ const BLANK = {
   retries_on_failure: 1,
   must_contain: '',
   must_not_contain: '',
+  // Rows of { name, value, stored, hint }: `stored` is the name the header was
+  // saved under, whose value the API keeps when `value` is left blank.
+  request_headers: [],
   ping_count: 5,
   packet_loss_threshold_percent: '',
   dns_record_type: 'A',
@@ -57,6 +60,13 @@ function fromSite(site) {
     slow_threshold_ms: site.slow_threshold_ms ?? '',
     must_contain: site.must_contain ?? '',
     must_not_contain: site.must_not_contain ?? '',
+    // The stored values are never sent back to us either.
+    request_headers: (site.request_headers ?? []).map((h) => ({
+      name: h.name,
+      value: '',
+      stored: h.name,
+      hint: h.value_hint,
+    })),
     packet_loss_threshold_percent: site.packet_loss_threshold_percent ?? '',
     dns_record_type: site.dns_record_type ?? 'A',
     dns_expected_values: (site.dns_expected_values ?? []).join('\n'),
@@ -83,6 +93,13 @@ function hostOf(text) {
 
 // Blank means "use the server-wide default".
 const orNull = (value) => (value === '' ? null : Number(value))
+
+const MAX_REQUEST_HEADERS = 10
+
+// A header row still under the name it was saved with: a blank value keeps
+// the stored one.
+const keepsStoredValue = (header) =>
+  Boolean(header.stored) && header.stored.toLowerCase() === header.name.trim().toLowerCase()
 
 // A textarea's non-blank lines.
 const lines = (text) =>
@@ -180,6 +197,21 @@ export default function WebsiteForm({
   const set = (key) => (e) =>
     setForm({ ...form, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
+  const setHeader = (index, key) => (e) =>
+    setForm({
+      ...form,
+      request_headers: form.request_headers.map((h, i) =>
+        i === index ? { ...h, [key]: e.target.value } : h,
+      ),
+    })
+  const addHeader = () =>
+    setForm({
+      ...form,
+      request_headers: [...form.request_headers, { name: '', value: '', stored: null, hint: null }],
+    })
+  const removeHeader = (index) =>
+    setForm({ ...form, request_headers: form.request_headers.filter((_, i) => i !== index) })
+
   const ping = form.check_type === 'ping'
   const dns = form.check_type === 'dns'
   const http = !ping && !dns
@@ -252,6 +284,14 @@ export default function WebsiteForm({
     if (dns) {
       payload.dns_record_type = form.dns_record_type
       payload.dns_expected_values = lines(form.dns_expected_values)
+    }
+    if (http) {
+      payload.request_headers = form.request_headers
+        .filter((h) => h.name.trim())
+        .map((h) => ({
+          name: h.name.trim(),
+          value: h.value === '' && keepsStoredValue(h) ? null : h.value,
+        }))
     }
     if (slackToken) payload.slack_bot_token = slackToken
     if (tgToken) payload.telegram_bot_token = tgToken
@@ -594,7 +634,7 @@ export default function WebsiteForm({
               </span>
             </label>
             <label className="field">
-              <span>Response must contain</span>
+              <span>Response contains (optional)</span>
               <input
                 value={form.must_contain}
                 onChange={set('must_contain')}
@@ -603,7 +643,7 @@ export default function WebsiteForm({
               />
             </label>
             <label className="field">
-              <span>Response must not contain</span>
+              <span>Response does not contain (optional)</span>
               <input
                 value={form.must_not_contain}
                 onChange={set('must_not_contain')}
@@ -611,9 +651,58 @@ export default function WebsiteForm({
                 placeholder="e.g. Service unavailable"
               />
               <span className="muted small">
-                Case-sensitive, over the first 1 MB. Needs GET or POST.
+                Leave blank to skip. When set, the page text is searched on every check
+                (case-sensitive, first 1 MB, GET or POST only).
               </span>
             </label>
+          </div>
+          <div className="field">
+            <span>Request headers</span>
+            {form.request_headers.map((h, i) => (
+              <div key={i} className="header-row">
+                <input
+                  value={h.name}
+                  onChange={setHeader(i, 'name')}
+                  placeholder="Authorization"
+                  aria-label="Header name"
+                  maxLength={100}
+                  required={Boolean(h.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <input
+                  value={h.value}
+                  onChange={setHeader(i, 'value')}
+                  placeholder={
+                    keepsStoredValue(h) ? `Stored: ${h.hint ?? 'empty'}` : 'Bearer …'
+                  }
+                  aria-label="Header value"
+                  maxLength={1024}
+                  required={Boolean(h.name.trim()) && !keepsStoredValue(h)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => removeHeader(i)}
+                  aria-label={`Remove the ${h.name || 'new'} header`}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            {form.request_headers.length < MAX_REQUEST_HEADERS && (
+              <button type="button" className="btn btn-sm header-add" onClick={addHeader}>
+                Add header
+              </button>
+            )}
+            <span className="muted small">
+              Sent with every check, e.g. a token for a page behind a login, or your own User-Agent.
+              Values are stored encrypted and never shown again; leave a stored one blank to keep
+              it. They follow redirects, so only add secrets for a URL you trust to stay on its
+              own host.
+            </span>
           </div>
         </details>
       )}

@@ -162,6 +162,15 @@ class WebsiteTargetError(WebsiteError):
     that do not suit its record type."""
 
 
+class WebsiteRequestHeaderError(WebsiteError):
+    """A request header sent to keep its stored value, when none is stored."""
+
+
+def _sealed_header(name: str, value: str) -> dict[str, str]:
+    """A request header as `Website.request_headers` stores it."""
+    return {"name": name, "value": encrypt_secret(value)}
+
+
 def content_rule_problem(website: Website) -> WebsiteContentRuleError | None:
     """Why the site's content rules could never be checked, if they could not."""
     if not (website.must_contain or website.must_not_contain):
@@ -400,10 +409,15 @@ class WebsiteService:
                     "project_id",
                     "slack_bot_token",
                     "telegram_bot_token",
+                    "request_headers",
                 }
             ),
             url=url,
             alert_emails=[str(email) for email in payload.alert_emails],
+            request_headers=[
+                _sealed_header(header.name, header.value)
+                for header in payload.request_headers
+            ],
             slack_bot_token=(
                 encrypt_secret(payload.slack_bot_token)
                 if payload.slack_bot_token
@@ -445,6 +459,10 @@ class WebsiteService:
         else:
             changes.pop("dns_record_type", None)
             changes.pop("dns_expected_values", None)
+        if website.check_type is CheckType.HTTP:
+            self._header_changes(website, changes)
+        else:
+            changes.pop("request_headers", None)
         if "alert_emails" in changes and changes["alert_emails"] is not None:
             changes["alert_emails"] = [str(e) for e in changes["alert_emails"]]
         for not_null in (
@@ -540,6 +558,28 @@ class WebsiteService:
             changes["dns_expected_values"] = dns_values(record_type, values)
         except ValueError as exc:
             raise WebsiteTargetError(f"dns_expected_values: {exc}") from exc
+
+    @staticmethod
+    def _header_changes(website: Website, changes: dict) -> None:
+        """Encrypt the request headers sent, in place. One sent without a
+        value keeps the value stored under its name, so a client that is never
+        shown the values can still save the list back."""
+        if "request_headers" not in changes:
+            return
+        stored = {h["name"].lower(): h["value"] for h in website.request_headers}
+        sealed = []
+        # Null is NOT NULL in the table; it clears them, like [].
+        for header in changes["request_headers"] or []:
+            if header["value"] is not None:
+                sealed.append(_sealed_header(header["name"], header["value"]))
+            elif (value := stored.get(header["name"].lower())) is not None:
+                sealed.append({"name": header["name"], "value": value})
+            else:
+                raise WebsiteRequestHeaderError(
+                    f"request_headers: {header['name']} has no stored value to "
+                    "keep: give its value."
+                )
+        changes["request_headers"] = sealed
 
     async def add_recipients(self, website_id: int, user_ids: list[int]) -> Website:
         """Idempotent for anyone already a recipient."""

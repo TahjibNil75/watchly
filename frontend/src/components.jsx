@@ -1,3 +1,4 @@
+import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { checkType } from './checkTypes.js'
 import { environmentLabel } from './environments.js'
@@ -68,6 +69,67 @@ export function ErrorBanner({ error }) {
   return (
     <div className="banner banner-error" role="alert">
       {error.message ?? String(error)}
+    </div>
+  )
+}
+
+// A modal that guards a destructive action: the confirm button stays disabled
+// until the user types the word. `onConfirm` runs the action; the caller closes
+// the dialog through `onCancel` or by navigating away.
+export function ConfirmDialog({
+  title,
+  children,
+  word = 'confirm',
+  confirmLabel = 'Delete',
+  busy = false,
+  onConfirm,
+  onCancel,
+}) {
+  const [typed, setTyped] = useState('')
+  const inputId = useId()
+  const ready = typed.trim().toLowerCase() === word
+
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && !busy && onCancel()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [busy, onCancel])
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !busy && onCancel()}>
+      <form
+        className="modal card"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={`${inputId}-title`}
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (ready && !busy) onConfirm()
+        }}
+      >
+        <h2 id={`${inputId}-title`}>{title}</h2>
+        <div className="modal-body muted small">{children}</div>
+        <label className="field" htmlFor={inputId}>
+          <span>
+            Type <strong>{word}</strong> to continue
+          </span>
+          <input
+            id={inputId}
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            autoComplete="off"
+            autoFocus
+          />
+        </label>
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-danger-solid" disabled={!ready || busy}>
+            {confirmLabel}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }

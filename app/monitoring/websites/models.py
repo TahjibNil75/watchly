@@ -236,6 +236,12 @@ class Website(Base, TimestampMixin):
     #: check fails even on the expected status. Case-sensitive; None is no rule.
     must_contain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     must_not_contain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Headers sent with every request, e.g. an Authorization or an API key,
+    #: as `[{"name": ..., "value": ...}]` in the order given. A value may be a
+    #: secret, so each is encrypted at rest like a bot token.
+    request_headers: Mapped[list[dict[str, str]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )
     #: Development, staging, production... None for sites added before the
     #: field existed; the UI asks for it on every new one.
     environment: Mapped[WebsiteEnvironment | None] = mapped_column(
@@ -453,6 +459,24 @@ class Website(Base, TimestampMixin):
         """The stored security headers, graded; None before the first
         successful HTTP check, and for ping and DNS checks."""
         return grade_security_headers(self.security_headers)
+
+    def outgoing_headers(self) -> dict[str, str]:
+        """The request headers to send, decrypted. One that can no longer be
+        read (the key changed; see `decrypt_secret`) is left out."""
+        headers = {}
+        for header in self.request_headers:
+            value = decrypt_secret(header["value"])
+            if value is not None:
+                headers[header["name"]] = value
+        return headers
+
+    @property
+    def request_header_hints(self) -> list[dict[str, str | None]]:
+        """The request headers for the API: names, with values masked."""
+        return [
+            {"name": header["name"], "value_hint": mask_secret(decrypt_secret(header["value"]))}
+            for header in self.request_headers
+        ]
 
     @property
     def recipient_emails(self) -> list[str]:

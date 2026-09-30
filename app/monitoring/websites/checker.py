@@ -557,6 +557,10 @@ async def _http_probe(
     if client is None:
         client = new_client()
 
+    # The site's own headers win, User-Agent included; names match without case.
+    headers = httpx.Headers({"User-Agent": USER_AGENT})
+    headers.update(website.outgoing_headers())
+
     stopwatch = _Stopwatch()
     token = _stopwatch.set(stopwatch)
     started = time.perf_counter()
@@ -567,7 +571,7 @@ async def _http_probe(
             website.url,
             timeout=website.timeout_seconds,
             follow_redirects=True,
-            headers={"User-Agent": USER_AGENT},
+            headers=headers,
             extensions={"trace": stopwatch.trace},
         )
     except Exception as exc:  # noqa: BLE001 - every failure is a "down" signal

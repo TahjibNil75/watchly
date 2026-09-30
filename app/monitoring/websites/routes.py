@@ -44,6 +44,7 @@ from app.monitoring.websites.service import (
     WebsiteContentRuleError,
     WebsiteNotAlertableError,
     WebsiteNotFoundError,
+    WebsiteRequestHeaderError,
     WebsiteService,
     WebsiteSlackError,
     WebsiteTargetError,
@@ -306,8 +307,9 @@ async def read_website(
             "description": (
                 "The change would leave no alert channel, Slack, Telegram or WhatsApp "
                 "settings that send nowhere, a URL that does not suit the check "
-                "type, DNS expected values that do not suit the record type, or "
-                "content rules on a HEAD/OPTIONS request, a ping or a DNS check"
+                "type, DNS expected values that do not suit the record type, "
+                "content rules on a HEAD/OPTIONS request, a ping or a DNS check, "
+                "or a request header left to keep a value that is not stored"
             )
         },
     },
@@ -326,7 +328,8 @@ async def update_website(
     `whatsapp_recipients: []` goes back to the project's WhatsApp numbers.
     The check type cannot change: `url` must suit the one the site has. A DNS
     check's new `dns_record_type` clears its expected values unless new ones
-    come with it."""
+    come with it. `request_headers` replaces the whole list; a header sent
+    with `value: null` keeps the value stored under its name."""
     await _get_for_write(service, projects, website_id, actor)
     try:
         return WebsiteRead.model_validate(await service.update(website_id, payload))
@@ -335,6 +338,7 @@ async def update_website(
     except (
         WebsiteContentRuleError,
         WebsiteNotAlertableError,
+        WebsiteRequestHeaderError,
         WebsiteSlackError,
         WebsiteTargetError,
         WebsiteTelegramError,
