@@ -98,7 +98,7 @@ export function InviteForm({ me, onNotice, onSent, onCancel }) {
         <button className="btn btn-primary" disabled={busy}>
           {busy ? 'Sending…' : 'Send invitation'}
         </button>
-        <button type="button" className="btn btn-ghost" onClick={onCancel}>
+        <button type="button" className="btn btn-danger-solid" onClick={onCancel}>
           Close
         </button>
       </div>
