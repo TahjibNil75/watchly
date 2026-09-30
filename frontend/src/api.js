@@ -144,7 +144,7 @@ export const api = {
   login: (identifier, password) =>
     v1('/auth/login', { method: 'POST', body: { identifier, password } }),
   signup: (payload) => v1('/auth/signup', { method: 'POST', body: payload }),
-  // { open }: false when the team is invite-only (ALLOW_PUBLIC_SIGNUP=false).
+  // { open }: false once the admin exists; after that people join by invitation.
   signupStatus: () => v1('/auth/signup'),
   // Revokes the session in the refresh cookie, which only the API can clear.
   logout: () => v1('/auth/logout', { method: 'POST' }),

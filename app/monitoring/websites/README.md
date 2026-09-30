@@ -710,9 +710,9 @@ windows.
 | `POST` | `/auth/forgot-password` | `202 422` |
 | `POST` | `/auth/confirm-email` | `200 403 404 409 410 422` |
 
-Signup always creates a `Viewer`; the role cannot be set from the payload.
-With `ALLOW_PUBLIC_SIGNUP=false` it answers `403` once the admin exists, and
-`GET /auth/signup` reports `{"open": false}`.
+Signup creates only the first account, as the `Admin`; the role cannot be set
+from the payload. Once it exists signup answers `403` and `GET /auth/signup`
+reports `{"open": false}`: people join by invitation.
 Login accepts a username **or** an email in the `identifier` field. A suspended
 user is refused with `403` until reactivated.
 

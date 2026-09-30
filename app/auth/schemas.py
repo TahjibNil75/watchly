@@ -6,8 +6,8 @@ from app.schemas.user import EmailInput, NewUsername, UserRead
 
 
 class SignupRequest(BaseModel):
-    """Signup payload. `role` is not accepted here — every signup is a viewer,
-    except the first account on a fresh install, which is the admin."""
+    """Signup payload. `role` is not accepted here — only the first account on
+    a fresh install can sign up, and it is the admin."""
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -97,8 +97,7 @@ class SignupStatus(BaseModel):
     open: bool = Field(
         description=(
             "Whether `POST /auth/signup` accepts new accounts. False once the "
-            "admin exists when `ALLOW_PUBLIC_SIGNUP` is off: people join by "
-            "invitation."
+            "admin exists: people join by invitation."
         )
     )
 

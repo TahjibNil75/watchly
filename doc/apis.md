@@ -36,7 +36,7 @@ together, see [`hld.md`](hld.md).
 
 | # | method | endpoint | what it does |
 | - | ------ | -------- | ------------ |
-| 1 | `POST` | `/auth/signup` | Register a new account as a `Viewer` (the first account on an empty database is the `Admin`). Refused once the admin exists when `ALLOW_PUBLIC_SIGNUP=false`. |
+| 1 | `POST` | `/auth/signup` | Register the first account on an empty database, as the `Admin`. Refused once it exists: people join by invitation. |
 | 1a | `GET` | `/auth/signup` | Whether signup is open, so the UI knows whether to offer it (public). |
 | 2 | `POST` | `/auth/login` | Log in with a username **or** email; get an access token and a refresh cookie. |
 | 3 | `POST` | `/auth/refresh` | Trade the refresh cookie for a new access token; the cookie is replaced every time. |
@@ -98,19 +98,18 @@ together, see [`hld.md`](hld.md).
 Public. No token required.
 
 ### `POST /api/v1/auth/signup`
-Register a new account. Requires `password` **and** `confirm_password`; the role
-is `Viewer` and cannot be set from the payload. The first account on an empty
-database is created as `Admin` instead; there is no seeded admin.
-With `ALLOW_PUBLIC_SIGNUP=false` the team is invite-only: that first account can
-still sign up, but every later signup gets `403`, and people join by
-[accepting an invitation](#post-apiv1invitationsaccept). The `403` comes before
+Register the first account. Requires `password` **and** `confirm_password`; the
+role cannot be set from the payload. The first account on an empty database is
+created as `Admin`; there is no seeded admin. Every later signup gets `403`, and
+people join by [accepting an invitation](#post-apiv1invitationsaccept) sent by
+an Admin or DevOps user. The `403` comes before
 the checks for a taken email or username, so it reveals neither.
 `201` · `403` invite-only · `409` taken · `422` mismatch or invalid field ·
 `429` rate-limited
 
 ### `GET /api/v1/auth/signup`
 `{"open": true}` while `POST /auth/signup` would accept someone: always on an
-empty database, and afterwards only with `ALLOW_PUBLIC_SIGNUP` on. No sign-in
+empty database, `{"open": false}` once the admin exists. No sign-in
 needed; the sign-in pages use it to hide "Create an account".
 `200`
 

@@ -152,8 +152,8 @@ Open **http://localhost:8080** and sign up.
 > instance to anyone else.
 
 After signing in as admin you can create projects, add sites to monitor and
-invite your team. To stop strangers from signing up, set
-`ALLOW_PUBLIC_SIGNUP=false` so people can join only by invitation.
+invite your team. Signup closes as soon as the admin exists: everyone else
+joins only by an invitation from an Admin or DevOps user.
 
 ## Set up email alerts (SMTP)
 
@@ -227,7 +227,6 @@ option. The most important ones:
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `SECRET_KEY` | `dev-secret-change-me` | JWT signing key. **Always change it.** |
-| `ALLOW_PUBLIC_SIGNUP` | `true` | Set `false` for an invite-only team (the first user can still sign up) |
 | `WEB_PORT` / `API_PORT` | `8080` / `8000` | Ports published by Docker Compose |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `postgres` / `postgres` / `watchly` | Database credentials |
 | `DEFAULT_CHECK_INTERVAL_SECONDS` | `300` | Default time between checks for a new site |

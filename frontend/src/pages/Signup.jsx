@@ -65,8 +65,8 @@ export default function Signup() {
           </Link>
           <h1>Invitation only</h1>
           <p className="muted small">
-            This Watchly doesn&apos;t take sign-ups. Ask an admin to invite you; the email they
-            send has a link to create your account.
+            This Watchly doesn&apos;t take sign-ups. Ask an admin or DevOps user to invite you;
+            the email they send has a link to create your account.
           </p>
           <p className="muted small center">
             Already have an account? <Link to="/login">Sign in</Link>

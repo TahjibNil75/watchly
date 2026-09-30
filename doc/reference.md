@@ -162,9 +162,10 @@ It serves on http://localhost:5173 and proxies API calls to port 8000. See
 ## The first account is the admin
 
 No admin account is created for you. The first account to sign up on an empty
-database becomes the `Admin`; every later signup is a `Viewer`. If two people
-sign up at the same moment on a fresh install, only one of them becomes the
-admin.
+database becomes the `Admin`; after that signup is closed and everyone else
+joins by invitation from an Admin or DevOps user. If two people sign up at the
+same moment on a fresh install, only one of them becomes the admin; the other
+is refused.
 
 Until that first account exists, **anyone who can reach the app can claim
 admin** by signing up. Sign up yourself right after the first start, before
@@ -177,10 +178,10 @@ change who the admin is.
 
 ### `POST /api/v1/auth/signup`
 
-Registers an account. The role is `Viewer` — it is not accepted from the
-payload, so it cannot be escalated by the client. The one exception is the
-first account on an empty database, which is created as `Admin` (see
-[The first account is the admin](#the-first-account-is-the-admin)).
+Registers the first account on an empty database, as `Admin` (see
+[The first account is the admin](#the-first-account-is-the-admin)). The role is
+not accepted from the payload. Once that account exists every signup gets `403`,
+and people join by invitation.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/auth/signup \
@@ -194,7 +195,7 @@ token as an httpOnly cookie (see [Staying signed in](#staying-signed-in-and-logg
 
 ```json
 {
-  "user": { "id": 2, "username": "jane", "role": "Viewer", "...": "..." },
+  "user": { "id": 1, "username": "jane", "role": "Admin", "...": "..." },
   "tokens": {
     "access_token": "eyJ...",
     "token_type": "bearer",
@@ -309,8 +310,8 @@ startup while it is still the default.
 
 ## User management
 
-Everyone who signs up on their own is a `Viewer`; anyone who is
-[invited](#inviting-users) gets the role the invitation names. **Admin and
+Only the first account signs up on its own, as the `Admin`; everyone else is
+[invited](#inviting-users) and gets the role the invitation names. **Admin and
 DevOps are peers** — both can administer users; no other role can.
 
 | endpoint                             | who                           |

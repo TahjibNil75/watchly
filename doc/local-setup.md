@@ -91,10 +91,8 @@ the admin, and every later one is a viewer.
 Do this straight away. Until that first account exists, anyone who can reach
 the app can sign up and take the admin role.
 
-After that, anyone who can reach the app can still sign up as a viewer. For an
-invite-only team, set `ALLOW_PUBLIC_SIGNUP=false` in `.env` and restart the API
-(`docker compose up -d api`): signup then stops once the admin exists, and
-people join through **Users → Invite user** instead.
+After that, signup is closed: people join only through **Users → Invite user**,
+which Admin and DevOps users can send.
 
 | what | where |
 | ---- | ----- |
@@ -122,10 +120,9 @@ Here's a quick tour that exercises the whole monitoring loop.
    listens on, such as `http://127.0.0.1:9/`, and click **Check now**. It goes
    **down**, the outage banner appears, and a `down` alert is recorded. That
    alert is emailed only once SMTP is set up.
-5. **Add a teammate.** In a private window, sign up a second account at
-   http://localhost:8080/signup (or, with `ALLOW_PUBLIC_SIGNUP=false`, invite
-   them from **Users → Invite user**). Every account after the first is a
-   *viewer* unless invited with another role, and sees nothing yet. Back as
+5. **Add a teammate.** Invite them from **Users → Invite user** and pick
+   their role; signup is closed once the admin exists. A *viewer* sees
+   nothing yet. Back as
    admin, change their role on the **Users** page, or add them as a project
    member so they see that project's sites.
 

@@ -32,7 +32,7 @@ Most problems in a self-hosted deployment come from its settings:
   Telegram and WhatsApp tokens. The API logs a warning while it is the default.
 - **Sign up as the admin straight after the first start**, before the app is
   reachable by others: the first account on an empty database becomes the
-  admin. Set `ALLOW_PUBLIC_SIGNUP=false` for an invite-only team.
+  admin. After that signup is closed and people join only by invitation.
 - **Serve it over HTTPS** behind a reverse proxy, and keep PostgreSQL off the
   public internet: the Compose file publishes it on `POSTGRES_PORT` for local
   development.

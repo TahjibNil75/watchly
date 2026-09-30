@@ -78,9 +78,9 @@ async def issue_tokens(
     "/signup",
     response_model=SignupResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Register a new account",
+    summary="Register the first (admin) account",
     responses={
-        403: {"description": "Signup is invite-only (`ALLOW_PUBLIC_SIGNUP` is off)"},
+        403: {"description": "The admin already exists; people join by invitation"},
         409: {"description": "Email or username already registered"},
         **RATE_LIMITED,
     },
@@ -91,14 +91,12 @@ async def signup(
     response: Response,
     service: AuthService = Depends(get_auth_service),
 ) -> SignupResponse:
-    """Create a user with the `Viewer` role and sign them in: an access token
-    in the body, and the refresh token in an httpOnly cookie.
+    """Create the first account on a fresh install as `Admin` and sign them
+    in: an access token in the body, and the refresh token in an httpOnly
+    cookie. Whoever installs the app signs up to administer it.
 
-    The first account on a fresh install is created as `Admin` instead, so
-    whoever installs the app signs up to administer it.
-
-    With `ALLOW_PUBLIC_SIGNUP` off, only that first account can sign up; after
-    it, people join by accepting an invitation.
+    Once that account exists every signup gets `403`: people join by accepting
+    an invitation from an Admin or DevOps user.
 
     Each client may try `RATE_LIMIT_SIGNUP` times (`429` past that)."""
     try:
@@ -121,7 +119,7 @@ async def signup(
 @router.get(
     "/signup",
     response_model=SignupStatus,
-    summary="Whether public signup is open",
+    summary="Whether signup is open (only before the admin exists)",
 )
 async def signup_status(
     service: AuthService = Depends(get_auth_service),

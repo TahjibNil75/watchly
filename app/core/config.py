@@ -53,10 +53,6 @@ class Settings(BaseSettings):
     #: another host.
     REFRESH_COOKIE_SECURE: bool = True
 
-    #: Let anyone who can reach the app sign up as a viewer. Off, the team is
-    #: invite-only: signup is refused once an account exists, so the first one
-    #: can still sign up and become the admin.
-    ALLOW_PUBLIC_SIGNUP: bool = True
     #: How long an emailed invitation link stays usable.
     INVITATION_EXPIRE_DAYS: int = Field(default=7, ge=1)
     #: Accepted and revoked invitations kept, the newest of each; older ones

@@ -62,10 +62,10 @@ class UserAlreadyExistsError(AuthError):
 
 
 class SignupClosedError(AuthError):
-    """ALLOW_PUBLIC_SIGNUP is off and the admin already exists."""
+    """An account already exists: after the admin, people join by invitation."""
 
     def __init__(self) -> None:
-        super().__init__("Sign-up is by invitation only. Ask an admin to invite you.")
+        super().__init__("Sign-up is by invitation only. Ask an admin or DevOps user to invite you.")
 
 
 class InvalidCredentialsError(AuthError):
@@ -262,29 +262,25 @@ class AuthService:
         return user, password
 
     async def signup_open(self) -> bool:
-        """Whether :meth:`signup` would accept someone now: always on a fresh
-        install, so the admin can sign up, and afterwards only while
-        ALLOW_PUBLIC_SIGNUP is on."""
-        return settings.ALLOW_PUBLIC_SIGNUP or not await self.session.scalar(
-            select(exists().select_from(User))
-        )
+        """Whether :meth:`signup` would accept someone now: only on a fresh
+        install, so the admin can sign up. Everyone after joins by invitation."""
+        return not await self.session.scalar(select(exists().select_from(User)))
 
     async def signup(self, payload: SignupRequest) -> User:
-        """Register a new account as a VIEWER — or as the ADMIN, when it is the
-        first account on a fresh install (see :meth:`_is_first_account`).
+        """Register the first account on a fresh install as the ADMIN (see
+        :meth:`_is_first_account`). Once it exists, signup is closed and
+        Admin/DevOps invite everyone else.
 
         `password` / `confirm_password` are already checked to match by
         :class:`~app.auth.schemas.SignupRequest`; only the hash is stored.
 
         Raises:
-            SignupClosedError: ALLOW_PUBLIC_SIGNUP is off and this would not
-                be the first account.
+            SignupClosedError: this would not be the first account.
             UserAlreadyExistsError: the email or username is taken.
         """
-        first = await self._is_first_account()
         # Before the checks below, so a closed signup does not tell a stranger
         # which emails and usernames have accounts.
-        if not first and not settings.ALLOW_PUBLIC_SIGNUP:
+        if not await self._is_first_account():
             raise SignupClosedError
 
         if await self.user_exists_by_email(payload.email):
@@ -300,7 +296,7 @@ class AuthService:
             email=payload.email,
             full_name=payload.full_name,
             password_hash=generate_hash_password(payload.password),
-            role=UserRole.ADMIN if first else UserRole.VIEWER,
+            role=UserRole.ADMIN,
             is_active=True,
         )
         self.session.add(user)
@@ -315,8 +311,7 @@ class AuthService:
             raise UserAlreadyExistsError(field, getattr(payload, field)) from exc
 
         await self.session.refresh(user)
-        if user.role is UserRole.ADMIN:
-            logger.info("First account %r signed up and is the admin.", user.username)
+        logger.info("First account %r signed up and is the admin.", user.username)
         return user
 
     async def _is_first_account(self) -> bool:
@@ -327,7 +322,7 @@ class AuthService:
         takes a transaction-scoped advisory lock, held until the signup commits
         or rolls back, and looks again: of signups racing on a fresh install,
         only the first to commit finds the table empty, and the rest wait for it
-        and come out as viewers.
+        and are refused.
         """
         any_user = select(exists().select_from(User))
         if await self.session.scalar(any_user):
