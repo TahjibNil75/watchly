@@ -43,7 +43,12 @@ const STAT_ICONS = {
       <path d="M12 7v5l3 2" />
     </>
   ),
-  maintenance: <path d="m18.9 8.1 2 .6a4.5 4.5 0 1 1-3.2-5.6l-.6 2zM13.3 10.7l-8.7 8.7" />,
+  maintenance: (
+    <>
+      <path d="M10 3.5h4l3.6 13.5H6.4zM8.1 10.5h7.8" />
+      <rect x="3.5" y="17" width="17" height="3.5" rx="1" />
+    </>
+  ),
   paused: <path d="M9 5v14M15 5v14" />,
 }
 

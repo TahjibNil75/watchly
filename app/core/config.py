@@ -4,7 +4,7 @@ import re
 from functools import lru_cache
 from typing import Annotated, NamedTuple
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -124,6 +124,14 @@ class Settings(BaseSettings):
     ALERT_DEFAULT_EMAILS: Annotated[list[str], NoDecode] = []
     #: Public base URL used to build links in alert bodies.
     ALERT_DASHBOARD_URL: str = ""
+    #: The Watchly logo as a public HTTPS URL, for the channels that fetch
+    #: images themselves: Slack draws it above each alert, Telegram as a small
+    #: preview. Email embeds the logo in the message and needs no URL. Blank
+    #: leaves it out of Slack and Telegram.
+    ALERT_LOGO_URL: str = (
+        "https://raw.githubusercontent.com/TahjibNil75/watchly/main/"
+        "app/monitoring/alerts/assets/watchly-logo.png"
+    )
 
     # SMTP — works with AWS SES, Resend, Mailgun, Postmark, Gmail, ...
     SMTP_HOST: str = ""
@@ -185,7 +193,18 @@ class Settings(BaseSettings):
     SSL_CHECK_INTERVAL_SECONDS: int = 21_600
     #: Warn when this many days (or fewer) remain, once per threshold. An
     #: already-expired certificate always warns. NoDecode: see ALERT_DEFAULT_EMAILS.
-    SSL_EXPIRY_ALERT_DAYS: Annotated[list[int], NoDecode] = [1, 3, 7, 14]
+    SSL_EXPIRY_ALERT_DAYS: Annotated[list[int], NoDecode] = [7, 14]
+    #: Look up when each site's domain registration ends (over RDAP, from the
+    #: registry) and warn before it lapses.
+    DOMAIN_CHECK_ENABLED: bool = True
+    #: How often a site's domain is looked up again. A failed lookup is
+    #: retried sooner, after an hour.
+    DOMAIN_CHECK_INTERVAL_SECONDS: int = 86_400
+    #: Warn when this many days (or fewer) remain, once per threshold, and once
+    #: more if it lapses. NoDecode: see ALERT_DEFAULT_EMAILS.
+    DOMAIN_EXPIRY_ALERT_DAYS: Annotated[list[int], NoDecode] = [7, 14]
+    #: IANA's list of which registry answers RDAP for each top-level domain.
+    RDAP_BOOTSTRAP_URL: str = "https://data.iana.org/rdap/dns.json"
     #: A successful response slower than this counts as "slow". 0 turns slow
     #: alerts off; a website can set its own threshold.
     SLOW_RESPONSE_THRESHOLD_MS: int = 3000
@@ -237,9 +256,9 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
-    @field_validator("SSL_EXPIRY_ALERT_DAYS", mode="before")
+    @field_validator("SSL_EXPIRY_ALERT_DAYS", "DOMAIN_EXPIRY_ALERT_DAYS", mode="before")
     @classmethod
-    def _split_days(cls, value: object) -> object:
+    def _split_days(cls, value: object, info: ValidationInfo) -> object:
         """Accept `14,7,3,1` as well as a JSON list; returned ascending."""
         if isinstance(value, str):
             if value.strip().startswith("["):
@@ -249,7 +268,7 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             days = sorted({int(item) for item in value})
             if any(day < 1 for day in days):
-                raise ValueError("SSL_EXPIRY_ALERT_DAYS entries must be 1 or more")
+                raise ValueError(f"{info.field_name} entries must be 1 or more")
             return days
         return value
 

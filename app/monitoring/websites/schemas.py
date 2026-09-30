@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Self
 
 from pydantic import (
+    AliasChoices,
     AnyHttpUrl,
     BaseModel,
     ConfigDict,
@@ -742,6 +743,26 @@ class MaintenanceWindowRead(BaseModel):
     created_by_id: int | None = None
 
 
+class SecurityHeaderRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    key: str = Field(description="`hsts`, `csp`, `frame`, `nosniff` or `referrer`.")
+    header: str = Field(description="The header's name, e.g. `Strict-Transport-Security`.")
+    status: str = Field(description="`ok`, `weak` (sent, but protects little) or `missing`.")
+    value: str | None = Field(default=None, description="What the site sent, if anything.")
+    note: str | None = Field(default=None, description="Why it is weak or missing.")
+
+
+class SecurityHeadersRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    url: str = Field(description="The response graded: the site's URL after redirects.")
+    score: int = Field(description="How many of the headers are ok.")
+    total: int
+    grade: str = Field(description="`A` for all five ok, then `B`, `C`, `D`, and `F`.")
+    items: list[SecurityHeaderRead]
+
+
 class WebsiteRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -808,6 +829,71 @@ class WebsiteRead(BaseModel):
         default=None,
         description="When the HTTPS certificate ends; null for plain HTTP or before the first read.",
     )
+    ssl_valid_from: datetime | None = Field(
+        default=None, description="When the certificate began."
+    )
+    ssl_subject: str | None = Field(
+        default=None,
+        description="Who the certificate was issued to: its common name, else its first SAN.",
+    )
+    ssl_issuer: str | None = Field(
+        default=None, description="Who issued it, e.g. `Let's Encrypt`."
+    )
+    ssl_sans: list[str] | None = Field(
+        default=None,
+        description="The names it covers (subject alternative names), up to 100.",
+    )
+    ssl_tls_version: str | None = Field(
+        default=None, description="The TLS version of the last read, e.g. `TLSv1.3`."
+    )
+    ssl_checked_at: datetime | None = Field(
+        default=None, description="When the certificate was last read, or tried to be."
+    )
+    domain_name: str | None = Field(
+        default=None,
+        description=(
+            "The registered domain the host belongs to, e.g. `example.co.uk`; null "
+            "for an IP address or before the first lookup."
+        ),
+    )
+    domain_expires_at: datetime | None = Field(
+        default=None, description="When the domain registration ends, as its registry says."
+    )
+    domain_registrar: str | None = Field(
+        default=None, description="Who the domain is registered with."
+    )
+    domain_checked_at: datetime | None = Field(
+        default=None, description="When the domain was last looked up, or tried to be."
+    )
+    domain_error: str | None = Field(
+        default=None,
+        description=(
+            "Why the last lookup told nothing new, e.g. a registry without RDAP; "
+            "what earlier ones learned is kept."
+        ),
+    )
+    domain_nameservers: list[str] | None = Field(
+        default=None,
+        description=(
+            "The nameservers the registry delegates the domain to, sorted; null "
+            "until it first names any."
+        ),
+    )
+    domain_nameservers_changed_at: datetime | None = Field(
+        default=None, description="When this site last saw the nameservers change."
+    )
+    security: SecurityHeadersRead | None = Field(
+        default=None,
+        # The model property, or the field itself when FastAPI re-validates a dump.
+        validation_alias=AliasChoices("security_report", "security"),
+        description=(
+            "The security headers of the last HTTP check that came up, graded; null "
+            "before one has, and for ping and DNS checks."
+        ),
+    )
+    security_checked_at: datetime | None = Field(
+        default=None, description="When the security headers were last read."
+    )
     maintenance: MaintenanceWindowRead | None = Field(
         default=None,
         description=(
@@ -850,8 +936,8 @@ class WebsiteEventRead(BaseModel):
     website: WebsiteEventSite
     kind: str = Field(
         description=(
-            "`down`, `recovered`, `slow_response`, `packet_loss`, `dns_changed` or "
-            "`ssl_expiring`."
+            "`down`, `recovered`, `slow_response`, `packet_loss`, `dns_changed`, "
+            "`ssl_expiring`, `domain_expiring` or `nameservers_changed`."
         )
     )
     occurred_at: datetime
@@ -867,6 +953,10 @@ class WebsiteEventRead(BaseModel):
     )
     ssl_expires_at: datetime | None = Field(
         default=None, description="`ssl_expiring`: when the certificate ends, or ended."
+    )
+    domain_expires_at: datetime | None = Field(
+        default=None,
+        description="`domain_expiring`: when the domain registration ends, or ended.",
     )
 
 
@@ -957,6 +1047,7 @@ class CheckNowResponse(BaseModel):
     alert_sent: str | None = Field(
         default=None, description=(
             "Which notification the check raised, if any: down, still_down, "
-            "recovered, ssl_expiring, slow_response, packet_loss or dns_changed."
+            "recovered, ssl_expiring, domain_expiring, nameservers_changed, "
+            "slow_response, packet_loss or dns_changed."
         )
     )

@@ -38,6 +38,8 @@ from app.db.models.user import User
 # `websites.project_id` targets `projects.id`; importing the module registers
 # that table and resolves the Project relationship by name.
 from app.monitoring.projects.models import Project  # noqa: F401
+from app.monitoring.websites.security_headers import SecurityReport
+from app.monitoring.websites.security_headers import grade as grade_security_headers
 
 
 class WebsiteStatus(str, enum.Enum):
@@ -340,6 +342,56 @@ class Website(Base, TimestampMixin):
     #: certificate (0 = expired). None once the certificate is healthy again,
     #: which is what re-arms the warnings after a renewal.
     ssl_alert_bucket: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: The rest of the certificate as last read, for the site's page: who it
+    #: was issued to (common name, else the first SAN) and by, the names it
+    #: covers, when it began, and the TLS version the handshake settled on.
+    ssl_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ssl_issuer: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ssl_sans: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
+    ssl_valid_from: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ssl_tls_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    # --- domain registration, looked up over RDAP -------------------------
+    #: The registered domain the host belongs to, e.g. `example.co.uk` for
+    #: `www.shop.example.co.uk`. None for an IP address, or before the first
+    #: successful lookup.
+    domain_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: When the registration ends, as the registry last said.
+    domain_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    domain_registrar: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: When the domain was last *attempted*, like `ssl_checked_at`.
+    domain_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Why the last lookup told us nothing new, e.g. a registry without RDAP;
+    #: None after one that worked. What was learned before is kept meanwhile.
+    domain_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: As `ssl_alert_bucket`, for DOMAIN_EXPIRY_ALERT_DAYS.
+    domain_alert_bucket: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: The nameservers the registry last delegated the domain to, sorted;
+    #: what a change is measured against. None before the registry first names
+    #: any (some, like .de's, never do).
+    domain_nameservers: Mapped[list[str] | None] = mapped_column(
+        ARRAY(Text), nullable=True
+    )
+    #: When this site last saw them change, so the project's other sites on
+    #: the domain can tell the change was already announced.
+    domain_nameservers_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # --- security headers, from the last HTTP check that came up ----------
+    #: `security_headers.capture()` of that response: its URL and the raw
+    #: values; graded when read, see `security_report`.
+    security_headers: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    security_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     #: DNS checks: the records the resolvers last agreed on, what a change is
     #: measured against. None before they first agree, and after the record
     #: type or domain changes.
@@ -395,6 +447,12 @@ class Website(Base, TimestampMixin):
         """Windows that have not started yet, soonest first."""
         now = datetime.now(UTC)
         return [w for w in self.maintenance_windows if w.starts_at > now]
+
+    @property
+    def security_report(self) -> "SecurityReport | None":
+        """The stored security headers, graded; None before the first
+        successful HTTP check, and for ping and DNS checks."""
+        return grade_security_headers(self.security_headers)
 
     @property
     def recipient_emails(self) -> list[str]:
@@ -565,8 +623,8 @@ class WebsiteCheck(Base):
 
 class WebsiteEvent(Base):
     """Something a check found that people should hear about: an outage, a
-    recovery, a slow spell, an expiring certificate, changed DNS records. The
-    app's own feed.
+    recovery, a slow spell, an expiring certificate or domain, changed DNS
+    records. The app's own feed.
 
     Written with the check that raised it, whether or not email or Slack is
     switched on for that kind, so the feed never depends on those settings.
@@ -594,6 +652,10 @@ class WebsiteEvent(Base):
     threshold_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     #: ssl_expiring: when the certificate ends (or ended).
     ssl_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: domain_expiring: when the domain registration ends (or ended).
+    domain_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

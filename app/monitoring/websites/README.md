@@ -41,7 +41,9 @@ Deleting a project deletes its websites, which deletes their check history.
 | ------------- | ---------------------------------------------------------------- |
 | `models.py`   | `Website` (config + live state), `WebsiteCheck` (poll history) and `MaintenanceWindow` |
 | `schemas.py`  | request/response contracts and their validation rules            |
-| `checker.py`  | the HTTP probe (and, every few hours, the certificate read) — turns a URL into a `CheckResult`; hands ping checks to `pinger.py` and DNS checks to `dns_probe.py` |
+| `checker.py`  | the HTTP probe (and, every few hours, the certificate read; once a day, the domain lookup) — turns a URL into a `CheckResult`; hands ping checks to `pinger.py` and DNS checks to `dns_probe.py` |
+| `domain_lookup.py` | when a host's domain registration expires, with which registrar, and its nameservers — over RDAP, or WHOIS for registries without it |
+| `security_headers.py` | which security headers a response sends, and how well each is set |
 | `pinger.py`   | the ICMP probe — pings a host a few times and reports replies, round trips and packet loss |
 | `dns_probe.py` | the DNS probe — asks several resolvers for one record and judges whether they agree with each other and with the pinned values |
 | `service.py`  | CRUD, filtering, maintenance windows, and "which sites are due for a check" |
@@ -52,7 +54,7 @@ The pieces they talk to live one level up:
 
 | file                            | role                                        |
 | ------------------------------- | ------------------------------------------- |
-| `../service.py`                 | the outage state machine, plus slow-response and SSL-expiry tracking |
+| `../service.py`                 | the outage state machine, plus slow-response, SSL-expiry and domain-expiry tracking |
 | `../scheduler.py`               | the background loop that drives everything, and the monthly reports |
 | `../projects/`                  | projects and membership                     |
 | `../alerts/`                    | what each notification looks like, per channel (email, Slack, webhook) |
@@ -243,6 +245,63 @@ change still propagating is one alert when it completes, not one per check. A
 pinned check still remembers the records, but a different answer is an outage
 there, so no change alert fires. Changing the domain or the record type forgets
 them, and a new record type clears the pinned values unless new ones are sent.
+
+### Certificates and domains
+
+Every `SSL_CHECK_INTERVAL_SECONDS` (6 hours) an HTTPS site's certificate is
+read without verifying it, so even an expired or untrusted one can be
+described: its end date, who it was issued to and by, the names it covers
+(`ssl_sans`, up to 100), when it began and the TLS version. It warns at each
+of `SSL_EXPIRY_ALERT_DAYS` (14 and 7 days left) and once more if it
+expires; a renewed certificate re-arms the warnings.
+
+Once a day (`DOMAIN_CHECK_INTERVAL_SECONDS`) every check whose target is a
+host name — an HTTP site's host, a pinged host name, a DNS check's domain —
+looks up the domain it belongs to (`domain_lookup.py`). The registry is asked
+over RDAP, the server IANA's bootstrap file names for the TLD; a TLD without
+one (`.io`) is asked over WHOIS instead. Candidates go shortest first, so
+`www.shop.example.co.uk` finds `example.co.uk`. What was learned is kept on
+the site: `domain_name`, `domain_expires_at`, `domain_registrar`, and
+`domain_error` when the last lookup failed (retried after an hour) or the
+registry does not publish an expiry date at all (`.de`). IP addresses are
+not looked up.
+
+A **domain expiring** alert fires at each of `DOMAIN_EXPIRY_ALERT_DAYS` (14
+and 7 days left) and once more if the registration lapses, like the
+certificate's. A domain usually serves several of a project's sites, and
+each looks it up, but each warning goes out once per project: the first site
+to cross a threshold sends it and the rest only record that it was crossed.
+So a site's own extra recipients hear about the domain only if that site is
+the one that found it.
+
+The same lookup keeps the nameservers the registry delegates the domain to
+(`domain_nameservers`). When it names others than last time, a **nameservers
+changed** alert goes out: whoever runs the new ones answers for every site
+and mailbox on the domain, so an unplanned change is how a hijack looks. The
+first set learned raises nothing, and a lookup that names none (`.de`) leaves
+them as they were. Each change alerts once per project, like the expiry
+warnings: a site that sees the move stamps `domain_nameservers_changed_at`,
+and another site on the domain that sees the same move within two lookup
+intervals stays quiet.
+
+### Security headers
+
+Every HTTP check that comes up keeps, on the site, the final response's
+`Strict-Transport-Security`, `Content-Security-Policy`, `X-Frame-Options`,
+`X-Content-Type-Options` and `Referrer-Policy` (`security_headers`). Only the
+latest is kept, not one per check. `security_headers.py` grades them when the
+site is read, each `ok`, `weak` or `missing`:
+
+| header | weak when |
+| ------ | --------- |
+| HSTS | max-age is missing, 0 or under 180 days; missing on plain HTTP, where browsers ignore it |
+| CSP | no `script-src` or `default-src`, or scripts allow `'unsafe-inline'` (without a nonce or hash) or `'unsafe-eval'` |
+| X-Frame-Options | not `DENY` or `SAMEORIGIN`; a CSP `frame-ancestors` counts instead |
+| X-Content-Type-Options | not `nosniff` |
+| Referrer-Policy | `unsafe-url` or `no-referrer-when-downgrade` |
+
+The grade is the number that are ok: A for five, B for four, down to F. It
+does not alert.
 
 ### Maintenance windows
 

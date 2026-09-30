@@ -127,7 +127,7 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
   }
 
   return (
-    <form className="form project-form" onSubmit={submit}>
+    <form className="form" onSubmit={submit}>
       <ErrorBanner error={error} />
       <label className="field">
         <span>Name</span>

@@ -40,6 +40,25 @@ _SSL = {
     "issuer": "Who issued the certificate, or “—”",
 }
 
+_DOMAIN = {
+    **_SITE,
+    "domain": "The registered domain, e.g. “acme.example” for “https://www.acme.example/”",
+    "expires_at": "When the registration ends (UTC)",
+    "expiry": "“expires in 13 days”, “expires in less than a day” or “expired 2 days ago”",
+    "days_left": "Whole days remaining (0 when expired or under a day)",
+    "registrar": "Who the domain is registered with, or “—”",
+}
+
+_NAMESERVERS = {
+    **_SITE,
+    "domain": "The registered domain, e.g. “acme.example” for “https://www.acme.example/”",
+    "nameservers": "The nameservers the domain is delegated to now",
+    "previous_nameservers": "The ones it was delegated to before",
+    "added": "Nameservers that are new, or “—”",
+    "removed": "Nameservers that are gone, or “—”",
+    "registrar": "Who the domain is registered with, or “—”",
+}
+
 _SLOW = {
     **_SITE,
     "threshold": "The slow-response threshold, e.g. “3000 ms”",
@@ -125,8 +144,8 @@ CATALOG: dict[NotificationKind, KindInfo] = {
         KindInfo(
             kind=NotificationKind.SSL_EXPIRING,
             label="SSL certificate expiring",
-            description="An HTTPS site’s certificate is close to its end date, at 14, 7, "
-            "3 and 1 days (configurable) and once more if it expires.",
+            description="An HTTPS site’s certificate is close to its end date, at 14 and 7 "
+            "days (configurable) and once more if it expires.",
             audience="Same as “Site down”.",
             default_subject="[SSL] {{project}} / {{website}}: certificate {{expiry}}",
             default_body=(
@@ -134,6 +153,36 @@ CATALOG: dict[NotificationKind, KindInfo] = {
                 "Renew it promptly to avoid browser warnings and failed connections."
             ),
             placeholders=_SSL,
+        ),
+        KindInfo(
+            kind=NotificationKind.DOMAIN_EXPIRING,
+            label="Domain expiring",
+            description="A site’s domain registration is close to its end date, at 14 and 7 "
+            "days (configurable) and once more if it lapses. Sent once per project "
+            "for each domain, however many of its sites use it.",
+            audience="Same as “Site down”, for the site that found it.",
+            default_subject="[DOMAIN] {{project}} / {{domain}}: registration {{expiry}}",
+            default_body=(
+                "The domain {{domain}}, used by {{website}}, {{expiry}} ({{expires_at}}). "
+                "Renew it before its websites and email stop working (registrar: "
+                "{{registrar}})."
+            ),
+            placeholders=_DOMAIN,
+        ),
+        KindInfo(
+            kind=NotificationKind.NAMESERVERS_CHANGED,
+            label="Nameservers changed",
+            description="The registry now delegates a site’s domain to other nameservers: "
+            "a move between DNS providers, or a sign the domain was hijacked. Sent once "
+            "per project for each change, however many of its sites use the domain.",
+            audience="Same as “Site down”, for the site that found it.",
+            default_subject="[NAMESERVERS] {{project}} / {{domain}}: nameservers changed",
+            default_body=(
+                "The nameservers for {{domain}}, used by {{website}}, are now "
+                "{{nameservers}} (were {{previous_nameservers}}). If you did not make this "
+                "change, lock the domain at your registrar ({{registrar}}) at once."
+            ),
+            placeholders=_NAMESERVERS,
         ),
         KindInfo(
             kind=NotificationKind.SLOW_RESPONSE,

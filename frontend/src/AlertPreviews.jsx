@@ -44,7 +44,9 @@ function EmailPreview() {
   return (
     <div className="alert-preview preview-email">
       <div className="preview-email-head" {...part(0)}>
-        <span className="preview-avatar">W</span>
+        <span className="preview-avatar is-logo" aria-hidden="true">
+          <img src="/favicon.svg" alt="" />
+        </span>
         <span className="preview-from">
           <strong>Watchly Alerts</strong>
           <span className="muted">alerts@yourdomain.com</span>
@@ -71,8 +73,8 @@ function SlackPreview() {
         # ops
       </div>
       <div className="preview-slack-msg" {...part(1)}>
-        <span className="preview-avatar is-app" aria-hidden="true">
-          W
+        <span className="preview-avatar is-app is-logo" aria-hidden="true">
+          <img src="/favicon.svg" alt="" />
         </span>
         <div className="preview-slack-body">
           <span>

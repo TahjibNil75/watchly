@@ -14,12 +14,19 @@
   --down: #d23a3a;
   --pending: #b7791f;
   --maintenance: #7b52c7;
+  --warn: #f2b81c;
+  --warn-text: #1f1a0a;
   /* Chart series, checked for colour-blind separation on --surface. */
   --series-1: #3a5bd9;
   --series-2: #eb6834;
   --paused: #7a808c;
   /* The Developer role's colour, apart from the status tones. */
   --teal: #0e8a9c;
+  /* Environment and check-type badges: hues apart from the status colours. */
+  --tag-teal: #0b7a8a;
+  --tag-pink: #b83280;
+  --tag-orange: #b85208;
+  --tag-olive: #66720a;
   --radius: 10px;
   --shadow: 0 1px 2px rgb(16 24 40 / 0.05);
 
@@ -48,10 +55,16 @@
     --down: #f16565;
     --pending: #e0a93b;
     --maintenance: #a88cf0;
+    --warn: #e0a93b;
+    --warn-text: #0f1116;
     --series-1: #6d8bff;
     --series-2: #d95926;
     --paused: #8b919c;
     --teal: #3cc3d6;
+    --tag-teal: #3cc3d6;
+    --tag-pink: #f07ab8;
+    --tag-orange: #ff9a4d;
+    --tag-olive: #b8c93a;
     --shadow: none;
 
     color-scheme: dark;
@@ -125,6 +138,10 @@ a:hover {
 }
 .text-pending {
   color: var(--pending);
+  font-weight: 500;
+}
+.text-up {
+  color: var(--up);
   font-weight: 500;
 }
 /* Read out, not shown. */
@@ -1450,6 +1467,17 @@ a:hover {
   border-radius: 8px;
   background: #1c8f4e;
 }
+/* The Watchly logo on a white tile, as the channels show the sender. */
+.preview-avatar.is-logo,
+.slack-preview .sp-avatar {
+  background: #ffffff;
+  border: 1px solid var(--border);
+}
+.preview-avatar.is-logo img,
+.slack-preview .sp-avatar img {
+  width: 78%;
+  height: 78%;
+}
 .preview-button {
   justify-self: start;
   margin-top: 4px;
@@ -2295,6 +2323,24 @@ a.toast-body:hover strong {
   background: color-mix(in srgb, var(--down) 86%, black);
   border-color: color-mix(in srgb, var(--down) 86%, black);
 }
+.btn-warn {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: var(--warn-text);
+}
+.btn-warn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--warn) 86%, black);
+  border-color: color-mix(in srgb, var(--warn) 86%, black);
+}
+.btn-purple {
+  background: var(--maintenance);
+  border-color: var(--maintenance);
+  color: var(--action-text);
+}
+.btn-purple:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--maintenance) 86%, black);
+  border-color: color-mix(in srgb, var(--maintenance) 86%, black);
+}
 .btn-ghost {
   border-color: transparent;
   background: transparent;
@@ -2347,21 +2393,37 @@ strong + .badge {
 .badge-maintenance {
   --tone: var(--maintenance);
 }
-/* Environment: quiet for the lower tiers, so Production is what stands out. */
-.badge-env-development,
-.badge-env-testing {
-  --tone: var(--paused);
+/* Environment: a colour each, filled. Production keeps the brand blue, the
+   tier that matters most. */
+.badge-env-development {
+  --tone: var(--tag-teal);
 }
-.badge-env-uat,
+.badge-env-testing {
+  --tone: var(--tag-pink);
+}
+.badge-env-uat {
+  --tone: var(--tag-orange);
+}
 .badge-env-staging {
-  --tone: var(--pending);
+  --tone: var(--tag-olive);
 }
 .badge-env-production {
   --tone: var(--primary);
 }
-/* How a site is checked: neutral, so status and environment stay what stands out. */
+/* How a site is checked: a colour each, outlined rather than filled, so a type
+   is never mistaken for an environment that shares its hue. */
 .badge-type {
-  --tone: var(--muted);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 45%, transparent);
+}
+.badge-type-http {
+  --tone: var(--primary);
+}
+.badge-type-ping {
+  --tone: var(--tag-teal);
+}
+.badge-type-dns {
+  --tone: var(--tag-orange);
 }
 
 .chip {
@@ -2372,6 +2434,103 @@ strong + .badge {
   font-size: 0.8rem;
   background: var(--surface-2);
   border: 1px solid var(--border);
+}
+
+/* A certificate's names, the ones covering the site's host outlined. */
+/* A list too wide for the value column: label above, values below. */
+.kv > div.kv-stack,
+.site-registry .kv > div.kv-stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+/* As many whole names to a line as fit; only one wider than the card breaks. */
+.cert-names .chip {
+  max-width: 100%;
+  margin: 0 4px 4px 0;
+  overflow-wrap: break-word;
+}
+.cert-names .chip-match {
+  border-color: var(--up);
+  color: var(--up);
+}
+.cert-names .advanced summary {
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+}
+.domain-error {
+  margin: 12px 0 0;
+}
+.ns-list {
+  display: grid;
+  gap: 2px;
+}
+.ns-list code {
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.ns-changed {
+  margin-left: 8px;
+  font-size: 0.8rem;
+}
+
+/* Security headers: a status, then the header, what was sent and why it
+   falls short. */
+.sec-grade {
+  margin-left: auto;
+  font-size: 0.8rem;
+  text-transform: none;
+}
+.sec-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+}
+.sec-list li {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.sec-list li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+/* With room, two headers to a row, so the card stays short. */
+@container site (min-width: 641px) {
+  .sec-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 28px;
+  }
+  .sec-list li:nth-child(2) {
+    border-top: 0;
+    padding-top: 0;
+  }
+}
+.sec-list .badge {
+  justify-self: start;
+  margin-top: 1px;
+}
+.sec-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.sec-body strong {
+  font-size: 0.92rem;
+}
+.sec-value {
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sec-foot {
+  margin: 12px 0 0;
+  overflow-wrap: anywhere;
 }
 
 .banner {
@@ -2631,6 +2790,27 @@ strong + .badge {
   column-gap: 20px;
   align-items: start;
 }
+/* The certificate and the domain: one card, split down the middle. */
+.site-registry {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+.site-registry.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.site-registry-part {
+  min-width: 0;
+}
+.site-registry-part + .site-registry-part {
+  margin-left: 20px;
+  padding-left: 20px;
+  border-left: 1px solid var(--border);
+  align-self: stretch;
+}
+.site-registry .kv > div {
+  grid-template-columns: 116px minmax(0, 1fr);
+}
 .card-danger {
   border-color: color-mix(in srgb, var(--down) 30%, var(--border));
 }
@@ -2672,6 +2852,15 @@ strong + .badge {
   }
 }
 @container site (max-width: 640px) {
+  .site-registry {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .site-registry-part + .site-registry-part {
+    margin: 20px 0 0;
+    padding: 20px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
   .site-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4079,11 +4268,6 @@ textarea {
   font-weight: 600;
   font-size: 0.9rem;
 }
-.project-form .fieldset legend,
-.website-form .fieldset legend,
-.heading-yellow {
-  color: var(--pending);
-}
 .form-actions {
   display: flex;
   gap: 8px;
@@ -4098,9 +4282,6 @@ textarea {
   font-weight: 500;
   color: var(--primary);
   margin-bottom: 10px;
-}
-.advanced summary.summary-yellow {
-  color: var(--pending);
 }
 .advanced .btn,
 .show-more {
@@ -4584,7 +4765,23 @@ textarea {
   gap: 8px 16px;
   margin-top: 6px;
 }
+.sp-context-img {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+.tg-logo-preview {
+  margin: 4px 0 8px;
+  padding-left: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--primary) 60%, transparent);
+}
+.tg-logo-preview img {
+  display: block;
+  width: 40px;
+  height: 40px;
+}
 .sp-context {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 4px 12px;

@@ -737,7 +737,7 @@ kind, on by default and switchable per project:
 
 | kind | fires when | how often |
 | ---- | ---------- | --------- |
-| **SSL certificate expiring** | an HTTPS site's certificate has 14, 7, 3 or 1 days left (`SSL_EXPIRY_ALERT_DAYS`), and once more if it expires | once per threshold; renewing the certificate re-arms them |
+| **SSL certificate expiring** | an HTTPS site's certificate has 14 or 7 days left (`SSL_EXPIRY_ALERT_DAYS`), and once more if it expires | once per threshold; renewing the certificate re-arms them |
 | **Slow response** | a *successful* response is slower than the site's threshold for `SLOW_RESPONSE_CHECKS` (3) checks in a row | then quiet for `SLOW_ALERT_COOLDOWN_SECONDS` (6 h) |
 | **Packet loss** | a pinged host answers, but loses at least its threshold of pings for `PACKET_LOSS_CHECKS` (3) checks in a row | then quiet for `PACKET_LOSS_ALERT_COOLDOWN_SECONDS` (6 h) |
 | **DNS records changed** | a DNS check with no expected values: every resolver now returns other records than they last agreed on | once per change |

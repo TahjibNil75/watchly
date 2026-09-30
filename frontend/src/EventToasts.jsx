@@ -92,6 +92,34 @@ function describe(event) {
         detail: `Ends ${dateTime(event.ssl_expires_at)}`,
       }
     }
+    case 'nameservers_changed':
+      // Possibly a hijack: it stays until someone looks.
+      return {
+        tone: 'down',
+        sticky: true,
+        title: `Nameservers changed for ${event.summary.split(' ')[0]}`,
+        detail: event.summary,
+      }
+    case 'domain_expiring': {
+      // The summary is "example.com expires in 13 days"; the domain leads it.
+      const domain = event.summary.split(' ')[0]
+      const left = new Date(event.domain_expires_at) - Date.now()
+      if (left <= 0) {
+        return {
+          tone: 'down',
+          sticky: true,
+          title: `The domain ${domain} has expired`,
+          detail: `Found via ${name} · ended ${dateTime(event.domain_expires_at)}`,
+        }
+      }
+      const days = Math.floor(left / DAY_MS)
+      const when = days ? `in ${plural(days, 'day')}` : 'within a day'
+      return {
+        tone: days < 7 ? 'down' : 'pending',
+        title: `The domain ${domain} expires ${when}`,
+        detail: `Found via ${name} · ends ${dateTime(event.domain_expires_at)}`,
+      }
+    }
     default:
       return null
   }

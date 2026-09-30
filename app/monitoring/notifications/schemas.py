@@ -137,6 +137,13 @@ class NotificationPreviewResponse(BaseModel):
     telegram_html: str = Field(
         description="The Telegram message: text in Telegram's HTML subset."
     )
+    logo_url: str | None = Field(
+        default=None,
+        description=(
+            "The logo Slack draws above the message and Telegram shows as its "
+            "preview (ALERT_LOGO_URL); null when it is off."
+        ),
+    )
     whatsapp_text: str = Field(
         description=(
             "The WhatsApp message as it reads on the phone: the approved template "

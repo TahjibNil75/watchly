@@ -149,7 +149,7 @@ export default function Maintenance({ site, canManage, onChange, onBoundary }) {
               maxLength={255}
               aria-label="Reason"
             />
-            <button type="button" className="btn btn-primary" onClick={start} disabled={busy}>
+            <button type="button" className="btn btn-purple" onClick={start} disabled={busy}>
               Start maintenance for {picked}
             </button>
           </div>

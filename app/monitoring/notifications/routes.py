@@ -13,8 +13,8 @@ from app.auth.dependencies import get_current_user, require_roles
 from app.core.permissions import PROJECT_CREATORS, ROLE_MANAGERS
 from app.db.models.user import User
 from app.db.session import get_db
-from app.monitoring.alerts.base import NotificationKind
-from app.monitoring.alerts.email import render_html, render_text
+from app.monitoring.alerts.base import NotificationKind, logo_url
+from app.monitoring.alerts.email import logo_data_url, render_html, render_text
 from app.monitoring.alerts.slack import build_payload
 from app.monitoring.alerts.telegram import build_text as build_telegram_text
 from app.monitoring.alerts.whatsapp import preview_text as whatsapp_preview_text
@@ -171,14 +171,17 @@ async def preview(
         subject or info.default_subject,
         body or info.default_body,
     )
-    slack = build_payload(message)
+    logo = logo_url()
+    slack = build_payload(message, logo)
     return NotificationPreviewResponse(
         subject=message.subject,
-        email_html=render_html(message),
+        # The preview's frame cannot see the message's attachments.
+        email_html=render_html(message, logo_src=logo_data_url()),
         email_text=render_text(message),
         slack_text=slack["text"],
         slack_blocks=slack["blocks"],
         telegram_html=build_telegram_text(message),
+        logo_url=logo,
         whatsapp_text=whatsapp_preview_text(message),
     )
 

@@ -45,6 +45,8 @@ _EMOJI = {
     NotificationKind.STILL_DOWN: "⚠️",
     NotificationKind.RECOVERED: "✅",
     NotificationKind.SSL_EXPIRING: "🔒",
+    NotificationKind.DOMAIN_EXPIRING: "📅",
+    NotificationKind.NAMESERVERS_CHANGED: "📡",
     NotificationKind.SLOW_RESPONSE: "⏳",
     NotificationKind.PACKET_LOSS: "📶",
     NotificationKind.DNS_CHANGED: "🌐",

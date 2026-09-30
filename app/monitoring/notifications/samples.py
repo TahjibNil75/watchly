@@ -11,6 +11,8 @@ from datetime import UTC, datetime, timedelta
 from app.monitoring.alerts.base import Notification, NotificationKind, WebsiteSnapshot
 from app.monitoring.alerts.events import (
     DnsChangeEvent,
+    DomainExpiryEvent,
+    NameserverChangeEvent,
     OutageEvent,
     PacketLossEvent,
     ReportEvent,
@@ -107,6 +109,26 @@ def sample_event(kind: NotificationKind) -> Notification:
                 expires_at=now + timedelta(days=6, hours=11),
                 issuer="Let's Encrypt",
                 bucket=7,
+                recipients=recipients,
+            )
+        case NotificationKind.DOMAIN_EXPIRING:
+            return DomainExpiryEvent(
+                website=site,
+                result=up,
+                domain="acme.example",
+                expires_at=now + timedelta(days=13, hours=5),
+                registrar="Example Registrar, Inc.",
+                bucket=14,
+                recipients=recipients,
+            )
+        case NotificationKind.NAMESERVERS_CHANGED:
+            return NameserverChangeEvent(
+                website=site,
+                result=up,
+                domain="acme.example",
+                previous=["ns1.old-dns.example", "ns2.old-dns.example"],
+                current=["ns1.new-dns.example", "ns2.new-dns.example"],
+                registrar="Example Registrar, Inc.",
                 recipients=recipients,
             )
         case NotificationKind.SLOW_RESPONSE:

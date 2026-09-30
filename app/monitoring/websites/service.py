@@ -180,6 +180,30 @@ def content_rule_problem(website: Website) -> WebsiteContentRuleError | None:
     return None
 
 
+#: What a site learned about its host's certificate and domain, forgotten
+#: when its `url` changes.
+_HOST_STATE = (
+    "ssl_expires_at",
+    "ssl_checked_at",
+    "ssl_alert_bucket",
+    "ssl_subject",
+    "ssl_issuer",
+    "ssl_sans",
+    "ssl_valid_from",
+    "ssl_tls_version",
+    "domain_name",
+    "domain_expires_at",
+    "domain_registrar",
+    "domain_checked_at",
+    "domain_error",
+    "domain_alert_bucket",
+    "domain_nameservers",
+    "domain_nameservers_changed_at",
+    "security_headers",
+    "security_checked_at",
+)
+
+
 class WebsiteService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -468,11 +492,11 @@ class WebsiteService:
         )
 
         if "url" in changes and changes["url"] != website.url:
-            # The certificate state describes the old host. Clearing it makes
-            # the next check read the new one and warn afresh.
-            website.ssl_expires_at = None
-            website.ssl_checked_at = None
-            website.ssl_alert_bucket = None
+            # The certificate and domain state describe the old host.
+            # Clearing it makes the next check read the new one and warn
+            # afresh.
+            for field in _HOST_STATE:
+                setattr(website, field, None)
         if website.check_type is CheckType.DNS and (
             changes.get("url", website.url) != website.url
             or changes.get("dns_record_type", website.dns_record_type)

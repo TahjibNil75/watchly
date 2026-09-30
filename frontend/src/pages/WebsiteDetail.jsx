@@ -297,11 +297,256 @@ function Resolvers({ check }) {
   )
 }
 
-// Whole days until the certificate ends; negative once it has.
-const sslDaysLeft = (iso) => Math.floor((new Date(iso).getTime() - Date.now()) / 86_400_000)
+// Whole days until a certificate or domain ends; negative once it has.
+const daysLeft = (iso) => Math.floor((new Date(iso).getTime() - Date.now()) / 86_400_000)
 
 const shortDate = (iso) =>
   new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+
+// Red inside a week, amber inside a month, as the SSL tile has it.
+const expiryTone = (days) => (days <= 7 ? 'down' : days <= 30 ? 'pending' : 'up')
+
+const expiryText = (days) =>
+  days < 0 ? 'Expired' : days === 0 ? 'Less than a day left' : `${days} ${days === 1 ? 'day' : 'days'} left`
+
+// "58 days left · 29 Nov 2026", the first part in its tone's colour.
+function Expiry({ iso }) {
+  const days = daysLeft(iso)
+  return (
+    <>
+      <span className={`text-${expiryTone(days)}`}>{expiryText(days)}</span> ·{' '}
+      <span className="nowrap" title={dateTime(iso)}>
+        {shortDate(iso)}
+      </span>
+    </>
+  )
+}
+
+// The host a site's URL names; for a ping or DNS check the URL is the host.
+function hostOf(site) {
+  if (isPing(site) || isDns(site)) return site.url.toLowerCase()
+  try {
+    return new URL(site.url).hostname
+  } catch {
+    return ''
+  }
+}
+
+// An IP address, or a name without a dot, has no domain to look up.
+const hasDomain = (host) => host.includes('.') && !/^[\d.]+$/.test(host) && !host.includes(':')
+
+// Whether a certificate name, `*.example.com` included, covers `host`. A
+// wildcard stands for exactly one label.
+function certCovers(name, host) {
+  const n = name.toLowerCase()
+  if (!n.startsWith('*.')) return n === host
+  const rest = n.slice(1)
+  const label = host.slice(0, -rest.length)
+  return host.endsWith(rest) && label.length > 0 && !label.includes('.')
+}
+
+const SANS_SHOWN = 6
+
+function CertNames({ names, host }) {
+  if (!names.length) return '—'
+  const chip = (n) => (
+    <span key={n} className={`chip${certCovers(n, host) ? ' chip-match' : ''}`}>
+      {n}
+    </span>
+  )
+  return (
+    <div className="cert-names">
+      {names.slice(0, SANS_SHOWN).map(chip)}
+      {names.length > SANS_SHOWN && (
+        <details className="advanced">
+          <summary>{names.length - SANS_SHOWN} more</summary>
+          {names.slice(SANS_SHOWN).map(chip)}
+        </details>
+      )}
+    </div>
+  )
+}
+
+function CertificatePart({ site: s }) {
+  const host = hostOf(s)
+  const names = s.ssl_sans ?? []
+  const covered = names.length ? names.some((n) => certCovers(n, host)) : null
+  return (
+    <div className="site-registry-part">
+      <h2>SSL certificate</h2>
+      {!s.ssl_expires_at ? (
+        <p className="muted small">
+          {s.ssl_checked_at
+            ? `The certificate could not be read ${timeAgo(s.ssl_checked_at)}. It is tried again every few hours.`
+            : 'Read with the next check.'}
+        </p>
+      ) : (
+        <dl className="kv">
+          <div>
+            <dt>Expires</dt>
+            <dd>
+              <Expiry iso={s.ssl_expires_at} />
+            </dd>
+          </div>
+          <div>
+            <dt>Issued to</dt>
+            <dd>{s.ssl_subject ?? '—'}</dd>
+          </div>
+          <div>
+            <dt>Issuer</dt>
+            <dd>{s.ssl_issuer ?? '—'}</dd>
+          </div>
+          <div>
+            <dt>Valid from</dt>
+            <dd>{s.ssl_valid_from ? shortDate(s.ssl_valid_from) : '—'}</dd>
+          </div>
+          <div>
+            <dt>TLS version</dt>
+            <dd>{s.ssl_tls_version ? s.ssl_tls_version.replace('TLSv', 'TLS ') : '—'}</dd>
+          </div>
+          <div className="kv-stack">
+            <dt>Covers</dt>
+            <dd>
+              <CertNames names={names} host={host} />
+              {covered === false && <div className="text-down small">Does not cover {host}</div>}
+            </dd>
+          </div>
+          <div>
+            <dt>Last read</dt>
+            <dd title={dateTime(s.ssl_checked_at)}>{timeAgo(s.ssl_checked_at)}</dd>
+          </div>
+        </dl>
+      )}
+    </div>
+  )
+}
+
+// A nameserver change is flagged on the page for a week after it is seen.
+const recentlyChanged = (iso) => iso && Date.now() - new Date(iso).getTime() < 7 * 86_400_000
+
+function DomainPart({ site: s }) {
+  return (
+    <div className="site-registry-part">
+      <h2>Domain</h2>
+      {!s.domain_checked_at ? (
+        <p className="muted small">Looked up with the next check.</p>
+      ) : (
+        <dl className="kv">
+          <div>
+            <dt>Domain</dt>
+            <dd>{s.domain_name ?? '—'}</dd>
+          </div>
+          <div>
+            <dt>Expires</dt>
+            <dd>{s.domain_expires_at ? <Expiry iso={s.domain_expires_at} /> : '—'}</dd>
+          </div>
+          <div>
+            <dt>Registrar</dt>
+            <dd>{s.domain_registrar ?? '—'}</dd>
+          </div>
+          <div className="kv-stack">
+            <dt>
+              Nameservers
+              {recentlyChanged(s.domain_nameservers_changed_at) && (
+                <span
+                  className="text-pending ns-changed"
+                  title={dateTime(s.domain_nameservers_changed_at)}
+                >
+                  changed {timeAgo(s.domain_nameservers_changed_at)}
+                </span>
+              )}
+            </dt>
+            <dd>
+              {s.domain_nameservers?.length ? (
+                <div className="ns-list">
+                  {s.domain_nameservers.map((n) => (
+                    <code key={n}>{n}</code>
+                  ))}
+                </div>
+              ) : (
+                <span className="muted">The registry does not list them.</span>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Last looked up</dt>
+            <dd title={dateTime(s.domain_checked_at)}>{timeAgo(s.domain_checked_at)}</dd>
+          </div>
+        </dl>
+      )}
+      {s.domain_error && <p className="muted small domain-error">{s.domain_error}</p>}
+    </div>
+  )
+}
+
+// A grade in the tiles' colours: all or all but one header ok is good.
+const gradeTone = (grade) => ({ A: 'up', B: 'up', C: 'unknown', D: 'unknown' })[grade] ?? 'down'
+
+const HEADER_STATUS = {
+  ok: { tone: 'up', label: 'OK' },
+  weak: { tone: 'unknown', label: 'Weak' },
+  missing: { tone: 'down', label: 'Missing' },
+}
+
+// How the last successful response's security headers grade, one row each.
+function SecurityHeaders({ site: s }) {
+  const report = s.security
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>Security headers</h2>
+        {report && (
+          <span className={`badge badge-${gradeTone(report.grade)} sec-grade`}>
+            {report.grade} · {report.score} of {report.total}
+          </span>
+        )}
+      </div>
+      {!report ? (
+        <p className="muted small">Read from the next check that comes up.</p>
+      ) : (
+        <>
+          <ul className="sec-list">
+            {report.items.map((item) => {
+              const status = HEADER_STATUS[item.status]
+              return (
+                <li key={item.key}>
+                  <span className={`badge badge-${status.tone}`}>{status.label}</span>
+                  <div className="sec-body">
+                    <strong>{item.header}</strong>
+                    {item.value && (
+                      <code className="sec-value" title={item.value}>
+                        {item.value}
+                      </code>
+                    )}
+                    {item.note && <span className="muted small">{item.note}</span>}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          <p className="muted small sec-foot">
+            From {report.url},{' '}
+            <span title={dateTime(s.security_checked_at)}>{timeAgo(s.security_checked_at)}</span>.
+          </p>
+        </>
+      )}
+    </section>
+  )
+}
+
+// The certificate and the domain, whichever apply to the site, as one card:
+// side by side when both do, so their different heights need no filling.
+function Registration({ site: s }) {
+  const cert = !isPing(s) && !isDns(s) && s.url.startsWith('https:')
+  const domain = hasDomain(hostOf(s))
+  if (!cert && !domain) return null
+  return (
+    <section className={`card site-registry${cert && domain ? '' : ' is-single'}`}>
+      {cert && <CertificatePart site={s} />}
+      {domain && <DomainPart site={s} />}
+    </section>
+  )
+}
 
 // 24x24 stroke icons, drawn like the dashboard's.
 function Icon({ className, children }) {
@@ -330,7 +575,12 @@ const STATE_ICONS = {
       <path d="M12 7v5l3 2" />
     </>
   ),
-  maintenance: <path d="m18.9 8.1 2 .6a4.5 4.5 0 1 1-3.2-5.6l-.6 2zM13.3 10.7l-8.7 8.7" />,
+  maintenance: (
+    <>
+      <path d="M10 3.5h4l3.6 13.5H6.4zM8.1 10.5h7.8" />
+      <rect x="3.5" y="17" width="17" height="3.5" rx="1" />
+    </>
+  ),
   paused: <path d="M9 5v14M15 5v14" />,
 }
 
@@ -542,7 +792,7 @@ function SiteStats({ site: s, latest, day, month }) {
       icon: TILE_ICONS.resolvers,
     }
   } else {
-    const days = s.ssl_expires_at ? sslDaysLeft(s.ssl_expires_at) : null
+    const days = s.ssl_expires_at ? daysLeft(s.ssl_expires_at) : null
     last = {
       label: 'SSL certificate',
       value:
@@ -559,7 +809,7 @@ function SiteStats({ site: s, latest, day, month }) {
             ? 'Not read yet'
             : 'Plain HTTP'
           : `${days < 0 ? 'Expired' : 'Expires'} ${shortDate(s.ssl_expires_at)}`,
-      tone: days == null ? 'paused' : days <= 7 ? 'down' : days <= 30 ? 'pending' : 'up',
+      tone: days == null ? 'paused' : expiryTone(days),
       icon: TILE_ICONS.ssl,
     }
   }
@@ -716,10 +966,10 @@ export default function WebsiteDetail() {
             <button type="button" className="btn btn-primary" onClick={checkNow} disabled={busy}>
               {busy ? 'Working…' : 'Check now'}
             </button>
-            <button type="button" className="btn" onClick={toggleEnabled} disabled={busy}>
+            <button type="button" className="btn btn-purple" onClick={toggleEnabled} disabled={busy}>
               {s.is_enabled ? 'Pause' : 'Resume'}
             </button>
-            <button type="button" className="btn" onClick={() => setEditing(!editing)}>
+            <button type="button" className="btn btn-warn" onClick={() => setEditing(!editing)}>
               {editing ? 'Close editor' : 'Edit'}
             </button>
           </>
@@ -753,11 +1003,10 @@ export default function WebsiteDetail() {
 
             <SiteHistory websiteId={s.id} ping={ping} dns={dns} />
 
-            <section className="card">
-              <h2>Recent checks</h2>
-              <ErrorBanner error={checks.error} />
-              {checks.loading ? <Loading /> : <Checks checks={checks.data ?? []} site={s} />}
-            </section>
+            <Registration site={s} />
+
+            {!ping && !dns && <SecurityHeaders site={s} />}
+
           </div>
 
           <aside className="site-side">
@@ -956,20 +1205,29 @@ export default function WebsiteDetail() {
               </section>
             </div>
 
-            {canManage && (
-              <section className="card card-danger">
-                <h2>Delete {ping ? 'host' : dns ? 'DNS check' : 'website'}</h2>
-                <p className="muted small">
-                  Stops monitoring {s.name} and deletes its check history. This can&apos;t be
-                  undone.
-                </p>
-                <button type="button" className="btn btn-danger" onClick={remove} disabled={busy}>
-                  Delete
-                </button>
-              </section>
-            )}
           </aside>
         </div>
+
+        {/* Below both columns: the full log has room for its error column,
+            and deleting comes last. */}
+        <section className="card">
+          <h2>Recent checks</h2>
+          <ErrorBanner error={checks.error} />
+          {checks.loading ? <Loading /> : <Checks checks={checks.data ?? []} site={s} />}
+        </section>
+
+        {canManage && (
+          <section className="card card-danger">
+            <h2>Delete {ping ? 'host' : dns ? 'DNS check' : 'website'}</h2>
+            <p className="muted small">
+              Stops monitoring {s.name} and deletes its check history. This can&apos;t be
+              undone.
+            </p>
+            <button type="button" className="btn btn-danger-solid" onClick={remove} disabled={busy}>
+              Delete
+            </button>
+          </section>
+        )}
       </div>
     </>
   )

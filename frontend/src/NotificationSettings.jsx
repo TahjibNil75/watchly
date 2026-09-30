@@ -34,6 +34,27 @@ const KIND_META = {
       </>
     ),
   },
+  domain_expiring: {
+    tone: 'pending',
+    group: 'warnings',
+    icon: (
+      <>
+        <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+        <path d="M3.5 10h17M8 3v4M16 3v4M12 13.5v3" />
+      </>
+    ),
+  },
+  nameservers_changed: {
+    tone: 'maintenance',
+    group: 'warnings',
+    icon: (
+      <>
+        <rect x="3.5" y="4" width="17" height="6.5" rx="1.5" />
+        <rect x="3.5" y="13.5" width="17" height="6.5" rx="1.5" />
+        <path d="M7.5 7.25h.01M7.5 16.75h.01M11 7.25h5.5M11 16.75h5.5" />
+      </>
+    ),
+  },
   slow_response: {
     tone: 'pending',
     group: 'warnings',
@@ -149,6 +170,20 @@ function Mrkdwn({ text }) {
     })
 }
 
+// The logo as the channel fetches it; until that URL answers (it is served
+// from GitHub once pushed), the copy bundled with the app.
+function LogoImage({ src, alt, className }) {
+  const [failed, setFailed] = useState(false)
+  return (
+    <img
+      src={failed || !src ? '/favicon.svg' : src}
+      alt={alt ?? 'Watchly'}
+      className={className}
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
 function SlackBlock({ block }) {
   switch (block.type) {
     case 'header':
@@ -179,11 +214,15 @@ function SlackBlock({ block }) {
     case 'context':
       return (
         <div className="sp-context">
-          {block.elements.map((e, i) => (
-            <span key={i}>
-              <Mrkdwn text={e.text} />
-            </span>
-          ))}
+          {block.elements.map((e, i) =>
+            e.type === 'image' ? (
+              <LogoImage key={i} src={e.image_url} alt={e.alt_text} className="sp-context-img" />
+            ) : (
+              <span key={i}>
+                <Mrkdwn text={e.text} />
+              </span>
+            ),
+          )}
         </div>
       )
     case 'divider':
@@ -208,7 +247,7 @@ function SlackPreview({ blocks }) {
     <div className="slack-preview">
       <div className="sp-app">
         <span className="sp-avatar" aria-hidden="true">
-          W
+          <img src="/favicon.svg" alt="" />
         </span>
         <strong>Watchly</strong>
         <span className="muted small">APP</span>
@@ -270,11 +309,16 @@ function TelegramNodes({ nodes }) {
   })
 }
 
-function TelegramPreview({ html }) {
+function TelegramPreview({ html, logo }) {
   return (
     <div className="telegram-preview">
       <div className="tg-bubble">
         <div className="tg-name">Watchly</div>
+        {logo && (
+          <div className="tg-logo-preview">
+            <LogoImage src={logo} />
+          </div>
+        )}
         <div className="tg-text">
           <TelegramNodes nodes={parseTelegram(html)} />
         </div>
@@ -376,7 +420,7 @@ function Preview({ kind, subject, body }) {
       ) : tab === 'slack' ? (
         <SlackPreview blocks={data.slack_blocks} />
       ) : tab === 'telegram' ? (
-        <TelegramPreview html={data.telegram_html} />
+        <TelegramPreview html={data.telegram_html} logo={data.logo_url} />
       ) : (
         <WhatsAppPreview text={data.whatsapp_text} />
       )}

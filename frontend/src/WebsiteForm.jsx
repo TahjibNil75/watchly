@@ -272,7 +272,7 @@ export default function WebsiteForm({
   }
 
   return (
-    <form className="form website-form" onSubmit={submit}>
+    <form className="form" onSubmit={submit}>
       <ErrorBanner error={error} />
 
       {/* Fixed once created: each keeps a different history. */}
@@ -541,7 +541,7 @@ export default function WebsiteForm({
 
       {http && (
         <details className="advanced">
-          <summary className="summary-yellow">Request options</summary>
+          <summary>Request options</summary>
           <div className="row-3">
             <label className="field">
               <span>Method</span>

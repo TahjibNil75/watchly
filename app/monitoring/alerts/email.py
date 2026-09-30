@@ -6,9 +6,12 @@ Gmail or anything else that speaks SMTP. Port 587 with STARTTLS
 
 The HTML is table-based with inline styles, because mail clients ignore
 `<style>` blocks and most layout CSS. Two layouts: a card for one site's alert,
-and a report with headline tiles and a per-site table.
+and a report with headline tiles and a per-site table. Both open with the
+Watchly logo, attached to the message itself (`cid:`), so it shows without the
+client fetching anything or the dashboard being reachable.
 """
 
+import base64
 import logging
 from email.message import EmailMessage
 from email.utils import formataddr
@@ -24,6 +27,7 @@ from app.monitoring.alerts.base import (
     SiteRow,
     Stat,
     Tone,
+    logo_png,
 )
 from app.monitoring.alerts.events import SiteEvent
 
@@ -36,6 +40,10 @@ _PALETTE = {
     Tone.SUCCESS: ("#16a34a", "#f0fdf4"),
     Tone.INFO: ("#4f46e5", "#eef2ff"),
 }
+
+#: How the HTML refers to the logo attached to the message.
+LOGO_CID = "watchly-logo"
+_BRAND = "#1c8f4e"
 
 _FONT = "-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 _MONO = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
@@ -53,6 +61,24 @@ def _escape(value: str) -> str:
 def _paragraphs(text: str) -> str:
     """Escaped, with line breaks kept. Templates are plain text."""
     return _escape(text.strip()).replace("\r\n", "\n").replace("\n", "<br>")
+
+
+def logo_data_url() -> str:
+    """The logo inline, for showing the HTML outside a mail client."""
+    return "data:image/png;base64," + base64.b64encode(logo_png()).decode("ascii")
+
+
+def _brand(logo_src: str) -> str:
+    """The logo and the name, above the coloured header."""
+    return (
+        f'<tr><td style="padding:16px 28px;border-bottom:1px solid #f3f4f6">'
+        f'<table role="presentation" cellspacing="0" cellpadding="0"><tr>'
+        f'<td style="vertical-align:middle"><img src="{_escape(logo_src)}" width="32" '
+        f'height="32" alt="Watchly" style="display:block;border:0;outline:none"></td>'
+        f'<td style="vertical-align:middle;padding-left:10px;font-size:18px;'
+        f'font-weight:800;color:{_BRAND};letter-spacing:.01em">Watchly</td>'
+        f"</tr></table></td></tr>"
+    )
 
 
 def _header(message: Message) -> str:
@@ -188,7 +214,9 @@ def _site_table(sites: list[SiteRow], omitted: int) -> str:
     )
 
 
-def render_html(message: Message) -> str:
+def render_html(message: Message, logo_src: str = f"cid:{LOGO_CID}") -> str:
+    """`logo_src` is the attached logo; a preview outside a mail client can
+    pass a data: URL instead."""
     is_report = message.kind is NotificationKind.MONTHLY_REPORT
     inner = (
         _body_text(message)
@@ -207,6 +235,7 @@ def render_html(message: Message) -> str:
  <table role="presentation" width="600" cellspacing="0" cellpadding="0"
   style="width:100%;max-width:600px;background:#ffffff;border:1px solid #e5e7eb;
   border-radius:12px;overflow:hidden">
+  {_brand(logo_src)}
   {_header(message)}
   <tr><td style="padding:26px 28px 8px">{inner}</td></tr>
   <tr><td style="padding:14px 28px 20px;border-top:1px solid #f3f4f6;font-size:11px;
@@ -271,6 +300,17 @@ class EmailAlerter(Alerter):
         mail["X-Watchly-Alert-Kind"] = event.kind.value
         mail.set_content(render_text(message))
         mail.add_alternative(render_html(message), subtype="html")
+        # multipart/related around the HTML, so clients show the logo inline
+        # rather than as an attachment.
+        html = mail.get_payload()[1]
+        html.add_related(
+            logo_png(),
+            maintype="image",
+            subtype="png",
+            cid=f"<{LOGO_CID}>",
+            filename="watchly-logo.png",
+            disposition="inline",
+        )
         return mail
 
     async def send(self, event: Notification, message: Message) -> bool:

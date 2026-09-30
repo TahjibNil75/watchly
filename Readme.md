@@ -37,7 +37,8 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **HTTP(S) monitoring**: poll any URL on its own interval, with retries before declaring it down
 - **Ping monitoring**: ICMP checks for hosts, including packet-loss alerts
 - **DNS monitoring**: query several public resolvers at once and alert when records change or drift from what you expect
-- **Early warnings**: SSL certificates about to expire, slow responses and packet loss, not just "down"
+- **Early warnings**: SSL certificates and domain registrations about to expire, changed nameservers, slow responses and packet loss, not just "down"
+- **Security headers**: each website's HSTS, CSP, X-Frame-Options, X-Content-Type-Options and Referrer-Policy, graded A to F
 - **Maintenance windows**: start one from a site's page for a deployment ("Start maintenance for 30 min" / "End now") or schedule one ahead; no checks or alerts until it ends
 - **Alerts where your team works**: email (any SMTP provider), Slack, Telegram, WhatsApp and generic webhooks
 - **Projects and recipients**: each project's members hear about all of its sites, and each site can add its own recipients
@@ -82,7 +83,7 @@ channel. A webhook, if you set one, receives every alert from every project.
 </table>
 
 Down and recovery alerts, reminders while a site stays down, warnings (SSL
-expiry, slow responses, packet loss, DNS changes) and the monthly report all
+and domain expiry, nameserver changes, slow responses, packet loss, DNS changes) and the monthly report all
 use these channels, and each kind can be switched off per channel under
 **Notifications**. Set Slack, Telegram and WhatsApp up on each project in the
 web app; their `.env` settings are only a fallback for projects without their
@@ -235,7 +236,9 @@ option. The most important ones:
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | | Optional Telegram fallback for projects without their own bot |
 | `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_RECIPIENTS` | | Optional WhatsApp fallback for projects without their own sender |
 | `WHATSAPP_TEMPLATE_NAME` | `watchly_alert` | Approved WhatsApp template alerts are sent as |
-| `SSL_EXPIRY_ALERT_DAYS` | `14,7,3,1` | Days before certificate expiry to warn |
+| `SSL_EXPIRY_ALERT_DAYS` | `14,7` | Days before certificate expiry to warn |
+| `DOMAIN_EXPIRY_ALERT_DAYS` | `14,7` | Days before domain registration expiry to warn |
+| `ALERT_LOGO_URL` | the logo on GitHub | Public HTTPS logo Slack and Telegram show on alerts; blank turns it off (email always embeds it) |
 | `DNS_RESOLVERS` | Cloudflare, Google, Quad9, OpenDNS | Resolvers queried by DNS checks |
 | `MONTHLY_REPORTS_ENABLED` | `true` | Send the monthly uptime report |
 

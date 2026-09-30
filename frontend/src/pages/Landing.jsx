@@ -71,7 +71,7 @@ const CHECKS = [
     points: [
       'The status you expect, and text the page must or must not contain',
       'Where the time went: DNS, connect, TLS, first byte',
-      'SSL certificate reminders at 14, 7, 3 and 1 days',
+      'SSL certificate reminders at 14 and 7 days',
     ],
   },
   {

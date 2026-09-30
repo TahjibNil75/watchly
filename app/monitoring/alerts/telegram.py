@@ -16,6 +16,10 @@ exception that may carry one without redacting it first.
 Telegram's limit, which the builder below stays inside: a message is at most
 4096 characters after its HTML is parsed. The builder measures the HTML itself,
 which is always the longer of the two.
+
+A text message cannot hold an image, so the Watchly logo (ALERT_LOGO_URL) comes
+as the message's link preview, small and above the text. The dashboard link in
+the text never unfurls: a preview only ever shows the logo, or nothing.
 """
 
 import html
@@ -32,6 +36,7 @@ from app.monitoring.alerts.base import (
     NotificationKind,
     SiteRow,
     Tone,
+    logo_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,6 +62,8 @@ _EMOJI = {
     NotificationKind.STILL_DOWN: "⚠️",
     NotificationKind.RECOVERED: "✅",
     NotificationKind.SSL_EXPIRING: "🔒",
+    NotificationKind.DOMAIN_EXPIRING: "📅",
+    NotificationKind.NAMESERVERS_CHANGED: "📡",
     NotificationKind.SLOW_RESPONSE: "⏳",
     NotificationKind.PACKET_LOSS: "📶",
     NotificationKind.DNS_CHANGED: "🌐",
@@ -219,13 +226,20 @@ def build_text(message: Message) -> str:
             return text
 
 
-def build_payload(message: Message) -> dict:
+def _preview(logo: str | None) -> dict:
+    """The logo as a small preview above the text; without one, none, as the
+    dashboard link would otherwise unfurl into a large preview card."""
+    if not logo:
+        return {"is_disabled": True}
+    return {"url": logo, "prefer_small_media": True, "show_above_text": True}
+
+
+def build_payload(message: Message, logo: str | None = None) -> dict:
     """Everything `sendMessage` needs for the message, minus the chat."""
     return {
         "text": build_text(message),
         "parse_mode": "HTML",
-        # The dashboard link would otherwise unfurl into a large preview card.
-        "link_preview_options": {"is_disabled": True},
+        "link_preview_options": _preview(logo),
     }
 
 
@@ -237,6 +251,12 @@ def plain_text(text: str) -> str:
     """`build_text`'s HTML as plain text, links spelled out."""
     text = _LINK.sub(lambda m: f"{m.group(2)}: {m.group(1)}", text)
     return html.unescape(_TAG.sub("", text))
+
+
+def _is_preview_error(body: dict) -> bool:
+    """Telegram refused the message over its link preview, i.e. the logo."""
+    description = str(body.get("description", "")).lower()
+    return body.get("error_code") == 400 and ("webpage" in description or "preview" in description)
 
 
 def _is_formatting_error(body: dict) -> bool:
@@ -285,7 +305,8 @@ class TelegramAlerter(Alerter):
         reply_to: int | None = None,
     ) -> dict | None:
         """Send one message: Telegram's copy of it, or None if it did not go out."""
-        payload = {"chat_id": chat_id, **build_payload(message)}
+        logo = logo_url()
+        payload = {"chat_id": chat_id, **build_payload(message, logo)}
         if reply_to is not None:
             # If the message being replied to was deleted, send it anyway.
             payload["reply_parameters"] = {
@@ -293,6 +314,15 @@ class TelegramAlerter(Alerter):
                 "allow_sending_without_reply": True,
             }
         body = await self._call(event, token, payload)
+        if body is not None and not body.get("ok") and logo and _is_preview_error(body):
+            # An alert without the logo beats no alert.
+            logger.warning(
+                "Telegram could not show the logo for %s (%s); sending it without",
+                event.describe(),
+                _redact(explain(body), token),
+            )
+            payload["link_preview_options"] = _preview(None)
+            body = await self._call(event, token, payload)
         if body is not None and not body.get("ok") and _is_formatting_error(body):
             # An alert without formatting beats no alert.
             logger.warning(

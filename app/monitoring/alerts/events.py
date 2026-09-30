@@ -413,6 +413,19 @@ def _expiry_phrase(remaining: timedelta) -> str:
     return f"expires in {plural(days, 'day')}"
 
 
+def _reminders(thresholds: list[int], bucket: int) -> str:
+    """What further warnings follow the one for `bucket`, in words."""
+    later = sorted((d for d in thresholds if d < bucket), reverse=True)
+    if not later:
+        return "You will be told once more if it expires."
+    listed = ", ".join(str(d) for d in later[:-1])
+    listed = f"{listed} and {later[-1]}" if listed else str(later[-1])
+    return (
+        f"You will be reminded again with {listed} "
+        f"{'day' if later == [1] else 'days'} left, and once more if it expires."
+    )
+
+
 @dataclass(kw_only=True)
 class SslExpiryEvent(SiteEvent):
     """The site's certificate has crossed a warning threshold."""
@@ -451,18 +464,7 @@ class SslExpiryEvent(SiteEvent):
                 "Browsers will warn visitors, and API clients will refuse to connect, "
                 "until the certificate is renewed or replaced."
             )
-        later = sorted(
-            (d for d in settings.SSL_EXPIRY_ALERT_DAYS if d < self.bucket), reverse=True
-        )
-        if later:
-            listed = ", ".join(str(d) for d in later[:-1])
-            listed = f"{listed} and {later[-1]}" if listed else str(later[-1])
-            follow_up = (
-                f"You will be reminded again with {listed} "
-                f"{'day' if later == [1] else 'days'} left, and once more if it expires."
-            )
-        else:
-            follow_up = "You will be told once more if it expires."
+        follow_up = _reminders(settings.SSL_EXPIRY_ALERT_DAYS, self.bucket)
         return f"Renew the certificate before it expires. {follow_up}"
 
     def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
@@ -504,6 +506,207 @@ class SslExpiryEvent(SiteEvent):
                 "days_left": self.days_left,
                 "expired": self.expired,
                 "issuer": self.issuer,
+            },
+        }
+
+
+@dataclass(kw_only=True)
+class DomainExpiryEvent(SiteEvent):
+    """The site's domain registration has crossed a warning threshold."""
+
+    kind: ClassVar[NotificationKind] = NotificationKind.DOMAIN_EXPIRING
+
+    #: The registered domain, e.g. `example.com` for `https://www.example.com/`.
+    domain: str
+    expires_at: datetime
+    registrar: str | None = None
+    #: The threshold in days this alert is for; 0 means already expired.
+    bucket: int = 0
+
+    @property
+    def remaining(self) -> timedelta:
+        return self.expires_at - self.result.checked_at
+
+    @property
+    def expired(self) -> bool:
+        return self.remaining.total_seconds() <= 0
+
+    @property
+    def days_left(self) -> int:
+        return max(int(self.remaining.total_seconds() // 86_400), 0)
+
+    @property
+    def expiry_summary(self) -> str:
+        """One line for the feed, e.g. `example.com expires in 13 days`."""
+        return f"{self.domain} {_expiry_phrase(self.remaining)}"
+
+    def describe(self) -> str:
+        return f"{self.kind.value} alert for {self.domain}"
+
+    def context(self) -> dict[str, str]:
+        return {
+            **super().context(),
+            "domain": self.domain,
+            "expires_at": _utc(self.expires_at),
+            "expiry": _expiry_phrase(self.remaining),
+            "days_left": str(self.days_left),
+            "registrar": self.registrar or "—",
+        }
+
+    def _note(self) -> str:
+        with_whom = f" with {self.registrar}" if self.registrar else ""
+        if self.expired:
+            return (
+                f"Renew it{with_whom} now. Once a domain lapses, its websites and email "
+                "stop working, and after the registry's grace period anyone may "
+                "register it."
+            )
+        follow_up = _reminders(settings.DOMAIN_EXPIRY_ALERT_DAYS, self.bucket)
+        return (
+            f"Renew it{with_whom}, or check that auto-renew is on and the payment "
+            f"card is valid. {follow_up} Each warning is sent once per project, "
+            "however many of its sites are on this domain."
+        )
+
+    def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
+        critical = self.expired or self.remaining < timedelta(days=7)
+        rows = [("Project", self.website.project_name), ("Domain", self.domain)]
+        rows.append(("Found via", f"{self.website.name} ({self.website.url})"))
+        rows.append(("Registration expires", _utc(self.expires_at)))
+        time_left = (
+            "expired" if self.expired else format_duration(self.remaining.total_seconds())
+        )
+        rows.append(("Time left", time_left))
+        if self.registrar:
+            rows.append(("Registrar", self.registrar))
+        rows.append(("Checked at", _utc(self.result.checked_at)))
+        return Message(
+            kind=self.kind,
+            tone=Tone.CRITICAL if critical else Tone.WARNING,
+            kicker="Domain registration",
+            title=(
+                f"The domain {self.domain} has expired"
+                if self.expired
+                else f"The domain {self.domain} is expiring"
+            ),
+            subject=subject,
+            body=body,
+            slack_body=slack_body,
+            facts=rows,
+            note=self._note(),
+            link=self._site_link(),
+        )
+
+    def payload(self, subject: str) -> dict:
+        return {
+            "event": self.kind.value,
+            "subject": subject,
+            "website": self._website_payload(),
+            "domain": {
+                "name": self.domain,
+                "expires_at": self.expires_at.isoformat(),
+                "days_left": self.days_left,
+                "expired": self.expired,
+                "registrar": self.registrar,
+            },
+        }
+
+
+def _hosts(names: list[str], limit: int = 10) -> str:
+    """`ns1.example.com, ns2.example.com`, cut short past `limit`."""
+    if not names:
+        return "—"
+    shown = ", ".join(names[:limit])
+    return f"{shown} and {len(names) - limit} more" if len(names) > limit else shown
+
+
+@dataclass(kw_only=True)
+class NameserverChangeEvent(SiteEvent):
+    """The registry now delegates the site's domain to other nameservers."""
+
+    kind: ClassVar[NotificationKind] = NotificationKind.NAMESERVERS_CHANGED
+
+    domain: str
+    #: Before and after, sorted as `domain_lookup` writes them.
+    previous: list[str]
+    current: list[str]
+    registrar: str | None = None
+
+    @property
+    def added(self) -> list[str]:
+        return sorted(set(self.current) - set(self.previous))
+
+    @property
+    def removed(self) -> list[str]:
+        return sorted(set(self.previous) - set(self.current))
+
+    @property
+    def change_summary(self) -> str:
+        """One line for the feed, e.g. `example.com now uses ns1.b.net, ns2.b.net
+        (was ns1.a.net, ns2.a.net)`."""
+        return (
+            f"{self.domain} now uses {_hosts(self.current, 3)} "
+            f"(was {_hosts(self.previous, 3)})"
+        )
+
+    def describe(self) -> str:
+        return f"{self.kind.value} alert for {self.domain}"
+
+    def context(self) -> dict[str, str]:
+        return {
+            **super().context(),
+            "domain": self.domain,
+            "nameservers": _hosts(self.current),
+            "previous_nameservers": _hosts(self.previous),
+            "added": _hosts(self.added),
+            "removed": _hosts(self.removed),
+            "registrar": self.registrar or "—",
+        }
+
+    def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
+        rows = [("Project", self.website.project_name), ("Domain", self.domain)]
+        rows.append(("Found via", f"{self.website.name} ({self.website.url})"))
+        rows.append(("Now", _hosts(self.current)))
+        rows.append(("Before", _hosts(self.previous)))
+        if self.added:
+            rows.append(("Added", _hosts(self.added)))
+        if self.removed:
+            rows.append(("Removed", _hosts(self.removed)))
+        if self.registrar:
+            rows.append(("Registrar", self.registrar))
+        rows.append(("Checked at", _utc(self.result.checked_at)))
+        with_whom = f"at {self.registrar}" if self.registrar else "at your registrar"
+        return Message(
+            kind=self.kind,
+            tone=Tone.WARNING,
+            kicker="Nameserver change",
+            title=f"Nameservers for {self.domain} changed",
+            subject=subject,
+            body=body,
+            slack_body=slack_body,
+            facts=rows,
+            note=(
+                "Whoever runs these nameservers now answers for every website and email "
+                f"address on {self.domain}. If you did not move DNS providers, lock the "
+                f"domain and change its password {with_whom} at once. Each change is "
+                "announced once per project, however many of its sites are on this domain."
+            ),
+            link=self._site_link(),
+        )
+
+    def payload(self, subject: str) -> dict:
+        return {
+            "event": self.kind.value,
+            "subject": subject,
+            "summary": self.change_summary,
+            "website": self._website_payload(),
+            "nameserver_change": {
+                "domain": self.domain,
+                "previous": self.previous,
+                "current": self.current,
+                "added": self.added,
+                "removed": self.removed,
+                "registrar": self.registrar,
             },
         }
 

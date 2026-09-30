@@ -30,6 +30,8 @@ from app.core.config import settings
 from app.monitoring.websites.dns_probe import DnsResult, configured_resolvers, lookup
 from app.monitoring.websites.models import CheckType, DnsRecordType, Website
 from app.monitoring.websites.pinger import PingStats, ping
+from app.monitoring.websites.security_headers import capture as capture_security_headers
+from app.monitoring.websites.domain_lookup import DomainInfo, lookup_domain, lookup_host
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +229,21 @@ class CertInfo:
 
     expires_at: datetime | None = None
     issuer: str | None = None
+    #: Who it was issued to: the common name, else the first SAN.
+    subject: str | None = None
+    #: The names it covers (DNS names, then IP addresses), up to MAX_SANS.
+    sans: list[str] = field(default_factory=list)
+    valid_from: datetime | None = None
+    #: What the handshake settled on, e.g. `TLSv1.3`.
+    tls_version: str | None = None
     error: str | None = None
+
+
+#: SANs kept per certificate. A shared CDN certificate can list hundreds.
+MAX_SANS = 100
+
+#: A failed domain lookup is tried again after this long, rather than a day.
+DOMAIN_RETRY_SECONDS = 3600
 
 
 @dataclass(slots=True)
@@ -249,6 +265,12 @@ class CheckResult:
     #: Set only on the checks that also read the certificate; see
     #: `certificate_check_due`. None means "not looked at", not "no certificate".
     cert: CertInfo | None = None
+    #: Set only on the checks that also looked up the domain; see
+    #: `domain_check_due`. None means "not looked up this time".
+    domain: DomainInfo | None = None
+    #: HTTP checks that came up: the final response's security headers, as
+    #: `security_headers.capture` stores them.
+    security_headers: dict | None = None
     #: Set only on ping checks that got as far as sending.
     ping: PingStats | None = None
     #: Set on every DNS check: what each resolver answered.
@@ -322,12 +344,67 @@ def certificate_check_due(website: Website, now: datetime | None = None) -> bool
     return elapsed >= settings.SSL_CHECK_INTERVAL_SECONDS
 
 
-def _issuer_name(cert: x509.Certificate) -> str | None:
-    for oid in (NameOID.ORGANIZATION_NAME, NameOID.COMMON_NAME):
-        attributes = cert.issuer.get_attributes_for_oid(oid)
+def domain_host(website: Website) -> str | None:
+    """The host whose domain registration to look up: an HTTP check's host, a
+    ping check's host name, a DNS check's domain. None for an IP address."""
+    if website.check_type is CheckType.HTTP:
+        return lookup_host(urlsplit(website.url).hostname)
+    return lookup_host(website.url)
+
+
+def domain_check_due(website: Website, now: datetime | None = None) -> bool:
+    """Whether this check should also look up the site's domain.
+
+    Once a day (DOMAIN_CHECK_INTERVAL_SECONDS) is plenty for a date that moves
+    by the year; a failed lookup is retried after DOMAIN_RETRY_SECONDS.
+    """
+    if not settings.DOMAIN_CHECK_ENABLED or domain_host(website) is None:
+        return False
+    if website.domain_checked_at is None:
+        return True
+    interval = settings.DOMAIN_CHECK_INTERVAL_SECONDS
+    if website.domain_error:
+        interval = min(interval, DOMAIN_RETRY_SECONDS)
+    elapsed = ((now or datetime.now(UTC)) - website.domain_checked_at).total_seconds()
+    return elapsed >= interval
+
+
+def _name_attribute(name: x509.Name, *oids) -> str | None:
+    for oid in oids:
+        attributes = name.get_attributes_for_oid(oid)
         if attributes:
-            return str(attributes[0].value)
+            return str(attributes[0].value)[:255]
     return None
+
+
+def _issuer_name(cert: x509.Certificate) -> str | None:
+    return _name_attribute(cert.issuer, NameOID.ORGANIZATION_NAME, NameOID.COMMON_NAME)
+
+
+def _alternative_names(cert: x509.Certificate) -> list[str]:
+    try:
+        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    except x509.ExtensionNotFound:
+        return []
+    names = [
+        *san.get_values_for_type(x509.DNSName),
+        *(str(ip) for ip in san.get_values_for_type(x509.IPAddress)),
+    ]
+    return names[:MAX_SANS]
+
+
+def cert_info(cert: x509.Certificate, tls_version: str | None = None) -> CertInfo:
+    """What the site's page and alerts show of a certificate."""
+    sans = _alternative_names(cert)
+    return CertInfo(
+        expires_at=cert.not_valid_after_utc,
+        valid_from=cert.not_valid_before_utc,
+        issuer=_issuer_name(cert),
+        subject=_name_attribute(cert.subject, NameOID.COMMON_NAME)
+        or (sans[0] if sans else None),
+        sans=sans,
+        tls_version=tls_version,
+    )
 
 
 async def probe_certificate(url: str, timeout: float) -> CertInfo:
@@ -356,14 +433,14 @@ async def probe_certificate(url: str, timeout: float) -> CertInfo:
         try:
             ssl_object = writer.get_extra_info("ssl_object")
             der = ssl_object.getpeercert(binary_form=True) if ssl_object else None
+            tls_version = ssl_object.version() if ssl_object else None
         finally:
             writer.close()
             with contextlib.suppress(Exception):
                 await writer.wait_closed()
         if not der:
             return CertInfo(error="The server presented no certificate.")
-        cert = x509.load_der_x509_certificate(der)
-        return CertInfo(expires_at=cert.not_valid_after_utc, issuer=_issuer_name(cert))
+        return cert_info(x509.load_der_x509_certificate(der), tls_version)
     except Exception as exc:  # noqa: BLE001 - a failed read is data, not a crash
         logger.info("Certificate read failed for %s: %s", url, exc)
         return CertInfo(error=f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__)
@@ -380,7 +457,8 @@ async def check_website(
 
     A caller running many checks should pass one shared `new_client()`, so
     connections are reused; ping and DNS checks do not use it. When the site's
-    certificate is due for a read, the same call also fills `result.cert`.
+    certificate is due for a read, the same call also fills `result.cert`, and
+    when its domain is due for a lookup, `result.domain`.
     """
     probe = _PROBES[website.check_type]
     result = await probe(website, client)
@@ -391,6 +469,8 @@ async def check_website(
         result = await probe(website, client)
     if certificate_check_due(website, result.checked_at):
         result.cert = await probe_certificate(website.url, website.timeout_seconds)
+    if domain_check_due(website, result.checked_at):
+        result.domain = await lookup_domain(domain_host(website), client)
     return result
 
 
@@ -534,6 +614,13 @@ async def _http_probe(
                 for name in DIAGNOSTIC_HEADERS
                 if name in response.headers
             },
+            # Only the page as normally served: an error page from a proxy
+            # would make headers seem to come and go.
+            security_headers=(
+                capture_security_headers(str(response.url), response.headers)
+                if is_up
+                else None
+            ),
             timings=stopwatch.timings(),
         )
     finally:

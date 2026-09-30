@@ -11,7 +11,10 @@ import enum
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 
+from app.core.config import settings
 from app.monitoring.websites.models import CheckType, Website
 
 
@@ -24,6 +27,10 @@ class NotificationKind(str, enum.Enum):
     RECOVERED = "recovered"
     #: The site's HTTPS certificate is close to (or past) its end date.
     SSL_EXPIRING = "ssl_expiring"
+    #: The site's domain registration is close to (or past) its end date.
+    DOMAIN_EXPIRING = "domain_expiring"
+    #: The registry now delegates the site's domain to other nameservers.
+    NAMESERVERS_CHANGED = "nameservers_changed"
     #: The site answers, but slower than its threshold, repeatedly.
     SLOW_RESPONSE = "slow_response"
     #: A pinged host answers, but keeps losing packets over its threshold.
@@ -83,6 +90,24 @@ def uptime_tone(percent: float | None) -> Tone:
 
 def plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+#: The logo every alert carries, as a PNG: mail clients and Slack draw no SVG.
+LOGO_PATH = Path(__file__).parent / "assets" / "watchly-logo.png"
+
+
+@lru_cache(maxsize=1)
+def logo_png() -> bytes:
+    """The logo's bytes, read once, for channels that embed it (email)."""
+    return LOGO_PATH.read_bytes()
+
+
+def logo_url() -> str | None:
+    """Where channels that fetch images themselves (Slack, Telegram) find the
+    logo; None when ALERT_LOGO_URL is blank. Only HTTPS: they refuse anything
+    else."""
+    url = settings.ALERT_LOGO_URL.strip()
+    return url if url.startswith("https://") else None
 
 
 def escape_mrkdwn(text: str) -> str:

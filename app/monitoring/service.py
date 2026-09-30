@@ -26,6 +26,10 @@ Softer signals ride on the same checks, none of which is an outage:
            PACKET_LOSS_ALERT_COOLDOWN_SECONDS
     ssl    the certificate crosses a SSL_EXPIRY_ALERT_DAYS threshold -> one
            alert per threshold, and one if it expires; renewing re-arms them
+    domain the domain registration crosses a DOMAIN_EXPIRY_ALERT_DAYS
+           threshold -> the same, but once per project for each domain
+    ns     the registry delegates the domain to other nameservers than it
+           last did -> one alert per change, once per project
     dns    a DNS check with nothing pinned: the resolvers agree on records
            other than the ones they last agreed on -> one alert per change
 
@@ -60,6 +64,8 @@ from app.monitoring.alerts.base import (
 )
 from app.monitoring.alerts.events import (
     DnsChangeEvent,
+    DomainExpiryEvent,
+    NameserverChangeEvent,
     OutageEvent,
     PacketLossEvent,
     SiteEvent,
@@ -74,6 +80,7 @@ from app.monitoring.notifications.recipients import (
     whatsapp_target,
 )
 from app.monitoring.websites.checker import CheckResult, check_website, new_client
+from app.monitoring.websites.domain_lookup import DomainInfo
 from app.monitoring.websites.models import (
     Website,
     WebsiteCheck,
@@ -90,11 +97,13 @@ __all__ = [
     "CheckOutcome",
     "MonitoringService",
     "default_alerters",
+    "domain_alert_bucket",
     "feed_entry",
     "ssl_alert_bucket",
 ]
 
-#: A certificate whose end date moved out by more than this has been replaced.
+#: A certificate or domain whose end date moved out by more than this has
+#: been replaced or renewed.
 _RENEWAL_JUMP = timedelta(hours=12)
 
 #: What the app's alert feed records. A still-down reminder only repeats the
@@ -107,6 +116,8 @@ FEED_KINDS = frozenset(
         NotificationKind.PACKET_LOSS,
         NotificationKind.DNS_CHANGED,
         NotificationKind.SSL_EXPIRING,
+        NotificationKind.DOMAIN_EXPIRING,
+        NotificationKind.NAMESERVERS_CHANGED,
     }
 )
 
@@ -123,19 +134,26 @@ class CheckOutcome:
     delivered_by: tuple[str, ...] = ()
 
 
-def ssl_alert_bucket(expires_at: datetime, now: datetime) -> int | None:
-    """Which SSL_EXPIRY_ALERT_DAYS threshold a certificate has crossed.
-
-    The smallest threshold that the time remaining fits under, 0 once expired,
-    None while it is still further out than every threshold.
-    """
+def _expiry_bucket(expires_at: datetime, now: datetime, thresholds: list[int]) -> int | None:
+    """The smallest of `thresholds` (in days) that the time remaining fits
+    under, 0 once expired, None while it is further out than every one."""
     remaining_days = (expires_at - now).total_seconds() / 86_400
     if remaining_days <= 0:
         return 0
-    for threshold in sorted(settings.SSL_EXPIRY_ALERT_DAYS):
+    for threshold in sorted(thresholds):
         if remaining_days <= threshold:
             return threshold
     return None
+
+
+def ssl_alert_bucket(expires_at: datetime, now: datetime) -> int | None:
+    """Which SSL_EXPIRY_ALERT_DAYS threshold a certificate has crossed."""
+    return _expiry_bucket(expires_at, now, settings.SSL_EXPIRY_ALERT_DAYS)
+
+
+def domain_alert_bucket(expires_at: datetime, now: datetime) -> int | None:
+    """Which DOMAIN_EXPIRY_ALERT_DAYS threshold a registration has crossed."""
+    return _expiry_bucket(expires_at, now, settings.DOMAIN_EXPIRY_ALERT_DAYS)
 
 
 def feed_entry(event: SiteEvent) -> WebsiteEvent:
@@ -144,10 +162,13 @@ def feed_entry(event: SiteEvent) -> WebsiteEvent:
         website_id=event.website.id,
         kind=event.kind.value,
         occurred_at=event.result.checked_at,
-        # A change is about the records before and after, not the latest check.
+        # A change is about the records before and after, and an expiring
+        # domain about the domain, not the latest check.
         summary=(
             event.change_summary
-            if isinstance(event, DnsChangeEvent)
+            if isinstance(event, DnsChangeEvent | NameserverChangeEvent)
+            else event.expiry_summary
+            if isinstance(event, DomainExpiryEvent)
             else event.result.summary
         ),
         response_time_ms=event.result.response_time_ms,
@@ -158,6 +179,8 @@ def feed_entry(event: SiteEvent) -> WebsiteEvent:
         entry.threshold_ms = event.threshold_ms
     elif isinstance(event, SslExpiryEvent):
         entry.ssl_expires_at = event.expires_at
+    elif isinstance(event, DomainExpiryEvent):
+        entry.domain_expires_at = event.expires_at
     return entry
 
 
@@ -257,6 +280,9 @@ class MonitoringService:
 
         was_down = website.status is WebsiteStatus.DOWN
         website.last_checked_at = result.checked_at
+        if result.security_headers is not None:
+            website.security_headers = result.security_headers
+            website.security_checked_at = result.checked_at
         events: list[Notification] = []
 
         if result.is_up:
@@ -314,6 +340,7 @@ class MonitoringService:
         self._track_packet_loss(website, result, events)
         self._track_dns_records(website, result, events)
         self._track_certificate(website, result, events)
+        await self._track_domain(website, result, events)
         # The app's own feed, in the same commit as the state it describes.
         for event in events:
             if isinstance(event, SiteEvent) and event.kind in FEED_KINDS:
@@ -576,6 +603,11 @@ class MonitoringService:
 
         previous = website.ssl_expires_at
         website.ssl_expires_at = cert.expires_at
+        website.ssl_valid_from = cert.valid_from
+        website.ssl_issuer = cert.issuer
+        website.ssl_subject = cert.subject
+        website.ssl_sans = cert.sans
+        website.ssl_tls_version = cert.tls_version
         if previous is not None and cert.expires_at > previous + _RENEWAL_JUMP:
             # A renewed certificate starts its warnings afresh, even when it
             # is itself already inside the top threshold (short-lived certs).
@@ -599,6 +631,139 @@ class MonitoringService:
                     whatsapp=self.whatsapp_target_for(website),
                 )
             )
+
+    async def _track_domain(
+        self, website: Website, result: CheckResult, events: list[Notification]
+    ) -> None:
+        """Record a domain lookup, and warn when the registration crosses a
+        threshold, as `_track_certificate` does for the certificate.
+
+        One domain usually serves several of a project's sites (`www`, `api`,
+        its DNS checks), and each looks it up. Only the first to cross a
+        threshold warns; the rest just remember that it was crossed. A failed
+        lookup keeps what the last good one learned.
+        """
+        info = result.domain
+        if info is None:
+            return
+        # Stamped even when the lookup failed, so it retries on the interval.
+        website.domain_checked_at = result.checked_at
+        website.domain_error = info.error
+        if info.name is not None:
+            website.domain_name = info.name
+            website.domain_registrar = info.registrar
+            await self._track_nameservers(website, info, result, events)
+        if info.expires_at is None:
+            return
+
+        previous = website.domain_expires_at
+        website.domain_expires_at = info.expires_at
+        if previous is not None and info.expires_at > previous + _RENEWAL_JUMP:
+            # Renewed: its warnings start afresh.
+            website.domain_alert_bucket = None
+
+        bucket = domain_alert_bucket(info.expires_at, result.checked_at)
+        if bucket is None:
+            website.domain_alert_bucket = None
+            return
+        if website.domain_alert_bucket is not None and bucket >= website.domain_alert_bucket:
+            return
+        website.domain_alert_bucket = bucket
+        if await self._domain_warned_elsewhere(website, bucket):
+            return
+        events.append(
+            DomainExpiryEvent(
+                website=WebsiteSnapshot.of(website),
+                result=result,
+                domain=info.name or website.domain_name or website.url,
+                expires_at=info.expires_at,
+                registrar=website.domain_registrar,
+                bucket=bucket,
+                recipients=self.recipients_for(website),
+                slack=self.slack_target_for(website),
+                telegram=self.telegram_target_for(website),
+                whatsapp=self.whatsapp_target_for(website),
+            )
+        )
+
+    async def _track_nameservers(
+        self,
+        website: Website,
+        info: DomainInfo,
+        result: CheckResult,
+        events: list[Notification],
+    ) -> None:
+        """Remember the nameservers the registry names, and alert when they
+        change: a move between DNS providers, or a hijack.
+
+        A lookup that names none leaves them as they were: some registries
+        never publish them, and a domain with truly none is down anyway. Like
+        the expiry warnings, one change alerts once per project.
+        """
+        current = info.nameservers
+        if not current:
+            return
+        previous = website.domain_nameservers
+        website.domain_nameservers = current
+        # The first set learned is what later ones are measured against.
+        if previous is None or previous == current:
+            return
+        website.domain_nameservers_changed_at = result.checked_at
+        if await self._nameservers_announced_elsewhere(website, result.checked_at):
+            return
+        events.append(
+            NameserverChangeEvent(
+                website=WebsiteSnapshot.of(website),
+                result=result,
+                domain=website.domain_name or website.url,
+                previous=previous,
+                current=current,
+                registrar=website.domain_registrar,
+                recipients=self.recipients_for(website),
+                slack=self.slack_target_for(website),
+                telegram=self.telegram_target_for(website),
+                whatsapp=self.whatsapp_target_for(website),
+            )
+        )
+
+    async def _nameservers_announced_elsewhere(self, website: Website, now: datetime) -> bool:
+        """Whether another of the project's sites on this domain already saw
+        it move to these nameservers, recently enough to be the same change.
+
+        Every site looks its domain up at least once per interval, so a change
+        reaches them all within about one; twice that allows for a failed
+        lookup. A site added since, which learned these as its first set,
+        never saw a change, so it does not count.
+        """
+        window = timedelta(seconds=2 * settings.DOMAIN_CHECK_INTERVAL_SECONDS)
+        other = await self.session.scalar(
+            select(Website.id)
+            .where(
+                Website.project_id == website.project_id,
+                Website.id != website.id,
+                Website.domain_name == website.domain_name,
+                Website.domain_nameservers == website.domain_nameservers,
+                Website.domain_nameservers_changed_at >= now - window,
+            )
+            .limit(1)
+        )
+        return other is not None
+
+    async def _domain_warned_elsewhere(self, website: Website, bucket: int) -> bool:
+        """Whether another of the project's sites already warned about this
+        registration of this domain at `bucket` or a later threshold."""
+        other = await self.session.scalar(
+            select(Website.id)
+            .where(
+                Website.project_id == website.project_id,
+                Website.id != website.id,
+                Website.domain_name == website.domain_name,
+                Website.domain_expires_at == website.domain_expires_at,
+                Website.domain_alert_bucket <= bucket,
+            )
+            .limit(1)
+        )
+        return other is not None
 
     @staticmethod
     def _downtime(website: Website, now: datetime) -> float:
