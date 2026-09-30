@@ -14,12 +14,14 @@ import { useMediaQuery } from './useMediaQuery.js'
 //         lazy wave on the screen
 //   down  red and tense: slanted lids, pinpoint pupils darting side to side,
 //         a shiver, a bead of sweat, and a flatline on the screen
+//   maint purple and busy tinkering: eyes down on the window, a wrench
+//         tapping in one hand and a gear turning on the screen
 // Given a `mood`, the mark holds that one instead, as it does on an alert.
 // Every mood's lids and trace are drawn, and CSS shows the current one's, so
 // a change of mood eases from one face to the next. Visitors who ask for
 // reduced motion get the happy face, still.
 
-const MOODS = ['up', 'slow', 'down']
+const MOODS = ['up', 'slow', 'down', 'maint']
 const MOOD_MS = 5000
 
 // Read off the clock, so every mark on the page shows the same mood and moving
@@ -98,6 +100,19 @@ export default function BrandMark({ mood: fixed }) {
       <path className="brand-trace brand-trace-up" pathLength="1" d="M4.6 26.4h7.2l1.5-3.1 2.1 5.5 1.7-4.2 1.2 1.8h9.1" />
       <path className="brand-trace brand-trace-slow" pathLength="1" d="M4.6 26.4h8.8q1.7-2.4 3.4 0t3.4 0h7.2" />
       <path className="brand-trace brand-trace-down" d="M4.6 26.4h22.8" />
+      <g className="brand-gear">
+        <g className="brand-gear-spin">
+          <circle cx="16" cy="25.6" r="3.8" strokeWidth="2" strokeDasharray="1.5 1.4" />
+          <circle cx="16" cy="25.6" r="2.7" strokeWidth="1.4" />
+          <circle className="brand-gear-hub" cx="16" cy="25.6" r="1" />
+        </g>
+      </g>
+      <g className="brand-wrench">
+        <path className="brand-wrench-ink" d="M27.7 18.8L30.4 13.4" />
+        <path className="brand-wrench-body" d="M27.7 18.8L30.4 13.4" />
+        <circle className="brand-wrench-jaw" cx="30.7" cy="12.9" r="1.9" />
+        <path className="brand-wrench-slot" d="M30.1 10.8l.6 1.4 1.2-.2" />
+      </g>
       <circle className="brand-skin brand-hand" cx="4.3" cy="18.8" r="1.9" />
       <circle className="brand-skin brand-hand" cx="27.7" cy="18.8" r="1.9" />
     </svg>

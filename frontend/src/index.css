@@ -253,8 +253,8 @@ a:hover {
   text-decoration: none;
 }
 .brand-lg {
-  gap: 14px;
-  font-size: 2.4rem;
+  gap: 12px;
+  font-size: 1.6rem;
   margin-bottom: 8px;
 }
 /* The name, lettered like a sticker: green with the mark's own ink outline,
@@ -293,9 +293,12 @@ a:hover {
 .brand-mark.is-down {
   --brand-skin: var(--down);
 }
+.brand-mark.is-maint {
+  --brand-skin: #9b6cf0;
+}
 .brand-lg .brand-mark {
-  width: 58px;
-  height: 58px;
+  width: 64px;
+  height: 64px;
 }
 .brand-mark * {
   transform-box: fill-box;
@@ -374,13 +377,49 @@ a:hover {
   transition: transform 0.6s ease;
 }
 .brand-trace,
-.brand-sweat {
+.brand-sweat,
+.brand-gear,
+.brand-wrench {
   opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.brand-gear circle {
+  fill: none;
+  stroke: #7b52c7;
+}
+.brand-gear .brand-gear-hub {
+  fill: #7b52c7;
+  stroke: none;
+}
+.brand-wrench-ink,
+.brand-wrench-body {
+  fill: none;
+  stroke-linecap: round;
+}
+.brand-wrench-ink {
+  stroke: var(--brand-ink);
+  stroke-width: 3.2;
+}
+.brand-wrench-body {
+  stroke: #b9bfc9;
+  stroke-width: 1.5;
+}
+.brand-wrench-jaw {
+  fill: #b9bfc9;
+  stroke: var(--brand-ink);
+  stroke-width: 0.8;
+}
+.brand-wrench-slot {
+  fill: none;
+  stroke: var(--brand-ink);
+  stroke-width: 0.7;
 }
 .brand-mark.is-up .brand-trace-up,
 .brand-mark.is-slow .brand-trace-slow,
 .brand-mark.is-down .brand-trace-down,
-.brand-mark.is-down .brand-sweat {
+.brand-mark.is-down .brand-sweat,
+.brand-mark.is-maint .brand-gear,
+.brand-mark.is-maint .brand-wrench {
   opacity: 1;
 }
 /* Slow: heavy lids, and the head slumps down behind the window. */
@@ -402,6 +441,10 @@ a:hover {
 }
 .brand-mark.is-down .brand-rise {
   transform: translateY(0.7px);
+}
+/* Maint: eyes on the window, and the head sits a little low over it. */
+.brand-mark.is-maint .brand-rise {
+  transform: translateY(1.2px);
 }
 
 /* The motion. Up glances about on an easy loop with a hop now and then; slow
@@ -443,6 +486,26 @@ a:hover {
 }
 .brand-mark.is-down .brand-sweat {
   animation: brand-sweat 1.8s ease-in infinite;
+}
+/* Maint: nods along with the work, wrench tapping, gear turning. */
+.brand-mark.is-maint .brand-head {
+  animation: brand-head-tinker 1.6s ease-in-out infinite;
+}
+.brand-mark.is-maint .brand-features {
+  animation: none;
+  transform: translate(0, 0.5px);
+}
+.brand-mark.is-maint .brand-pupils {
+  animation: none;
+  transform: translate(0, 2.1px);
+}
+.brand-mark .brand-wrench {
+  transform-box: view-box;
+  transform-origin: 27.7px 18.8px;
+  animation: brand-tap 0.8s ease-in-out infinite;
+}
+.brand-mark .brand-gear-spin {
+  animation: brand-spin 3s linear infinite;
 }
 /* A gap runs along the trace, as a monitor's erase bar does: briskly when up,
    at a crawl when slow. A flatline has nothing to sweep. */
@@ -532,6 +595,17 @@ a:hover {
   0% { transform: translate(0, -1px); opacity: 0; }
   20%, 80% { opacity: 1; }
   100% { transform: translate(0, 3px); opacity: 0; }
+}
+@keyframes brand-head-tinker {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+@keyframes brand-tap {
+  0%, 100% { transform: rotate(-16deg); }
+  50% { transform: rotate(10deg); }
+}
+@keyframes brand-spin {
+  to { transform: rotate(360deg); }
 }
 @keyframes brand-sweep {
   from { stroke-dashoffset: 1; }
@@ -1127,12 +1201,12 @@ a:hover {
   border-bottom: 1px solid var(--border);
 }
 .landing-nav .brand {
-  gap: 14px;
-  font-size: 2.4rem;
+  gap: 12px;
+  font-size: 1.6rem;
 }
 .landing-nav .brand-mark {
-  width: 58px;
-  height: 58px;
+  width: 64px;
+  height: 64px;
 }
 .landing-nav-links {
   display: flex;
