@@ -328,6 +328,8 @@ erDiagram
         string error_type
         string final_url
         jsonb headers
+        jsonb redirects
+        int content_length
         int dns_ms
         int connect_ms
         int tls_ms

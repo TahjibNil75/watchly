@@ -5281,3 +5281,103 @@ textarea {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* ---------- A check's network details ---------- */
+
+.check-details-row td {
+  background: var(--surface-2);
+}
+.check-details {
+  display: grid;
+  gap: 14px;
+  padding: 4px 0;
+}
+.check-details h3 {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+.check-details code {
+  font-size: 0.8rem;
+}
+.timing-bar {
+  display: flex;
+  height: 14px;
+  gap: 2px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.timing-seg {
+  min-width: 3px;
+}
+.timing-dns_ms {
+  background: var(--series-1);
+}
+.timing-connect_ms {
+  background: var(--series-2);
+}
+.timing-tls_ms {
+  background: var(--teal);
+}
+.timing-first_byte_ms {
+  background: var(--tag-pink);
+}
+.timing-rest {
+  background: var(--paused);
+}
+.timing-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+.timing-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.redirects,
+.cert-chain {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.redirects li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+.redirects .truncate {
+  min-width: 0;
+}
+.sec-extras-title {
+  margin: 16px 0 6px;
+  font-size: 0.9rem;
+}
+
+.cdn-list,
+.cdn-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cdn-list > li {
+  margin-bottom: 10px;
+}
+.cdn-list ul {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+}
+.cdn-list code {
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

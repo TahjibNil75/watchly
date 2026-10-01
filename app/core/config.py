@@ -197,6 +197,11 @@ class Settings(BaseSettings):
     #: Warn when this many days (or fewer) remain, once per threshold. An
     #: already-expired certificate always warns. NoDecode: see ALERT_DEFAULT_EMAILS.
     SSL_EXPIRY_ALERT_DAYS: Annotated[list[int], NoDecode] = [7, 14]
+    #: Look for a CDN in front of each HTTP site: in its response headers and
+    #: the DNS aliases of its host. Shown on the site's page; never alerts.
+    CDN_CHECK_ENABLED: bool = True
+    #: How often that is re-read. Putting a CDN in front moves in days.
+    CDN_CHECK_INTERVAL_SECONDS: int = 21_600
     #: Look up when each site's domain registration ends (over RDAP, from the
     #: registry) and warn before it lapses.
     DOMAIN_CHECK_ENABLED: bool = True

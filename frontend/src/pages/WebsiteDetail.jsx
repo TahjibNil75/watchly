@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
@@ -14,7 +14,7 @@ import {
   StatusBadge,
   UserChecklist,
 } from '../components.jsx'
-import { dateTime, duration, percent, since, timeAgo, until } from '../format.js'
+import { bytes, dateTime, duration, percent, since, timeAgo, until } from '../format.js'
 import Maintenance from '../Maintenance.jsx'
 import { canManageProject } from '../roles.js'
 import SiteHistory from '../SiteHistory.jsx'
@@ -79,6 +79,106 @@ const timeSplit = (c) =>
   STEPS.filter(([key]) => c[key] != null)
     .map(([key, label]) => `${label} ${c[key]} ms`)
     .join(' · ')
+
+// What the Details panel can show of an HTTP check; older rows have little or none.
+const hasDetails = (c) =>
+  STEPS.some(([key]) => c[key] != null) ||
+  c.redirects?.length > 0 ||
+  c.content_length != null ||
+  Object.keys(c.headers ?? {}).length > 0
+
+// One check's time as a bar split by step, with whatever is left over
+// (reading the body, waiting on the server past the first byte) as the rest.
+function TimingBar({ check: c }) {
+  const steps = STEPS.filter(([key]) => c[key] != null)
+  if (!steps.length) return null
+  const used = steps.reduce((sum, [key]) => sum + c[key], 0)
+  const total = Math.max(c.response_time_ms ?? 0, used, 1)
+  const rest = total - used
+  const parts = [...steps.map(([key, label]) => [key, label, c[key]]), ['rest', 'other', rest]]
+  return (
+    <div>
+      <div className="timing-bar" role="img" aria-label={timeSplit(c)}>
+        {parts
+          .filter(([, , ms]) => ms > 0)
+          .map(([key, label, ms]) => (
+            <span
+              key={key}
+              className={`timing-seg timing-${key}`}
+              style={{ flexGrow: ms }}
+              title={`${label} ${ms} ms`}
+            />
+          ))}
+      </div>
+      <ul className="timing-legend">
+        {parts
+          .filter(([key, , ms]) => key !== 'rest' || ms > 0)
+          .map(([key, label, ms]) => (
+            <li key={key}>
+              <span className={`timing-swatch timing-${key}`} /> {label} {ms} ms
+            </li>
+          ))}
+      </ul>
+      {c.redirects?.length > 0 && (
+        <p className="muted small">Steps are summed over every redirect hop.</p>
+      )}
+    </div>
+  )
+}
+
+// The network side of one HTTP check, the way a browser's Network tab would
+// list it for the first request: timings, redirects, size and headers.
+function CheckDetails({ check: c }) {
+  const headers = Object.entries(c.headers ?? {})
+  return (
+    <div className="check-details">
+      <TimingBar check={c} />
+      {c.redirects?.length > 0 && (
+        <div>
+          <h3>Redirects</h3>
+          <ol className="redirects">
+            {c.redirects.map((hop, i) => (
+              <li key={i}>
+                <span className="badge badge-unknown">{hop.status}</span>
+                <span className="truncate" title={hop.url}>
+                  {hop.url}
+                </span>
+                <span className="muted">→</span>
+                <span className="truncate" title={hop.location ?? undefined}>
+                  {hop.location ?? '—'}
+                </span>
+              </li>
+            ))}
+            <li>
+              <span className={`badge badge-${c.is_up ? 'up' : 'down'}`}>{c.status_code ?? '—'}</span>
+              <span className="truncate" title={c.final_url ?? undefined}>
+                {c.final_url}
+              </span>
+            </li>
+          </ol>
+        </div>
+      )}
+      {(c.content_length != null || headers.length > 0) && (
+        <dl className="kv">
+          {c.content_length != null && (
+            <div>
+              <dt>Response size</dt>
+              <dd>{bytes(c.content_length)}</dd>
+            </div>
+          )}
+          {headers.map(([name, value]) => (
+            <div key={name}>
+              <dt>{name}</dt>
+              <dd>
+                <code>{value}</code>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  )
+}
 
 function CheckStrip({ checks }) {
   // Oldest on the left, like a status page. Empty slots on the left keep bar
@@ -165,6 +265,7 @@ function DnsCells({ check: c }) {
 function Checks({ checks, site }) {
   const [expanded, setExpanded] = useState(false)
   const [failedOnly, setFailedOnly] = useState(false)
+  const [openId, setOpenId] = useState(null)
   if (!checks.length) return <Empty>No checks yet. The first one runs within a minute.</Empty>
   const ping = isPing(site)
   const dns = isDns(site)
@@ -202,34 +303,56 @@ function Checks({ checks, site }) {
                 <th>{ping ? 'Packets' : dns ? 'Records' : 'HTTP'}</th>
                 <th>{ping ? 'Round trip' : dns ? 'Answer time' : 'Response'}</th>
                 <th>Error</th>
+                {!ping && !dns && <th aria-label="Details" />}
               </tr>
             </thead>
             <tbody>
               {(expanded ? shown : shown.slice(0, COLLAPSED_ROWS)).map((c) => (
-                <tr key={c.id}>
-                  <td className="nowrap" title={dateTime(c.checked_at)}>
-                    {timeAgo(c.checked_at)}
-                  </td>
-                  <td>
-                    <StatusBadge status={c.is_up ? 'up' : 'down'} />
-                  </td>
-                  {ping ? (
-                    <PingCells check={c} host={site.url} />
-                  ) : dns ? (
-                    <DnsCells check={c} />
-                  ) : (
-                    <>
-                      <td>{c.status_code ?? '—'}</td>
-                      <td className="nowrap" title={timeSplit(c) || undefined}>
-                        {responseTime(c) != null ? `${responseTime(c)} ms` : '—'}
+                <Fragment key={c.id}>
+                  <tr>
+                    <td className="nowrap" title={dateTime(c.checked_at)}>
+                      {timeAgo(c.checked_at)}
+                    </td>
+                    <td>
+                      <StatusBadge status={c.is_up ? 'up' : 'down'} />
+                    </td>
+                    {ping ? (
+                      <PingCells check={c} host={site.url} />
+                    ) : dns ? (
+                      <DnsCells check={c} />
+                    ) : (
+                      <>
+                        <td>{c.status_code ?? '—'}</td>
+                        <td className="nowrap" title={timeSplit(c) || undefined}>
+                          {responseTime(c) != null ? `${responseTime(c)} ms` : '—'}
+                        </td>
+                        <td className="muted small">
+                          {c.error ?? ''}
+                          {c.final_url && <div className="truncate">→ {c.final_url}</div>}
+                        </td>
+                        <td>
+                          {hasDetails(c) && (
+                            <button
+                              type="button"
+                              className="btn btn-sm"
+                              aria-expanded={openId === c.id}
+                              onClick={() => setOpenId(openId === c.id ? null : c.id)}
+                            >
+                              {openId === c.id ? 'Hide' : 'Details'}
+                            </button>
+                          )}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                  {openId === c.id && (
+                    <tr className="check-details-row">
+                      <td colSpan={6}>
+                        <CheckDetails check={c} />
                       </td>
-                      <td className="muted small">
-                        {c.error ?? ''}
-                        {c.final_url && <div className="truncate">→ {c.final_url}</div>}
-                      </td>
-                    </>
+                    </tr>
                   )}
-                </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -405,6 +528,18 @@ function CertificatePart({ site: s }) {
             <dt>TLS version</dt>
             <dd>{s.ssl_tls_version ? s.ssl_tls_version.replace('TLSv', 'TLS ') : '—'}</dd>
           </div>
+          {s.ssl_cipher && (
+            <div>
+              <dt>Cipher</dt>
+              <dd>{s.ssl_cipher}</dd>
+            </div>
+          )}
+          {s.ssl_alpn && (
+            <div>
+              <dt>HTTP/2</dt>
+              <dd>{s.ssl_alpn === 'h2' ? 'Supported' : 'Not offered (HTTP/1.1 only)'}</dd>
+            </div>
+          )}
           <div className="kv-stack">
             <dt>Covers</dt>
             <dd>
@@ -412,6 +547,29 @@ function CertificatePart({ site: s }) {
               {covered === false && <div className="text-down small">Does not cover {host}</div>}
             </dd>
           </div>
+          {s.ssl_chain?.length > 0 && (
+            <div className="kv-stack">
+              <dt>Chain sent</dt>
+              <dd>
+                <ol className="cert-chain">
+                  {s.ssl_chain.map((c, i) => (
+                    <li key={i}>
+                      <strong>{c.subject ?? '—'}</strong>
+                      <span className="muted small">
+                        {' '}
+                        issued by {c.issuer ?? '—'} · expires {shortDate(c.expires_at)}
+                      </span>
+                      {i > 0 && c.expires_at < s.ssl_chain[0].expires_at && (
+                        <div className="text-down small">
+                          Expires before the site's own certificate
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </dd>
+            </div>
+          )}
           <div>
             <dt>Last read</dt>
             <dd title={dateTime(s.ssl_checked_at)}>{timeAgo(s.ssl_checked_at)}</dd>
@@ -489,6 +647,87 @@ const HEADER_STATUS = {
   missing: { tone: 'down', label: 'Missing' },
 }
 
+// "HIT", "MISS"...: whether a cache answered, in the tiles' colours.
+const cacheTone = (cached) => (cached === true ? 'up' : cached === false ? 'unknown' : 'paused')
+
+// Whether the site is served through a CDN, and the traces that say so.
+function CdnCard({ site: s }) {
+  const cdn = s.cdn
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>CDN</h2>
+        {cdn && (
+          <span className={`badge badge-${cdn.providers.length ? 'up' : 'paused'}`}>
+            {cdn.providers.length
+              ? cdn.providers.map((p) => p.name).join(' + ')
+              : cdn.unidentified_cache
+                ? 'Cache or proxy'
+                : 'None detected'}
+          </span>
+        )}
+      </div>
+      {!cdn ? (
+        <p className="muted small">Read with the next check that comes up.</p>
+      ) : (
+        <>
+          {cdn.providers.length > 0 ? (
+            <ul className="cdn-list">
+              {cdn.providers.map((p) => (
+                <li key={p.name}>
+                  <strong>{p.name}</strong>
+                  <ul>
+                    {p.evidence.map((e) => (
+                      <li key={e}>
+                        <code>{e}</code>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          ) : cdn.unidentified_cache ? (
+            <p className="small">
+              A cache or proxy answered (it sent <code>via</code>, <code>x-cache</code> or{' '}
+              <code>age</code>), but nothing names a known CDN.
+            </p>
+          ) : (
+            <p className="small">
+              No CDN found. The response carries none of the known CDN headers and{' '}
+              <code>{cdn.host}</code> is not an alias of a CDN's name. A CDN that hides both
+              would look the same.
+            </p>
+          )}
+          <dl className="kv">
+            {cdn.cache_status && (
+              <div>
+                <dt>Cache</dt>
+                <dd>
+                  <span className={`badge badge-${cacheTone(cdn.cached)}`}>{cdn.cache_status}</span>
+                  {cdn.age_seconds != null && (
+                    <span className="muted small"> · cached {duration(cdn.age_seconds)} ago</span>
+                  )}
+                </dd>
+              </div>
+            )}
+            {cdn.cname_chain.length > 0 && (
+              <div className="kv-stack">
+                <dt>DNS aliases of {cdn.host}</dt>
+                <dd>
+                  <code>{cdn.cname_chain.join(' → ')}</code>
+                </dd>
+              </div>
+            )}
+          </dl>
+          <p className="muted small sec-foot">
+            Last read <span title={dateTime(s.cdn_checked_at)}>{timeAgo(s.cdn_checked_at)}</span>.
+          </p>
+        </>
+      )}
+    </section>
+  )
+}
+
 // How the last successful response's security headers grade, one row each.
 function SecurityHeaders({ site: s }) {
   const report = s.security
@@ -525,6 +764,23 @@ function SecurityHeaders({ site: s }) {
               )
             })}
           </ul>
+          {report.extras?.length > 0 && (
+            <>
+              <h3 className="sec-extras-title">Also sent, not graded</h3>
+              <ul className="sec-list">
+                {report.extras.map((x) => (
+                  <li key={x.header}>
+                    <div className="sec-body">
+                      <strong>{x.header}</strong>
+                      <code className="sec-value" title={x.value}>
+                        {x.value}
+                      </code>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           <p className="muted small sec-foot">
             From {report.url},{' '}
             <span title={dateTime(s.security_checked_at)}>{timeAgo(s.security_checked_at)}</span>.
@@ -1005,6 +1261,8 @@ export default function WebsiteDetail() {
             <SiteHistory websiteId={s.id} ping={ping} dns={dns} />
 
             <Registration site={s} />
+
+            {!ping && !dns && <CdnCard site={s} />}
 
             {!ping && !dns && <SecurityHeaders site={s} />}
 

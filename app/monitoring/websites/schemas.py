@@ -731,6 +731,13 @@ class WebsiteCheckRead(BaseModel):
     headers: dict[str, str] | None = Field(
         default=None, description="Diagnostic response headers, e.g. `server`, `cf-ray`."
     )
+    redirects: list[RedirectHopRead] | None = Field(
+        default=None,
+        description="The redirects followed to reach `final_url`, in order; null when none.",
+    )
+    content_length: int | None = Field(
+        default=None, description="Bytes of the response body, once decoded."
+    )
     dns_ms: int | None = None
     connect_ms: int | None = None
     tls_ms: int | None = None
@@ -829,6 +836,18 @@ class MaintenanceWindowRead(BaseModel):
     created_by_id: int | None = None
 
 
+class RedirectHopRead(BaseModel):
+    url: str = Field(description="The URL requested at this hop.")
+    status: int = Field(description="The status it answered, e.g. `301`.")
+    location: str | None = Field(default=None, description="Where it pointed.")
+
+
+class CertChainEntryRead(BaseModel):
+    subject: str | None = None
+    issuer: str | None = None
+    expires_at: datetime
+
+
 class SecurityHeaderRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -839,6 +858,48 @@ class SecurityHeaderRead(BaseModel):
     note: str | None = Field(default=None, description="Why it is weak or missing.")
 
 
+class CdnProviderRead(BaseModel):
+    name: str = Field(description="e.g. `Cloudflare` or `Amazon CloudFront`.")
+    evidence: list[str] = Field(
+        description="What gave it away: `header cf-ray: …` or `CNAME x.cloudfront.net`."
+    )
+
+
+class CdnRead(BaseModel):
+    detected: bool = Field(
+        default=False,
+        description="A provider was recognised, or a cache or proxy answered unnamed.",
+    )
+    host: str = Field(description="The host whose response and DNS aliases were read.")
+    providers: list[CdnProviderRead]
+    cname_chain: list[str] = Field(description="The names the host is an alias of, in order.")
+    cache_status: str | None = Field(
+        default=None, description="A cache header's raw value, e.g. `HIT`."
+    )
+    cached: bool | None = Field(
+        default=None, description="Whether that says a cache answered; null when unknown."
+    )
+    age_seconds: int | None = Field(
+        default=None, description="How long the response sat in a cache (`Age` header)."
+    )
+    unidentified_cache: bool = Field(
+        default=False,
+        description="A cache or proxy answered (`via`, `x-cache`, `age`) but no provider matched.",
+    )
+
+    @model_validator(mode="after")
+    def _set_detected(self):
+        self.detected = bool(self.providers) or self.unidentified_cache
+        return self
+
+
+class SecurityExtraRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    header: str = Field(description="e.g. `Permissions-Policy`.")
+    value: str
+
+
 class SecurityHeadersRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -847,6 +908,13 @@ class SecurityHeadersRead(BaseModel):
     total: int
     grade: str = Field(description="`A` for all five ok, then `B`, `C`, `D`, and `F`.")
     items: list[SecurityHeaderRead]
+    extras: list[SecurityExtraRead] = Field(
+        default_factory=list,
+        description=(
+            "Further hardening headers the site sent (Permissions-Policy and the "
+            "Cross-Origin policies). Shown, not graded."
+        ),
+    )
 
 
 class WebsiteRead(BaseModel):
@@ -937,6 +1005,21 @@ class WebsiteRead(BaseModel):
     ssl_tls_version: str | None = Field(
         default=None, description="The TLS version of the last read, e.g. `TLSv1.3`."
     )
+    ssl_cipher: str | None = Field(
+        default=None,
+        description="The cipher suite of the last read, e.g. `TLS_AES_256_GCM_SHA384 (256 bit)`.",
+    )
+    ssl_alpn: str | None = Field(
+        default=None,
+        description=(
+            "The protocol the server agreed to over TLS: `h2` (HTTP/2) or `http/1.1`; "
+            "null when it did not answer the offer."
+        ),
+    )
+    ssl_chain: list[CertChainEntryRead] | None = Field(
+        default=None,
+        description="Every certificate the server sent, leaf first.",
+    )
     ssl_checked_at: datetime | None = Field(
         default=None, description="When the certificate was last read, or tried to be."
     )
@@ -984,6 +1067,18 @@ class WebsiteRead(BaseModel):
     )
     security_checked_at: datetime | None = Field(
         default=None, description="When the security headers were last read."
+    )
+    cdn: CdnRead | None = Field(
+        default=None,
+        description=(
+            "The CDN found in front of the site, from its response headers and the "
+            "host's DNS aliases; null before the first read, and for ping and DNS "
+            "checks. `detected: false` means none was found, which a CDN that hides "
+            "both traces can also look like."
+        ),
+    )
+    cdn_checked_at: datetime | None = Field(
+        default=None, description="When the CDN was last looked for."
     )
     maintenance: MaintenanceWindowRead | None = Field(
         default=None,

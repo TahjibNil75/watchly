@@ -200,6 +200,9 @@ _HOST_STATE = (
     "ssl_sans",
     "ssl_valid_from",
     "ssl_tls_version",
+    "ssl_cipher",
+    "ssl_alpn",
+    "ssl_chain",
     "domain_name",
     "domain_expires_at",
     "domain_registrar",
@@ -210,6 +213,8 @@ _HOST_STATE = (
     "domain_nameservers_changed_at",
     "security_headers",
     "security_checked_at",
+    "cdn",
+    "cdn_checked_at",
 )
 
 

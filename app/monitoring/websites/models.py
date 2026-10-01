@@ -358,6 +358,12 @@ class Website(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     ssl_tls_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: And how the handshake went: the cipher suite, the protocol agreed
+    #: through ALPN (`h2` or `http/1.1`), and the certificates the server sent,
+    #: leaf first, as `checker.chain_entry` writes them.
+    ssl_cipher: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    ssl_alpn: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ssl_chain: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
 
     # --- domain registration, looked up over RDAP -------------------------
     #: The registered domain the host belongs to, e.g. `example.co.uk` for
@@ -395,6 +401,15 @@ class Website(Base, TimestampMixin):
     #: values; graded when read, see `security_report`.
     security_headers: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     security_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # --- CDN, read from a successful HTTP check every CDN_CHECK_INTERVAL ---
+    #: `cdn.CdnInfo.as_dict()`: the providers recognised with their evidence,
+    #: the host's CNAME chain and the cache status. A dict with no providers
+    #: means "looked, none found"; None means not looked at yet.
+    cdn: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    cdn_checked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
@@ -588,6 +603,11 @@ class WebsiteCheck(Base):
     #: The response headers kept for diagnosis (checker.DIAGNOSTIC_HEADERS).
     #: None when there was no response, or it sent none of them.
     headers: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
+    #: The hops that led to `final_url`, each `{url, status, location}`, as
+    #: `checker.redirect_chain` writes them. None when there were none.
+    redirects: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
+    #: Bytes of the response body once decoded. None when there was no response.
+    content_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # --- where the time went, in ms, summed over any redirects -------------
     # None when the step did not finish on this check: it failed first, or a

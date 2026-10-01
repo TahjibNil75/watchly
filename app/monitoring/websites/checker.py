@@ -27,6 +27,8 @@ from cryptography import x509
 from cryptography.x509.oid import NameOID
 
 from app.core.config import settings
+from app.monitoring.websites.cdn import CdnInfo
+from app.monitoring.websites.cdn import detect as detect_cdn
 from app.monitoring.websites.dns_probe import DnsResult, configured_resolvers, lookup
 from app.monitoring.websites.models import CheckType, DnsRecordType, Website
 from app.monitoring.websites.pinger import PingStats, ping
@@ -46,7 +48,13 @@ DIAGNOSTIC_HEADERS = (
     "retry-after",
     "x-request-id",
     "cf-ray",
+    "content-encoding",
+    "server-timing",
 )
+
+#: Hops kept of a redirect chain, and certificates kept of a presented chain.
+MAX_REDIRECT_HOPS = 20
+MAX_CHAIN_CERTS = 6
 
 #: Wait this long on one address before also trying the next, as anyio does.
 HAPPY_EYEBALLS_DELAY = 0.25
@@ -236,6 +244,13 @@ class CertInfo:
     valid_from: datetime | None = None
     #: What the handshake settled on, e.g. `TLSv1.3`.
     tls_version: str | None = None
+    #: The cipher suite it settled on, e.g. `TLS_AES_256_GCM_SHA384 (256 bit)`.
+    cipher: str | None = None
+    #: The protocol agreed through ALPN: `h2`, `http/1.1`, or None when the
+    #: server did not answer the offer.
+    alpn: str | None = None
+    #: Every certificate the server sent, leaf first, as `chain_entry` makes them.
+    chain: list[dict] = field(default_factory=list)
     error: str | None = None
 
 
@@ -261,6 +276,9 @@ class CheckResult:
     redirected: bool = False
     content_length: int | None = None
     headers: dict[str, str] = field(default_factory=dict)
+    #: Each hop of a redirect chain, as `redirect_chain` writes them; empty
+    #: when the first response was the answer.
+    redirects: list[dict] = field(default_factory=list)
     timings: Timings = field(default_factory=Timings)
     #: Set only on the checks that also read the certificate; see
     #: `certificate_check_due`. None means "not looked at", not "no certificate".
@@ -271,6 +289,9 @@ class CheckResult:
     #: HTTP checks that came up: the final response's security headers, as
     #: `security_headers.capture` stores them.
     security_headers: dict | None = None
+    #: Set only on the HTTP checks that came up and were due to look for a
+    #: CDN; see `cdn_check_due`. None means "not looked at".
+    cdn: CdnInfo | None = None
     #: Set only on ping checks that got as far as sending.
     ping: PingStats | None = None
     #: Set on every DNS check: what each resolver answered.
@@ -352,6 +373,18 @@ def domain_host(website: Website) -> str | None:
     return lookup_host(website.url)
 
 
+def cdn_check_due(website: Website, now: datetime | None = None) -> bool:
+    """Whether this check should also look for a CDN: the first time, then
+    every CDN_CHECK_INTERVAL_SECONDS. It rides on a successful response, so a
+    down site simply waits."""
+    if not settings.CDN_CHECK_ENABLED or website.check_type is not CheckType.HTTP:
+        return False
+    if website.cdn_checked_at is None:
+        return True
+    elapsed = ((now or datetime.now(UTC)) - website.cdn_checked_at).total_seconds()
+    return elapsed >= settings.CDN_CHECK_INTERVAL_SECONDS
+
+
 def domain_check_due(website: Website, now: datetime | None = None) -> bool:
     """Whether this check should also look up the site's domain.
 
@@ -393,7 +426,36 @@ def _alternative_names(cert: x509.Certificate) -> list[str]:
     return names[:MAX_SANS]
 
 
-def cert_info(cert: x509.Certificate, tls_version: str | None = None) -> CertInfo:
+def chain_entry(cert: x509.Certificate) -> dict:
+    """One certificate of a presented chain, for the site's page."""
+    return {
+        "subject": _name_attribute(cert.subject, NameOID.COMMON_NAME, NameOID.ORGANIZATION_NAME),
+        "issuer": _issuer_name(cert),
+        "expires_at": cert.not_valid_after_utc.isoformat(),
+    }
+
+
+def redirect_chain(response: httpx.Response) -> list[dict]:
+    """The hops that led to `response`, in order, each as the URL asked for,
+    the status it answered and where it pointed. Empty without redirects."""
+    return [
+        {
+            "url": str(hop.url),
+            "status": hop.status_code,
+            "location": hop.headers.get("location"),
+        }
+        for hop in response.history[:MAX_REDIRECT_HOPS]
+    ]
+
+
+def cert_info(
+    cert: x509.Certificate,
+    tls_version: str | None = None,
+    *,
+    cipher: str | None = None,
+    alpn: str | None = None,
+    chain: list[dict] | None = None,
+) -> CertInfo:
     """What the site's page and alerts show of a certificate."""
     sans = _alternative_names(cert)
     return CertInfo(
@@ -404,7 +466,22 @@ def cert_info(cert: x509.Certificate, tls_version: str | None = None) -> CertInf
         or (sans[0] if sans else None),
         sans=sans,
         tls_version=tls_version,
+        cipher=cipher,
+        alpn=alpn,
+        chain=chain or [],
     )
+
+
+def _read_chain(ssl_object) -> list[dict]:
+    """The certificates the server sent, leaf first. Empty where the runtime
+    cannot say (before Python 3.13) or the read fails."""
+    try:
+        return [
+            chain_entry(x509.load_der_x509_certificate(der))
+            for der in ssl_object.get_unverified_chain()[:MAX_CHAIN_CERTS]
+        ]
+    except Exception:  # noqa: BLE001 - the chain is a bonus, never a failed read
+        return []
 
 
 async def probe_certificate(url: str, timeout: float) -> CertInfo:
@@ -423,6 +500,9 @@ async def probe_certificate(url: str, timeout: float) -> CertInfo:
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
+    # Offering HTTP/2 only learns whether the server speaks it; the checks
+    # themselves stay on HTTP/1.1.
+    context.set_alpn_protocols(["h2", "http/1.1"])
     try:
         _, writer = await asyncio.wait_for(
             asyncio.open_connection(
@@ -434,13 +514,24 @@ async def probe_certificate(url: str, timeout: float) -> CertInfo:
             ssl_object = writer.get_extra_info("ssl_object")
             der = ssl_object.getpeercert(binary_form=True) if ssl_object else None
             tls_version = ssl_object.version() if ssl_object else None
+            cipher = None
+            if ssl_object and (suite := ssl_object.cipher()):
+                cipher = f"{suite[0]} ({suite[2]} bit)"
+            alpn = ssl_object.selected_alpn_protocol() if ssl_object else None
+            chain = _read_chain(ssl_object) if ssl_object else []
         finally:
             writer.close()
             with contextlib.suppress(Exception):
                 await writer.wait_closed()
         if not der:
             return CertInfo(error="The server presented no certificate.")
-        return cert_info(x509.load_der_x509_certificate(der), tls_version)
+        return cert_info(
+            x509.load_der_x509_certificate(der),
+            tls_version,
+            cipher=cipher,
+            alpn=alpn,
+            chain=chain,
+        )
     except Exception as exc:  # noqa: BLE001 - a failed read is data, not a crash
         logger.info("Certificate read failed for %s: %s", url, exc)
         return CertInfo(error=f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__)
@@ -613,6 +704,7 @@ async def _http_probe(
             final_url=str(response.url),
             redirected=str(response.url) != website.url,
             content_length=len(response.content) if response.content else 0,
+            redirects=redirect_chain(response),
             headers={
                 name: response.headers[name]
                 for name in DIAGNOSTIC_HEADERS
@@ -623,6 +715,11 @@ async def _http_probe(
             security_headers=(
                 capture_security_headers(str(response.url), response.headers)
                 if is_up
+                else None
+            ),
+            cdn=(
+                await detect_cdn(str(response.url), response.headers)
+                if is_up and cdn_check_due(website, checked_at)
                 else None
             ),
             timings=stopwatch.timings(),

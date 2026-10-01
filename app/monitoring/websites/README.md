@@ -108,7 +108,11 @@ the status and reason phrase, the `error_type` (see below), the diagnostic
 headers, and how long each step took — `dns_ms`, `connect_ms`, `tls_ms` and
 `first_byte_ms` (request sent → response headers back), summed over any
 redirects. A step that did not finish, or that a reused connection skipped, is
-`null`.
+`null`. It also keeps the `redirects` followed (each hop's URL, status and
+`location`; `null` when there were none) and the `content_length` of the
+decoded body. The site's page shows these under a check's **Details**, with the
+step times as a bar and the diagnostic headers (including `content-encoding`
+and `server-timing`).
 
 `error_type` is the key to group incidents by:
 
@@ -256,10 +260,22 @@ them, and a new record type clears the pinned values unless new ones are sent.
 
 ### Certificates and domains
 
+The first successful HTTP check, and one every `CDN_CHECK_INTERVAL_SECONDS` (6
+hours) after, also looks for a CDN (`cdn.py`): in the response headers
+(`cf-ray`, `x-amz-cf-id`, `x-vercel-id`, a `server` or `via` naming it, ...) and
+in the host's DNS aliases (a CNAME ending `.cloudfront.net`, `.fastly.net`,
+...). The site keeps the providers found with their evidence, the CNAME chain
+and the cache status (`HIT`/`MISS`, the `Age`). It is a hint and never alerts:
+a CDN that strips its headers and sits behind plain address records goes
+unseen, and a recognised one says nothing about whether it is set up well.
+
 Every `SSL_CHECK_INTERVAL_SECONDS` (6 hours) an HTTPS site's certificate is
 read without verifying it, so even an expired or untrusted one can be
 described: its end date, who it was issued to and by, the names it covers
-(`ssl_sans`, up to 100), when it began and the TLS version. It warns at each
+(`ssl_sans`, up to 100), when it began, the TLS version, the cipher suite
+(`ssl_cipher`), whether the server agrees to HTTP/2 (`ssl_alpn`, `h2` or
+`http/1.1`; the checks themselves stay on HTTP/1.1) and the certificates it
+sent (`ssl_chain`, leaf first). It warns at each
 of `SSL_EXPIRY_ALERT_DAYS` (14 and 7 days left) and once more if it
 expires; a renewed certificate re-arms the warnings.
 

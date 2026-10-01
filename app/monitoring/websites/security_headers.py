@@ -10,7 +10,7 @@ The score is how many are ok, out of five, and the letter follows from it.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 #: Longest value kept per header.
@@ -29,6 +29,15 @@ HEADERS = (
     ("referrer", "Referrer-Policy"),
 )
 
+#: Sent by well-hardened sites, but not graded: adding them to the score would
+#: quietly re-grade every site already stored. Shown as they were sent.
+EXTRAS = (
+    "Permissions-Policy",
+    "Cross-Origin-Opener-Policy",
+    "Cross-Origin-Embedder-Policy",
+    "Cross-Origin-Resource-Policy",
+)
+
 _GRADES = {5: "A", 4: "B", 3: "C", 2: "D"}
 
 
@@ -39,7 +48,7 @@ def capture(url: str, headers) -> dict:
         "url": url,
         "headers": {
             name.lower(): (value[:MAX_VALUE_LENGTH] if (value := headers.get(name)) else None)
-            for _, name in HEADERS
+            for name in (*(name for _, name in HEADERS), *EXTRAS)
         },
     }
 
@@ -126,9 +135,19 @@ def _referrer(value: str | None) -> tuple[str, str | None]:
 
 
 @dataclass(frozen=True, slots=True)
+class ExtraHeader:
+    """A header that is sent but not graded."""
+
+    header: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
 class SecurityReport:
     url: str
     items: list[HeaderGrade]
+    #: The `EXTRAS` the site sent, in `EXTRAS` order; none it left out.
+    extras: list[ExtraHeader] = field(default_factory=list)
 
     @property
     def score(self) -> int:
@@ -173,5 +192,10 @@ def grade(stored: dict | None) -> SecurityReport | None:
                 note=rules[key][1],
             )
             for key, header in HEADERS
+        ],
+        extras=[
+            ExtraHeader(header=header, value=value)
+            for header in EXTRAS
+            if (value := get(header))
         ],
     )

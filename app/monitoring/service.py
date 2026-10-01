@@ -250,6 +250,8 @@ class MonitoringService:
             error_type=result.error_type,
             final_url=result.final_url,
             headers=result.headers or None,
+            redirects=result.redirects or None,
+            content_length=result.content_length,
             dns_ms=result.timings.dns_ms,
             connect_ms=result.timings.connect_ms,
             tls_ms=result.timings.tls_ms,
@@ -283,6 +285,9 @@ class MonitoringService:
         if result.security_headers is not None:
             website.security_headers = result.security_headers
             website.security_checked_at = result.checked_at
+        if result.cdn is not None:
+            website.cdn = result.cdn.as_dict()
+            website.cdn_checked_at = result.checked_at
         events: list[Notification] = []
 
         if result.is_up:
@@ -608,6 +613,9 @@ class MonitoringService:
         website.ssl_subject = cert.subject
         website.ssl_sans = cert.sans
         website.ssl_tls_version = cert.tls_version
+        website.ssl_cipher = cert.cipher
+        website.ssl_alpn = cert.alpn
+        website.ssl_chain = cert.chain or None
         if previous is not None and cert.expires_at > previous + _RENEWAL_JUMP:
             # A renewed certificate starts its warnings afresh, even when it
             # is itself already inside the top threshold (short-lived certs).

@@ -61,3 +61,10 @@ export function parsePhoneNumbers(text) {
     .map((part) => part.trim())
     .filter(Boolean)
 }
+
+// A size in bytes as people read it: '512 B', '38.4 KB', '2.1 MB'.
+export function bytes(n) {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}

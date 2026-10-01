@@ -585,7 +585,9 @@ Refused if it would leave the site with no alert channel.
 
 ### `GET /api/v1/monitoring/websites/{website_id}/checks`
 Recent check results, newest first — for each poll the status code and
-reason, response time, error and `error_type`, final URL, diagnostic headers,
+reason, response time, error and `error_type`, final URL, the `redirects`
+followed to reach it (each `url`, `status` and `location`; null when none),
+`content_length` (bytes, decoded), diagnostic headers,
 and the time spent in each step (`dns_ms`, `connect_ms`, `tls_ms`,
 `first_byte_ms`; null when the step did not finish). Checks recorded before
 these fields existed have them null. A ping check has `ping` instead: the

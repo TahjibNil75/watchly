@@ -38,7 +38,9 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **Ping monitoring**: ICMP checks for hosts, including packet-loss alerts
 - **DNS monitoring**: query several public resolvers at once and alert when records change or drift from what you expect
 - **Early warnings**: SSL certificates and domain registrations about to expire, changed nameservers, slow responses and packet loss, not just "down"
-- **Security headers**: each website's HSTS, CSP, X-Frame-Options, X-Content-Type-Options and Referrer-Policy, graded A to F
+- **Security headers**: each website's HSTS, CSP, X-Frame-Options, X-Content-Type-Options and Referrer-Policy, graded A to F; Permissions-Policy and the Cross-Origin policies are listed alongside
+- **CDN detection**: whether a site is served through Cloudflare, CloudFront, Fastly, Akamai, Vercel, Netlify and others, with the evidence (headers, DNS aliases) and whether a cache answered
+- **Network details**: for each check, where the time went (DNS, connect, TLS, first byte), the redirect chain, response size and headers; for each certificate, its cipher, HTTP/2 support and chain
 - **Maintenance windows**: start one from a site's page for a deployment ("Start maintenance for 30 min" / "End now") or schedule one ahead; no checks or alerts until it ends
 - **Alerts where your team works**: email (any SMTP provider), Slack, Telegram, WhatsApp and generic webhooks
 - **Projects and recipients**: each project's members hear about all of its sites, and each site can add its own recipients
