@@ -1184,11 +1184,15 @@ a:hover {
   initial-value: #3dbb72;
 }
 /* Always dark, on either theme, so the app's colours are set here for it.
-   --glow is the mascot's skin in each mood. */
-.night {
+   --glow is the mascot's skin in each mood. The landing page wears the same
+   palette, and takes the same moods. */
+.night,
+.landing {
   --glow: #3dbb72;
   --up: #3dbb72;
   --down: #f16565;
+  --pending: #e0a93b;
+  --maintenance: #a88cf0;
   --bg: #080b10;
   --surface: #0c1218;
   --surface-2: #121a22;
@@ -1198,6 +1202,10 @@ a:hover {
   --primary: var(--glow);
   --action: var(--glow);
   --action-text: #071009;
+  color: var(--text);
+  color-scheme: dark;
+}
+.night {
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -1205,8 +1213,6 @@ a:hover {
   display: grid;
   place-items: center;
   padding: 96px 16px;
-  color: var(--text);
-  color-scheme: dark;
   background-color: var(--bg);
   background-image:
     radial-gradient(55% 50% at 50% 50%, color-mix(in srgb, var(--glow) 11%, transparent), transparent 70%),
@@ -1218,13 +1224,13 @@ a:hover {
     32px 32px;
   transition: --glow 0.8s ease;
 }
-.night.is-slow {
+:is(.night, .landing).is-slow {
   --glow: #f0b323;
 }
-.night.is-down {
+:is(.night, .landing).is-down {
   --glow: #f16565;
 }
-.night.is-maint {
+:is(.night, .landing).is-maint {
   --glow: #9b6cf0;
 }
 
@@ -1247,10 +1253,10 @@ a:hover {
   opacity: 0;
   transition: opacity 0.6s ease;
 }
-.night.is-up .night-trace-up,
-.night.is-slow .night-trace-slow,
-.night.is-down .night-trace-down,
-.night.is-maint .night-trace-maint {
+:is(.night, .landing).is-up .night-trace-up,
+:is(.night, .landing).is-slow .night-trace-slow,
+:is(.night, .landing).is-down .night-trace-down,
+:is(.night, .landing).is-maint .night-trace-maint {
   opacity: 0.75;
 }
 /* A gap sweeps the heartbeat and, at a crawl, the wave; typing quickens it.
@@ -1387,14 +1393,36 @@ a:hover {
 /* What a signed-out visitor sees at the root (Landing.jsx). Its demo board is
    the sign-in page's, styled by the .live-* rules above. */
 .landing {
-  /* Green accents throughout, like the sign-in page's panel, not the app's blue. */
-  --primary: var(--up);
+  /* The accents are the glow's: the whole page takes the mascot's mood. */
   --primary-text: var(--action-text);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   /* The scroll motion starts some blocks off to the side; never scroll to them. */
   overflow-x: clip;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(60% 30% at 50% 0%, color-mix(in srgb, var(--glow) 9%, transparent), transparent 70%),
+    linear-gradient(color-mix(in srgb, var(--glow) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--glow) 6%, transparent) 1px, transparent 1px);
+  background-size:
+    auto,
+    32px 32px,
+    32px 32px;
+  transition: --glow 0.8s ease;
+}
+/* The status pill follows the glow too, not the green of "up". */
+.landing .live-pill {
+  color: var(--glow);
+  background: color-mix(in srgb, var(--glow) 12%, transparent);
+}
+.landing .live-pill-dot {
+  background: var(--glow);
+}
+/* The page is always dark; so is what shows past its edges. */
+html:has(.landing) {
+  color-scheme: dark;
+  background: #080b10;
 }
 .landing main {
   flex: 1;
@@ -1405,24 +1433,15 @@ a:hover {
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 12px clamp(16px, 4vw, 48px);
+  justify-content: center;
+  padding: 14px clamp(16px, 4vw, 48px);
   background: color-mix(in srgb, var(--bg) 85%, transparent);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
 }
-.landing-nav .brand {
-  gap: 12px;
-  font-size: 1.6rem;
-}
-.landing-nav .brand-mark {
-  width: 64px;
-  height: 64px;
-}
 .landing-nav-links {
   display: flex;
-  gap: 22px;
-  margin-left: auto;
+  gap: 28px;
   font-size: 0.9rem;
 }
 .landing-nav-links a {
@@ -1446,11 +1465,21 @@ a:hover {
 
 /* Clip, not hidden: a hidden box is a scroll container, and the hero's scroll
    motion would follow it, which never scrolls, instead of the page. */
+/* The sign-in page's night-shift monitor (NightMonitor.jsx) behind the pitch:
+   the mood, and with it the glow, cycles with the mascot's. */
 .landing-hero-wrap {
   position: relative;
+  isolation: isolate;
   overflow: clip;
-  /* The same tint and drifting glow as the sign-in page's .auth-aside. */
-  background: color-mix(in srgb, var(--up) 7%, var(--surface));
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(55% 50% at 50% 45%, color-mix(in srgb, var(--glow) 11%, transparent), transparent 70%),
+    linear-gradient(color-mix(in srgb, var(--glow) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--glow) 7%, transparent) 1px, transparent 1px);
+  background-size:
+    auto,
+    32px 32px,
+    32px 32px;
   border-bottom: 1px solid var(--border);
 }
 .landing-hero-wrap::before {
@@ -1458,8 +1487,8 @@ a:hover {
   position: absolute;
   inset: -20%;
   background:
-    radial-gradient(40% 35% at 30% 30%, color-mix(in srgb, var(--up) 18%, transparent), transparent 70%),
-    radial-gradient(35% 30% at 72% 72%, color-mix(in srgb, var(--up) 12%, transparent), transparent 70%);
+    radial-gradient(40% 35% at 30% 30%, color-mix(in srgb, var(--glow) 12%, transparent), transparent 70%),
+    radial-gradient(35% 30% at 72% 72%, color-mix(in srgb, var(--glow) 8%, transparent), transparent 70%);
   animation: drift 18s ease-in-out infinite alternate;
   pointer-events: none;
 }
@@ -1467,10 +1496,17 @@ a:hover {
   position: relative;
   /* Above the glow that follows the mouse. */
   z-index: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  display: flex;
+  justify-content: center;
+  padding-top: clamp(72px, 9vw, 112px);
+  padding-bottom: clamp(88px, 10vw, 120px);
+}
+.landing-hero-text {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: clamp(32px, 5vw, 72px);
+  max-width: 760px;
+  text-align: center;
 }
 .landing-hero-text > * {
   animation: auth-rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
@@ -1480,23 +1516,53 @@ a:hover {
 .landing-hero-text > :nth-child(3) { --stagger: 2; }
 .landing-hero-text > :nth-child(4) { --stagger: 3; }
 .landing-hero-text > :nth-child(5) { --stagger: 4; }
+.landing-hero-text > :nth-child(6) { --stagger: 5; }
+.landing-hero-text > :nth-child(7) { --stagger: 6; }
+.landing-hero .brand-mark {
+  width: 104px;
+  height: 104px;
+  margin-bottom: 10px;
+}
 .landing-hero h1 {
   display: block;
   margin: 18px 0 16px;
-  font-size: clamp(2.1rem, 4.6vw, 3.2rem);
-  line-height: 1.08;
-  letter-spacing: -0.025em;
+  font-size: clamp(2.3rem, 5.6vw, 3.9rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  text-shadow: 0 0 40px color-mix(in srgb, var(--glow) 35%, transparent);
 }
 .landing-lead {
   margin: 0;
-  max-width: 48ch;
-  font-size: 1.1rem;
+  max-width: 52ch;
+  font-size: 1.12rem;
 }
 .landing-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
   margin-top: 28px;
+}
+/* Where alerts go: the demo board's channel row, on frosted glass. In an
+   outage the channels light up one after another in the glow's colour. */
+.landing-relay {
+  --tone: var(--glow);
+  width: 100%;
+  max-width: 640px;
+  margin-top: 40px;
+  padding: 14px 16px 16px;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--glow) 30%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 0 60px -14px color-mix(in srgb, var(--glow) 32%, transparent);
+}
+.landing-relay.is-sending .live-channels-label {
+  color: var(--glow);
+  font-weight: 600;
 }
 .landing-actions .btn-primary {
   transition:
@@ -1512,12 +1578,6 @@ a:hover {
 .landing-note {
   margin: 14px 0 0;
 }
-.landing-demo {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
 .landing-head {
   max-width: 640px;
   margin: 0 auto 40px;
@@ -1541,19 +1601,26 @@ a:hover {
 .landing-grid-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+/* Frosted glass over the grid, as the sign-in card is. */
 .landing-card {
   position: relative;
   padding: 24px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--glow) 28%, transparent);
   border-radius: 14px;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 0 60px -18px color-mix(in srgb, var(--glow) 30%, transparent);
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease;
 }
 .landing-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 16px 36px -20px rgb(16 24 40 / 0.35);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 0 60px -10px color-mix(in srgb, var(--glow) 45%, transparent);
 }
 .landing-card h3,
 .landing-feature h3,
@@ -1602,7 +1669,7 @@ a:hover {
   height: 6px;
   margin-top: 0.6em;
   border-radius: 50%;
-  background: var(--up);
+  background: var(--glow);
 }
 
 /* A full-width stripe behind every other section. */
@@ -2028,7 +2095,8 @@ a:hover {
   .landing-grid-2 {
     grid-template-columns: minmax(0, 1fr);
   }
-  .landing-nav-links {
+  /* Links only, so with no room for them there is nothing to show. */
+  .landing-nav {
     display: none;
   }
 }
@@ -2038,17 +2106,13 @@ a:hover {
   }
 }
 @media (max-width: 420px) {
-  /* Room for the demo's host names. */
-  .landing-demo .live-row-head .badge-env {
-    display: none;
-  }
-  /* And for its channels' names: three to a row. */
-  .landing-demo .live-channels-list {
+  /* Room for the hero's channels' names: three to a row. */
+  .landing-relay .live-channels-list {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
   }
-  .landing-demo .live-channel {
+  .landing-relay .live-channel {
     flex: 0 0 calc((100% - 12px) / 3);
   }
   /* Three of the Alerts section's channels to the first row, not two. */
@@ -2092,7 +2156,7 @@ a:hover {
       position: absolute;
       inset: auto 0 -1px;
       height: 2px;
-      background: linear-gradient(90deg, var(--primary), var(--up));
+      background: linear-gradient(90deg, var(--primary), var(--glow));
       transform-origin: left;
       animation: scroll-progress linear both;
       animation-timeline: scroll(root);
@@ -2101,7 +2165,6 @@ a:hover {
     /* `animation` resets the timeline, so the timeline and ranges follow it.
        --i holds back the later blocks in a row, so a row arrives in turn. */
     .landing-hero-text,
-    .landing-demo,
     .landing-head,
     .landing-channel,
     .alert-stage,
@@ -2115,10 +2178,6 @@ a:hover {
       animation-range:
         entry calc(var(--i, 0) * 8%) cover calc(30% + var(--i, 0) * 6%),
         exit 10% exit 90%;
-    }
-    /* The board sinks back behind the headline as the hero leaves. */
-    .landing-demo {
-      animation-name: scroll-in, demo-out;
     }
     /* The channels fly in from either side and gather into a row. */
     .landing-channel {
@@ -2157,13 +2216,6 @@ a:hover {
     opacity: 0;
     translate: 0 -32px;
     scale: 0.97;
-  }
-}
-@keyframes demo-out {
-  to {
-    opacity: 0;
-    translate: 0 -24px;
-    scale: 0.9;
   }
 }
 @keyframes channel-in {
@@ -2249,13 +2301,6 @@ a:hover {
       transform 0.2s ease,
       border-color 0.2s ease;
   }
-  /* The demo board turns to face the pointer. */
-  .landing-demo .live-board {
-    transform: perspective(1400px) rotateX(calc(var(--tilt-x, 0) * 6deg))
-      rotateY(calc(var(--tilt-y, 0) * 8deg));
-    transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
-
   .landing-channel:hover {
     transform: translateY(-3px);
   }

@@ -1,12 +1,15 @@
 import { Link } from 'react-router-dom'
 import AlertPreviews from '../AlertPreviews.jsx'
 import { useSignupOpen } from '../auth.jsx'
-import BrandMark from '../BrandMark.jsx'
-import LiveDemo from '../LiveDemo.jsx'
+import BrandMark, { useBrandMood } from '../BrandMark.jsx'
+import ChannelLogo from '../ChannelLogo.jsx'
+import { CHANNELS } from '../channels.js'
+import { NightReadouts, NightTraces } from '../NightMonitor.jsx'
 
 // What a signed-out visitor sees at the site's root: what Watchly does, and
-// the way in. Deep links still go to the sign-in form and back. Its sections
-// move with the scroll, and its cards follow the mouse, in index.css.
+// the way in. Deep links still go to the sign-in form and back. It wears the
+// sign-in page's dark night-shift look. Its sections move with the scroll, and
+// its cards follow the mouse, in index.css.
 
 // 24x24 stroke icons, drawn inline like the sidebar's.
 const ICONS = {
@@ -215,14 +218,37 @@ function Actions() {
   )
 }
 
-export default function Landing() {
+// The hero's channel row. In an outage every channel lights up in turn, as on
+// the demo board.
+function Relay({ down }) {
   return (
-    <div className="landing">
+    <div className={`live-channels landing-relay${down ? ' is-sending' : ''}`}>
+      <span className="live-channels-label">
+        {down ? 'Outage detected · alert sent to' : 'Alerts go out on any of these, and any mix of them'}
+      </span>
+      <div className="live-channels-list">
+        {CHANNELS.map((c, i) => (
+          <div
+            key={c.id}
+            className={down ? 'live-channel is-sent' : 'live-channel'}
+            style={{ '--order': i }}
+          >
+            <ChannelLogo channel={c.id} />
+            {c.name}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function Landing() {
+  // The whole page plays through the mascot's moods, as the sign-in page does:
+  // its glow, and the hero's trace and readouts, change with them.
+  const mood = useBrandMood()
+  return (
+    <div className={`landing is-${mood}`}>
       <header className="landing-nav">
-        <Link to="/" className="brand">
-          <BrandMark />
-          <span className="brand-word">Watchly</span>
-        </Link>
         <nav className="landing-nav-links" aria-label="Page sections">
           <a href="#checks">What it checks</a>
           <a href="#alerts">Alerts</a>
@@ -232,8 +258,11 @@ export default function Landing() {
 
       <main>
         <div className="landing-hero-wrap" {...POINTER}>
+          <NightTraces />
+          <NightReadouts mood={mood} />
           <section className="landing-section landing-hero">
             <div className="landing-hero-text">
+              <BrandMark mood={mood} />
               <span className="live-pill">
                 <span className="live-pill-dot" />
                 Uptime, ping and DNS monitoring
@@ -249,9 +278,7 @@ export default function Landing() {
                 New accounts start with view access; an admin adds you to the projects you look
                 after.
               </p>
-            </div>
-            <div className="landing-demo">
-              <LiveDemo />
+              <Relay down={mood === 'down'} />
             </div>
           </section>
         </div>
