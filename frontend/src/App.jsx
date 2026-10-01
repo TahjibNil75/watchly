@@ -15,6 +15,7 @@ import Notifications from './pages/Notifications.jsx'
 import Profile from './pages/Profile.jsx'
 import ProjectDetail from './pages/ProjectDetail.jsx'
 import Projects from './pages/Projects.jsx'
+import RequestAccount from './pages/RequestAccount.jsx'
 import Signup from './pages/Signup.jsx'
 import Users from './pages/Users.jsx'
 import WebsiteDetail from './pages/WebsiteDetail.jsx'
@@ -50,6 +51,7 @@ export default function App() {
         <Route element={<AuthLayout />}>
           <Route path="/signup" element={<Signup />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/request-account" element={<RequestAccount />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
           <Route path="/confirm-email" element={<ConfirmEmail />} />
         </Route>
@@ -84,6 +86,7 @@ export default function App() {
         <Route path="login" element={<Navigate to="/" replace />} />
         <Route path="signup" element={<Navigate to="/" replace />} />
         <Route path="forgot-password" element={<Navigate to="/" replace />} />
+        <Route path="request-account" element={<Navigate to="/" replace />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

@@ -2,7 +2,8 @@ import { Outlet } from 'react-router-dom'
 import LiveDemo from './LiveDemo.jsx'
 import { useMediaQuery } from './useMediaQuery.js'
 
-// Frame for the public pages (sign up, password reset, invitations). Sign in
+// Frame for the public pages (sign up, password reset, account requests,
+// invitations). Sign in
 // has a page of its own (Login.jsx).
 // On wide screens a live demo board beside the form shows what Watchly does.
 

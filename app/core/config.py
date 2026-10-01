@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     #: Accepted and revoked invitations kept, the newest of each; older ones
     #: are deleted. Expired invitations are deleted as soon as they expire.
     INVITATION_HISTORY_KEEP: int = Field(default=50, ge=0)
+    #: Approved account requests kept, the newest; older ones are deleted. A
+    #: pending request stays until someone answers it, and a rejected one for
+    #: good, so a rejected address cannot ask again until it is unblocked.
+    ACCOUNT_REQUEST_HISTORY_KEEP: int = Field(default=50, ge=0)
     #: How long the link confirming a new email address stays usable.
     EMAIL_CHANGE_EXPIRE_HOURS: int = Field(default=24, ge=1)
     #: How long a temporary password from "forgot password" can be used to sign in.
@@ -92,6 +96,9 @@ class Settings(BaseSettings):
     #: Tokens from emailed links tried: previewing and accepting invitations,
     #: and confirming a new email address.
     RATE_LIMIT_EMAIL_LINKS: Annotated[RateLimit, NoDecode] = RateLimit(20, 60)
+    #: Accounts asked for with `POST /account-requests`, whichever addresses
+    #: they name: each new one emails every admin and DevOps user.
+    RATE_LIMIT_ACCOUNT_REQUESTS: Annotated[RateLimit, NoDecode] = RateLimit(5, 3600)
 
     # --- Monitoring -----------------------------------------------------
     MONITORING_ENABLED: bool = True
@@ -273,6 +280,7 @@ class Settings(BaseSettings):
         "RATE_LIMIT_SIGNUP",
         "RATE_LIMIT_FORGOT_PASSWORD",
         "RATE_LIMIT_EMAIL_LINKS",
+        "RATE_LIMIT_ACCOUNT_REQUESTS",
         mode="before",
     )
     @classmethod

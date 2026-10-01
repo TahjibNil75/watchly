@@ -43,7 +43,7 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **Alerts where your team works**: email (any SMTP provider), Slack, Telegram, WhatsApp and generic webhooks
 - **Projects and recipients**: each project's members hear about all of its sites, and each site can add its own recipients
 - **Monthly uptime reports**: uptime, downtime and incidents per project, delivered automatically
-- **Team management**: invite by email, role-based access (Admin, DevOps, Project Manager, Developer, Viewer), suspension, and invite-only mode
+- **Team management**: invite by email, account requests to approve or reject, role-based access (Admin, DevOps, Project Manager, Developer, Viewer), suspension, and invite-only mode
 - **Account security**: JWT sessions with refresh tokens, login lockout and password reset by email
 
 ## Alert channels
@@ -153,7 +153,9 @@ Open **http://localhost:8080** and sign up.
 
 After signing in as admin you can create projects, add sites to monitor and
 invite your team. Signup closes as soon as the admin exists: everyone else
-joins only by an invitation from an Admin or DevOps user.
+joins only by an invitation from an Admin or DevOps user. People without one
+can request an account from the sign-in page, for an Admin or DevOps user to
+approve or reject.
 
 ## Set up email alerts (SMTP)
 

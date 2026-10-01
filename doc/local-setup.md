@@ -92,7 +92,9 @@ Do this straight away. Until that first account exists, anyone who can reach
 the app can sign up and take the admin role.
 
 After that, signup is closed: people join only through **Users → Invite user**,
-which Admin and DevOps users can send.
+which Admin and DevOps users can send. Someone without an account can ask for
+one from the sign-in page; Admin and DevOps users approve or reject it under
+**Users → Account requests**.
 
 | what | where |
 | ---- | ----- |

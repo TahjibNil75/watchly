@@ -22,6 +22,11 @@ app/
     service.py       # InvitationService — who may grant which role, token lifecycle
     schemas.py       # InvitationCreate / InvitationRead / AcceptInvitationRequest
     mail.py          # the invitation email's wording (sent by core/mail.py)
+  account_requests/
+    routes.py        # ask for an account (public); list, approve, reject (admin/DevOps)
+    service.py       # AccountRequestService — save, approve into an invitation, reject, purge
+    schemas.py       # AccountRequestCreate / AccountRequestRead / AccountRequestDecided
+    mail.py          # the notice to admin/DevOps, and the approval and rejection emails
   monitoring/
     routes.py        # aggregates the sub-routers below
     service.py       # MonitoringService — the outage state machine
@@ -68,6 +73,7 @@ app/
     models/
       user.py        # User model + UserRole enum
       invitation.py  # Invitation model + status
+      account_request.py # AccountRequest model + status
       refresh_token.py # RefreshToken: one row per issued refresh token
   schemas/
     user.py          # UserCreate / UserRead / UserUpdate / UserInDB
@@ -328,6 +334,9 @@ DevOps are peers** — both can administer users; no other role can.
 | `POST /api/v1/invitations`           | admin, DevOps\*               |
 | `GET /api/v1/invitations`            | admin, DevOps                 |
 | `PATCH /api/v1/invitations/{id}/revoke` | admin, DevOps\*            |
+| `POST /api/v1/account-requests`      | anyone (same answer whether or not the request is saved) |
+| `GET /api/v1/account-requests`       | admin, DevOps                 |
+| `PATCH /api/v1/account-requests/{id}/approve`, `/reject`, `/unblock` | admin, DevOps |
 
 \* Which *targets* each may act on depends on the target's role — see
 **Who may manage whom** below.
@@ -513,6 +522,44 @@ answers `410` with the reason; an unknown token, `404`.
 
 In the web UI: **Users → Invite user** (the role list offers only roles you may
 grant), and the invitee's page is `/accept-invite?token=…`.
+
+## Requesting an account
+
+Once signup is closed, the sign-in page offers **No account? Request one**.
+The form (`/request-account`) takes an email address and, optionally, a name
+and a sentence on why:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/account-requests \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"jane@example.com","full_name":"Jane Doe","message":"Support team"}'
+```
+
+- **Admin and DevOps are told.** Every active Admin and DevOps user gets an
+  email, and the request waits under **Users → Account requests** whether or not
+  the email could be sent.
+- **Approving sends an invitation.** `PATCH /account-requests/{id}/approve`
+  creates an invitation for a `Viewer`, sent in the approver's name, and emails
+  its link; everything under [Inviting users](#inviting-users) then applies,
+  including the link's expiry and Resend. The account always starts as a
+  `Viewer`; change the role afterwards like any user's.
+- **Rejecting says so.** `PATCH /account-requests/{id}/reject` emails the address
+  that the request was not approved. **A rejection sticks**: that address cannot
+  ask again until an Admin or DevOps user either invites it directly (**Users →
+  Invite user**) or unblocks it (**Rejected → Unblock**,
+  `PATCH /account-requests/{id}/unblock`), which deletes the rejection so it may
+  ask afresh. Unblocking emails nobody and creates nothing.
+- **The form gives nothing away.** It answers `202` with the same words whether
+  the request was saved or the address already has an account, a live
+  invitation, a pending request or a rejected one — and in those cases nothing is saved or sent.
+- **It cannot flood the admins.** One pending request per address, and each
+  client may ask `RATE_LIMIT_ACCOUNT_REQUESTS` (default `5/hour`) times.
+- **A request proves nothing.** Anyone can type any address, so no account
+  exists until the invitation's emailed link is used.
+- **Old requests are deleted.** Only the newest `ACCOUNT_REQUEST_HISTORY_KEEP`
+  (default 50) approved requests are kept. Rejected ones are kept for good, since
+  each is what stops its address asking again; a pending request whose address
+  got an account some other way goes on the next monitoring tick.
 
 ## Uptime monitoring
 

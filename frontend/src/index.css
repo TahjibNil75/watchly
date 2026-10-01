@@ -3861,6 +3861,13 @@ strong + .badge {
 .people-table .truncate {
   max-width: 260px;
 }
+/* An account request's message is a sentence or two, so it wraps. */
+.people-table .request-message {
+  min-width: 200px;
+  max-width: 340px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .person-name {
   display: flex;
   align-items: center;

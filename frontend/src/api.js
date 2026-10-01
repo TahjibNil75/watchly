@@ -175,6 +175,15 @@ export const api = {
   previewInvitation: (token) => v1('/invitations/preview', { method: 'POST', body: { token } }),
   acceptInvitation: (payload) => v1('/invitations/accept', { method: 'POST', body: payload }),
 
+  // Asking for an account is public; admin/DevOps answer. Approving sends an
+  // invitation to join as a Viewer, rejecting emails the refusal.
+  requestAccount: (payload) => v1('/account-requests', { method: 'POST', body: payload }),
+  listAccountRequests: (query) => v1('/account-requests', { query: { limit: 100, ...query } }),
+  approveAccountRequest: (id) => v1(`/account-requests/${id}/approve`, { method: 'PATCH' }),
+  rejectAccountRequest: (id) => v1(`/account-requests/${id}/reject`, { method: 'PATCH' }),
+  // Undoes a rejection, so that address may ask again.
+  unblockAccountRequest: (id) => v1(`/account-requests/${id}/unblock`, { method: 'PATCH' }),
+
   listProjects: (query) => v1('/monitoring/projects', { query: { limit: 100, ...query } }),
   getProject: (id) => v1(`/monitoring/projects/${id}`),
   createProject: (payload) => v1('/monitoring/projects', { method: 'POST', body: payload }),

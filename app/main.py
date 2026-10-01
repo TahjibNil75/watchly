@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app import __version__
+from app.account_requests.routes import router as account_requests_router
 from app.auth.routes import router as auth_router
 from app.core.config import settings
 from app.core.handlers import register_exception_handlers
@@ -48,6 +49,7 @@ register_exception_handlers(app)
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 app.include_router(user_router, prefix=settings.API_V1_PREFIX)
 app.include_router(invitations_router, prefix=settings.API_V1_PREFIX)
+app.include_router(account_requests_router, prefix=settings.API_V1_PREFIX)
 app.include_router(monitoring_router, prefix=settings.API_V1_PREFIX)
 
 

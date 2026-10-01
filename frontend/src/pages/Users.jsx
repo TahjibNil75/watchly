@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AccountRequestList } from '../AccountRequests.jsx'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import {
@@ -45,7 +46,8 @@ export default function Users() {
   const [pending, setPending] = useState(null)
   const [inviting, setInviting] = useState(false)
   const [notice, setNotice] = useState(null)
-  // Bumped after an invitation is sent, so the invitation list reloads.
+  // Bumped after an invitation is sent, or an account request approved, so the
+  // invitation list reloads.
   const [invitesVersion, setInvitesVersion] = useState(0)
 
   const users = useApi(
@@ -239,6 +241,13 @@ export default function Users() {
             </p>
           )}
         </div>
+      )}
+
+      {canInvite(me) && (
+        <AccountRequestList
+          onNotice={setNotice}
+          onApproved={() => setInvitesVersion((v) => v + 1)}
+        />
       )}
 
       {canInvite(me) && (

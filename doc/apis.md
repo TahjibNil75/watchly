@@ -5,8 +5,8 @@ Every endpoint in Watchly, with a one-line description.
 **Base URL:** `/api/v1` (health check is at the root)
 **Auth:** `Authorization: Bearer <access token>` on everything except signup
 (and its status), login, forgot password, confirming a new email address (`/auth/confirm-email`),
-the two invitee endpoints (`/invitations/preview`, `/invitations/accept`) and
-`/health`.
+the two invitee endpoints (`/invitations/preview`, `/invitations/accept`),
+asking for an account (`POST /account-requests`) and `/health`.
 
 Those public endpoints except `GET /auth/signup` and `/health` are
 rate-limited per client (an IPv4 address, or an IPv6 /64), whether the request
@@ -18,6 +18,7 @@ succeeds or not. Past a limit they answer `429` with `Retry-After` in seconds:
 | `RATE_LIMIT_SIGNUP` | `5/hour` | `POST /auth/signup` |
 | `RATE_LIMIT_FORGOT_PASSWORD` | `5/hour` | `POST /auth/forgot-password` |
 | `RATE_LIMIT_EMAIL_LINKS` | `20/minute` | `POST /auth/confirm-email`, `/invitations/preview` and `/invitations/accept`, together |
+| `RATE_LIMIT_ACCOUNT_REQUESTS` | `5/hour` | `POST /account-requests` |
 
 `RATE_LIMIT_ENABLED=false` turns them off. `POST /auth/refresh` and
 `/auth/logout` are not limited: their token cannot be guessed, and a refused
@@ -58,6 +59,11 @@ together, see [`hld.md`](hld.md).
 | 19 | `PATCH` | `/invitations/{invitation_id}/revoke` | Kill an invitation's link. |
 | 20 | `POST` | `/invitations/preview` | Show an invitee which address and role a token is for (public). |
 | 21 | `POST` | `/invitations/accept` | Accept an invitation: create the account and sign in (public). |
+| 21a | `POST` | `/account-requests` | Ask the admins for an account (public). |
+| 21b | `GET` | `/account-requests` | List account requests, newest first, filterable by status. |
+| 21c | `PATCH` | `/account-requests/{request_id}/approve` | Approve a request: email the address an invitation to join as a `Viewer`. |
+| 21d | `PATCH` | `/account-requests/{request_id}/reject` | Reject a request and email the address to say so. |
+| 21e | `PATCH` | `/account-requests/{request_id}/unblock` | Undo a rejection, so that address may ask again. |
 | 22 | `GET` | `/monitoring/projects` | List projects the caller is allowed to see. |
 | 23 | `POST` | `/monitoring/projects` | Create a project and name the members responsible for it. |
 | 24 | `GET` | `/monitoring/projects/{project_id}` | Return one project with its members. |
@@ -321,6 +327,61 @@ signed in.
 `201` · `404` · `409` username taken (the invitation is not used up) or the
 address registered meanwhile · `410` as above · `422` passwords differ or invalid
 field · `429` rate-limited
+
+---
+
+## Account requests
+
+Someone without an account asks for one from the sign-in page, and an **admin
+or DevOps** user answers. Approving sends the address an
+[invitation](#invitations) to join as a `Viewer`, so the account is still only
+created from an emailed link; rejecting emails the refusal.
+
+Every request comes back as `id`, `email` (lower-cased), `full_name`, `message`,
+`status` (`pending`, `approved` or `rejected`), `decided_by_id`,
+`decided_by_name`, `approved_at`, `rejected_at` and `created_at`. Only the
+newest `ACCOUNT_REQUEST_HISTORY_KEEP` (default 50) approved requests are kept.
+A pending one stays until it is answered, or until its address gets an account
+some other way; a rejected one stays for good, since it is what stops its
+address asking again.
+
+### `POST /api/v1/account-requests`
+Public. Body: `{"email": "jane@example.com"}`, and optionally `full_name` and
+`message` (why they want an account, up to 500 characters).
+Saves the request and emails every active Admin and DevOps user. Always `202`
+with the same `detail`, so it cannot be used to find out who has an account:
+nothing is saved or sent when the address already has an account, an invitation
+it can still accept, a request waiting, or a request that was rejected.
+`202` · `422` bad email or field too long · `429` rate-limited
+
+### `GET /api/v1/account-requests`
+Paginated, newest first.
+Query: `limit` (1–100), `offset`, `status`
+`200` · `403`
+
+### `PATCH /api/v1/account-requests/{request_id}/approve`
+Creates a `Viewer` invitation for the address, sent by the caller, and emails
+its link (valid for `INVITATION_EXPIRE_DAYS` and usable once). The response adds
+`email_sent`: `false` means the request is approved and the invitation exists,
+but the email did not go out — resend the invitation with `POST /invitations`.
+Change the role once the account exists with `PATCH /users/{user_id}/role`.
+`200` · `403` not admin/DevOps · `404` · `409` already approved or rejected, or
+the address has an account by now (the request stays pending)
+
+### `PATCH /api/v1/account-requests/{request_id}/reject`
+Closes the request and emails the address that it was not approved. The address
+may not ask again until an admin or DevOps user unblocks it (below) or invites
+it directly (`POST /invitations`).
+`email_sent` is `false` when that email did not go out. Undo it with `unblock`
+below.
+`200` · `403` · `404` · `409` already approved or rejected
+
+### `PATCH /api/v1/account-requests/{request_id}/unblock`
+Undoes a rejection by deleting the rejected request, so the address may ask for
+an account again. Nobody is emailed and nothing is created: they must still ask,
+and be approved. To give them access at once, invite them with
+`POST /invitations`.
+`204` · `403` · `404` · `409` the request is pending or approved
 
 ---
 

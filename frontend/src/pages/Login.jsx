@@ -113,7 +113,9 @@ export default function Login() {
         </p>
         <p className="muted small center">
           {signupOpen === false ? (
-            'No account? Ask an admin or DevOps user to invite you.'
+            <>
+              No account? <Link to="/request-account">Request one</Link>
+            </>
           ) : (
             <>
               No account? <Link to="/signup">Create one</Link>

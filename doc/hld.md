@@ -100,6 +100,7 @@ flowchart TD
         AUTH["auth/<br/>signup · login · JWT deps"]
         USER["user/<br/>directory · roles · suspension"]
         INV["invitations/<br/>invite by email · accept"]
+        REQ["account_requests/<br/>ask for an account · approve · reject"]
         MON["monitoring/<br/>projects · websites · alerts"]
     end
 
@@ -179,6 +180,7 @@ Ten tables, three native Postgres enums, fifteen Alembic migrations.
 ```mermaid
 erDiagram
     users ||--o{ invitations : "sends"
+    users ||--o{ account_requests : "answers"
     users ||--o{ refresh_tokens : "signed in as"
     users ||--o{ projects : owns
     users ||--o{ project_members : "is responsible for"
@@ -212,6 +214,15 @@ erDiagram
         timestamptz expires_at
         timestamptz accepted_at
         timestamptz revoked_at
+    }
+    account_requests {
+        int id PK
+        string email "lower-cased; one open row per address, and a rejected row blocks it for good"
+        string full_name
+        string message "why they want an account"
+        timestamptz approved_at
+        timestamptz rejected_at
+        int decided_by_id FK "null once that user is deleted"
     }
     refresh_tokens {
         int id PK
@@ -560,6 +571,37 @@ only its digest is stored. The row lock plus the users table's unique indexes
 make a double click, or two simultaneous accepts, produce exactly one account.
 The sender is re-checked at accept time because otherwise suspending or demoting
 a compromised account would leave every invitation it already sent working.
+
+### 5.6 Account request
+
+```
+anyone        POST /account-requests {email, full_name?, message?}   (no sign-in)
+   → rate limit per client                           → 429
+   → address has an account, a live invitation, a
+     pending request or a rejected one: save nothing, send nothing
+   → otherwise save it, and email every active admin and DevOps user
+   → 202 with the same answer either way
+
+admin/DevOps  PATCH /account-requests/{id}/approve
+   → row locked; already approved or rejected        → 409
+   → stamp approved_at and create a Viewer invitation in one commit (5.5)
+   → email the invitation's link, return email_sent
+
+admin/DevOps  PATCH /account-requests/{id}/reject
+   → row locked; already approved or rejected        → 409
+   → stamp rejected_at (the address cannot ask again), email the refusal,
+     return email_sent
+
+admin/DevOps  PATCH /account-requests/{id}/unblock
+   → row locked; not rejected                        → 409
+   → delete the rejected row: the address may ask again
+```
+
+A request is unauthenticated, so it grants nothing by itself: approving only
+sends an invitation, and the account still comes from a link emailed to the
+address. The public endpoint always answers the same and sends its emails
+after the response, so it cannot be used to learn which addresses have
+accounts.
 
 ---
 
