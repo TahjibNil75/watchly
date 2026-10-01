@@ -121,7 +121,7 @@ Go to **Projects → New project**.
 
 | Field | Notes |
 | ----- | ----- |
-| **Name** | Must be **3 to 25 words**, for example "Acme marketing website". A one-word name is refused. |
+| **Name** | Required, up to **10 words**, for example "Acme marketing website". A single word is fine. |
 | **Description** | Optional. If you write one, use **5 to 150 words**. |
 | **Responsible members** | The users who get every alert for every site in the project. Tick yourself to start. |
 | **Extra emails** | Addresses that are not user accounts, like a client or a shared on-call inbox. |
@@ -260,7 +260,7 @@ docker compose down -v            # stop and DELETE the database
 | Problem | Likely cause |
 | ------- | ------------ |
 | No emails arrive | `SMTP_HOST` is empty or wrong. Check `docker compose logs api`, and remember `.env` changes need `docker compose up -d`. |
-| "Project name must be 3 to 25 words" | The name is too short. Make it descriptive, such as "Acme marketing website". |
+| "Project name must be at most 10 words" | The name is too long. Shorten it, such as "Acme marketing website". |
 | A teammate sees an empty dashboard | They are in no project. Add them as a member. |
 | Invitation link says it is dead | It expired (7 days) or was used. Send a new one from **Users**. |
 | A local service is reported down | Use `host.docker.internal` instead of `localhost`. |

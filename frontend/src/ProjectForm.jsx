@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react'
 import { ErrorBanner, UserChecklist } from './components.jsx'
 import { parseEmails, parsePhoneNumbers } from './format.js'
 
-const NAME_MIN_WORDS = 3
-const NAME_MAX_WORDS = 25
+const NAME_MAX_WORDS = 10
 const DESCRIPTION_MIN_WORDS = 5
 const DESCRIPTION_MAX_WORDS = 150
 const POPUP_MS = 6000
@@ -135,11 +134,10 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
           value={form.name}
           onChange={(e) => {
             // Native validation blocks the submit and points at this field. Only new
-            // projects are held to it; older, shorter names must stay editable.
-            const words = countWords(e.target.value)
+            // projects are held to it; older, longer names must stay editable.
             e.target.setCustomValidity(
-              creating && words > 0 && (words < NAME_MIN_WORDS || words > NAME_MAX_WORDS)
-                ? `The name must be ${NAME_MIN_WORDS} to ${NAME_MAX_WORDS} words.`
+              creating && countWords(e.target.value) > NAME_MAX_WORDS
+                ? `The name can be at most ${NAME_MAX_WORDS} words.`
                 : '',
             )
             set('name')(e)

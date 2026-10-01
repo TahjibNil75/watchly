@@ -284,18 +284,17 @@ def check_description_length(value: str | None) -> str | None:
     return value
 
 
-NAME_MIN_WORDS = 3
-NAME_MAX_WORDS = 25
+NAME_MAX_WORDS = 10
 
 
 def check_name_length(value: str) -> str:
-    """A new project's name runs from 3 to 25 words."""
+    """A new project's name has no minimum length, a single word will do, but
+    runs to at most 10 words. It still cannot be blank."""
     words = len(value.split())
-    if words < NAME_MIN_WORDS or words > NAME_MAX_WORDS:
-        raise ValueError(
-            f"name must be {NAME_MIN_WORDS} to {NAME_MAX_WORDS} words "
-            f"(it has {words})"
-        )
+    if not words:
+        raise ValueError("name must not be blank")
+    if words > NAME_MAX_WORDS:
+        raise ValueError(f"name must be at most {NAME_MAX_WORDS} words (it has {words})")
     return value
 
 
