@@ -288,6 +288,7 @@ See [`doc/local-setup.md`](doc/local-setup.md) for a full walkthrough and troubl
 
 | Document | Contents |
 | -------- | -------- |
+| [`doc/quick-start.md`](doc/quick-start.md) | Quick start: install, first project and site, inviting your team, what to know |
 | [`doc/local-setup.md`](doc/local-setup.md) | Running Watchly locally from scratch, step by step |
 | [`doc/reference.md`](doc/reference.md) | Technical reference: auth, roles, monitoring, alerting, scheduler, migrations |
 | [`doc/hld.md`](doc/hld.md) | High-level design: architecture, data model, key flows |

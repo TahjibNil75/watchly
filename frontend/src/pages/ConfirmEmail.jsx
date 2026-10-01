@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import BrandMark from '../BrandMark.jsx'
 import { ErrorBanner } from '../components.jsx'
+import { useLinkToken } from '../useLinkToken.js'
 
 /**
  * Where the link in an email-change confirmation lands. Confirming takes a
@@ -12,8 +13,7 @@ import { ErrorBanner } from '../components.jsx'
  */
 export default function ConfirmEmail() {
   const { user, updateUser } = useAuth()
-  const [params] = useSearchParams()
-  const token = params.get('token') ?? ''
+  const token = useLinkToken()
   const [confirmed, setConfirmed] = useState(null)
   const [error, setError] = useState(
     token ? null : new Error('This link is incomplete. Open the link from your email again.'),

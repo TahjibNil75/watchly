@@ -168,6 +168,10 @@ const STEPS = [
   },
 ]
 
+// The setup walkthrough lives in the repo's docs, so it is the same for every
+// install and needs no sign-in to read.
+const QUICK_START_URL = 'https://github.com/TahjibNil75/watchly/blob/main/doc/quick-start.md'
+
 // Mouse only. Hands the pointer's place to CSS, which draws a spotlight at
 // --mx/--my and tilts by --tilt-x/--tilt-y (each -0.5 to 0.5). No state, so
 // moving re-renders nothing.
@@ -253,6 +257,9 @@ export default function Landing() {
           <a href="#checks">What it checks</a>
           <a href="#alerts">Alerts</a>
           <a href="#how">How it works</a>
+          <a href={QUICK_START_URL} target="_blank" rel="noopener noreferrer">
+            Quick start guide
+          </a>
         </nav>
       </header>
 
@@ -355,6 +362,19 @@ export default function Landing() {
                 </li>
               ))}
             </ol>
+            <p className="landing-guide">
+              <a
+                href={QUICK_START_URL}
+                className="btn btn-lg"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Read the quick start guide
+              </a>
+              <span className="muted small">
+                Install, first project, first site, inviting your team.
+              </span>
+            </p>
           </section>
         </div>
       </main>

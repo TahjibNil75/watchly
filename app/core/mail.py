@@ -33,9 +33,13 @@ def app_url(path: str) -> str:
 
 def app_link(path: str, token: str) -> str:
     """A link into the web UI carrying `token`, or "" when ALERT_DASHBOARD_URL
-    is not set."""
+    is not set.
+
+    The token goes in the fragment, not the query string: browsers never send a
+    fragment to the server, so it stays out of access logs and `Referer`
+    headers. The page reads it and clears it from the address bar."""
     url = app_url(path)
-    return f"{url}?token={token}" if url else ""
+    return f"{url}#token={token}" if url else ""
 
 
 @dataclass(frozen=True, slots=True)

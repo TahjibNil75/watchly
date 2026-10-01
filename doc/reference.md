@@ -517,11 +517,13 @@ not set up, or the mail server failed — and `email_sent: false` says so.
 a link. The invitee's two calls need no sign-in — `POST /invitations/preview`
 shows which address and role a token is for, and `POST /invitations/accept`
 creates the account and returns the same user-plus-tokens body as signup. The
-token goes in the body, not the URL, to keep it out of access logs. A dead link
+token goes in the body, not the URL, to keep it out of access logs; in the
+emailed link it sits in the URL fragment (`#token=…`), which browsers never send
+to the server, and the page clears it from the address bar once read. A dead link
 answers `410` with the reason; an unknown token, `404`.
 
 In the web UI: **Users → Invite user** (the role list offers only roles you may
-grant), and the invitee's page is `/accept-invite?token=…`.
+grant), and the invitee's page is `/accept-invite#token=…`.
 
 ## Requesting an account
 

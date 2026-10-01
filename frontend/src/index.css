@@ -2061,6 +2061,13 @@ html:has(.landing) {
   border-radius: 14px;
   background: var(--bg);
 }
+.landing-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  margin: 28px 0 0;
+}
 .landing-step-num {
   display: inline-grid;
   place-items: center;

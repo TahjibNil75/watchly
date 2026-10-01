@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import BrandMark from '../BrandMark.jsx'
@@ -7,6 +7,7 @@ import { ErrorBanner, Loading, PasswordChecklist } from '../components.jsx'
 import { USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH, withoutSpaces } from '../fields.js'
 import { isStrongPassword, WEAK_PASSWORD } from '../password.js'
 import { useApi } from '../useApi.js'
+import { useLinkToken } from '../useLinkToken.js'
 
 function Shell({ children }) {
   return (
@@ -25,8 +26,7 @@ function Shell({ children }) {
 export default function AcceptInvite() {
   const { user, acceptInvitation } = useAuth()
   const navigate = useNavigate()
-  const [params] = useSearchParams()
-  const token = params.get('token') ?? ''
+  const token = useLinkToken()
   // Looking an invitation up does not use it up, so this is safe to repeat.
   const invitation = useApi(() => (token ? api.previewInvitation(token) : null), [token])
   const [form, setForm] = useState({
