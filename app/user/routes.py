@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.countries import countries_of
 from app.auth.dependencies import (
     get_authenticated_user,
     get_current_user,
@@ -11,6 +12,7 @@ from app.db.models.user import User, UserRole
 from app.db.session import get_db
 from app.auth.cookies import set_refresh_cookie
 from app.auth.service import AuthService, UserAlreadyExistsError
+from app.core.geo import country_of
 from app.core.password_policy import WeakPasswordError
 from app.schemas.user import UserRead
 from app.user.mail import send_email_confirmation
@@ -21,6 +23,7 @@ from app.user.schemas import (
     ProfileRead,
     ProfileUpdate,
     RoleUpdateRequest,
+    SignInCountries,
     UserListResponse,
 )
 from app.user.service import (
@@ -56,6 +59,26 @@ async def read_me(current_user: User = Depends(get_authenticated_user)) -> Profi
     """Any signed-in user can read their own profile, whatever their role —
     including one who still has to replace a temporary password."""
     return ProfileRead.model_validate(current_user)
+
+
+@router.get(
+    "/me/countries",
+    response_model=SignInCountries,
+    summary="Countries you have signed in from",
+)
+async def read_my_countries(
+    request: Request,
+    current_user: User = Depends(get_authenticated_user),
+    session: AsyncSession = Depends(get_db),
+) -> SignInCountries:
+    """The countries the proxy in front of Watchly reported for your sign-ins,
+    most recent first, and the country of this request. Both are empty or null
+    unless `COUNTRY_HEADER` is set. A country is where the connection appears
+    to come from, so a VPN shows up as its own."""
+    return SignInCountries(
+        current=country_of(request),
+        countries=await countries_of(session, current_user),
+    )
 
 
 @router.patch(

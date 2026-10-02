@@ -116,3 +116,26 @@ class UserListResponse(BaseModel):
     total: int = Field(description="Total users matching the filters.")
     limit: int
     offset: int
+
+
+class SignInCountry(BaseModel):
+    """One country a user has signed in from."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    country: str = Field(description="Two-letter ISO country code, e.g. `NP`.")
+    first_seen_at: datetime = Field(description="The first sign-in from this country.")
+    last_seen_at: datetime = Field(description="The latest sign-in from this country.")
+    sign_ins: int = Field(description="How many sign-ins came from it.")
+
+
+class SignInCountries(BaseModel):
+    """Where the signed-in user has signed in from."""
+
+    current: str | None = Field(
+        description=(
+            "The country of this request, or null when it is unknown or "
+            "`COUNTRY_HEADER` is not set."
+        )
+    )
+    countries: list[SignInCountry] = Field(description="Most recent first.")

@@ -28,6 +28,34 @@ A user who signed in with a temporary password (`must_change_password: true`)
 gets `403` from everything except `GET /users/me` and `POST /users/me/password`
 until they choose a new one.
 
+### Visitor country
+
+Set `COUNTRY_HEADER` to the name of the header in which a proxy in front of
+Watchly (AWS WAF, CloudFront, Cloudflare...) reports the client's two-letter
+country, and Watchly will:
+
+- **record** each sign-in's country (`GET /users/me/countries`, shown on the
+  Profile page) and **email** the user when it is one they have not signed in
+  from before (`COUNTRY_ALERT_NEW`, on by default; a user's first sign-in only
+  starts their list);
+- **block** with `403` every API request from a country outside
+  `COUNTRY_ALLOW`, or inside `COUNTRY_DENY` (two-letter codes, comma-separated;
+  not both). `/health` is never blocked. A request whose country is unknown
+  (no header, or `XX`/`ZZ`) is let through.
+
+It is off while `COUNTRY_HEADER` is empty. The header is the proxy's word, so
+the proxy must overwrite it and the API must not be reachable around the proxy.
+The country is the address's, so a VPN shows as its own. Only `/api` is
+blocked: the web app's static files are served by nginx.
+
+**AWS WAF:** add a Geo match rule that only counts (action *Count*, which can
+insert request headers) and sets a custom request header from the
+`awswaf:clientip:geo:country:*` label. WAF prefixes inserted headers with
+`x-amzn-waf-`, so with a header called `client-country` set
+`COUNTRY_HEADER=x-amzn-waf-client-country`. **CloudFront** sends
+`CloudFront-Viewer-Country` once the origin request policy forwards it, and
+**Cloudflare** sends `CF-IPCountry`.
+
 Interactive docs run at `/docs` when the app is up. For how the pieces fit
 together, see [`hld.md`](hld.md).
 
@@ -45,6 +73,7 @@ together, see [`hld.md`](hld.md).
 | 5 | `POST` | `/auth/forgot-password` | Email a temporary password; signing in with it leads to choosing a new one (public). |
 | 6 | `POST` | `/auth/confirm-email` | Finish an email change from the link sent to the new address (public). |
 | 7 | `GET` | `/users/me` | Return the signed-in user's own profile. |
+| 7a | `GET` | `/users/me/countries` | The countries you have signed in from, and this request's country (needs `COUNTRY_HEADER`). |
 | 8 | `PATCH` | `/users/me` | Change your own full name. |
 | 9 | `POST` | `/users/me/password` | Change your own password, given the current one. |
 | 10 | `POST` | `/users/me/email` | Ask to change your email; a link is sent to the new address to confirm it. |

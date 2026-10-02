@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
+import { useApi } from '../useApi.js'
 import { Avatar, ErrorBanner, PageHeader, PasswordChecklist, RolePill } from '../components.jsx'
 import { withoutSpaces } from '../fields.js'
 import { isStrongPassword, WEAK_PASSWORD } from '../password.js'
@@ -19,6 +20,12 @@ const ICONS = {
     <>
       <rect x="3.5" y="5.5" width="17" height="13" rx="2" />
       <path d="m4 7 8 6 8-6" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M3.5 12h17M12 3.5c2.4 2.5 3.6 5.3 3.6 8.5s-1.2 6-3.6 8.5c-2.4-2.5-3.6-5.3-3.6-8.5s1.2-6 3.6-8.5Z" />
     </>
   ),
   password: (
@@ -257,6 +264,53 @@ function EmailCard({ user, updateUser }) {
   )
 }
 
+// "NP" as "Nepal"; the code itself if the browser does not know it.
+const countryName = (code) => {
+  try {
+    return new Intl.DisplayNames(undefined, { type: 'region' }).of(code) ?? code
+  } catch {
+    return code
+  }
+}
+
+// Where the account has been signed in from. Left out until the server reads a
+// country (COUNTRY_HEADER), so an install without one never sees it.
+function CountriesCard() {
+  const { data } = useApi(() => api.myCountries(), [])
+  if (!data || (!data.current && data.countries.length === 0)) return null
+  return (
+    <section className="card form">
+      <CardHead
+        icon="globe"
+        title="Sign-in countries"
+        note="Where your sign-ins appear to come from. A VPN shows as its own country."
+      />
+      {data.current && (
+        <div className="profile-current">
+          <span className="muted small">This connection</span>
+          <strong>{countryName(data.current)}</strong>
+        </div>
+      )}
+      {data.countries.length > 0 && (
+        <dl className="profile-fixed">
+          {data.countries.map((entry) => (
+            <div key={entry.country}>
+              <dt>{countryName(entry.country)}</dt>
+              <dd>
+                {entry.sign_ins} {entry.sign_ins === 1 ? 'sign-in' : 'sign-ins'}, last{' '}
+                {timeAgo(entry.last_seen_at)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <p className="muted small">
+        Don&apos;t recognise one of these? Change your password: it signs out every other session.
+      </p>
+    </section>
+  )
+}
+
 const EMPTY_PASSWORDS = { current_password: '', new_password: '', confirm_password: '' }
 
 function PasswordCard({ user }) {
@@ -354,6 +408,7 @@ export default function Profile() {
         <EmailCard user={user} updateUser={updateUser} />
       </div>
       <PasswordCard user={user} />
+      <CountriesCard />
     </>
   )
 }

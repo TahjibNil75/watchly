@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import AlertPreviews from '../AlertPreviews.jsx'
 import { useSignupOpen } from '../auth.jsx'
@@ -5,11 +6,12 @@ import BrandMark, { useBrandMood } from '../BrandMark.jsx'
 import ChannelLogo from '../ChannelLogo.jsx'
 import { CHANNELS } from '../channels.js'
 import { NightReadouts, NightTraces } from '../NightMonitor.jsx'
+import { useMediaQuery } from '../useMediaQuery.js'
 
 // What a signed-out visitor sees at the site's root: what Watchly does, and
 // the way in. Deep links still go to the sign-in form and back. It wears the
-// sign-in page's dark night-shift look. Its sections move with the scroll, and
-// its cards follow the mouse, in index.css.
+// sign-in page's dark night-shift look, and takes the mascot's moods as you
+// scroll (see useMoodJourney below). Its cards follow the mouse, in index.css.
 
 // 24x24 stroke icons, drawn inline like the sidebar's.
 const ICONS = {
@@ -195,6 +197,76 @@ function settle(e) {
 
 const POINTER = { onPointerMove: followPointer, onPointerLeave: settle }
 
+// The page's mood follows the scroll. Each chapter (a [data-mood] block in
+// <main>) names a mood and what the mascot says there; the one at the middle
+// of the screen sets the page's, and the mascot's, glow. The hero is the
+// exception: it keeps the mascot's own clock-driven round, and only hands over
+// once you scroll past it. The scroll also streams the grid floor and drifts
+// each chapter's giant word, so it all runs backwards on the way up.
+// Visitors who ask for reduced motion get the page as it opens, still.
+const JOURNEY_QUERY = '(prefers-reduced-motion: reduce)'
+
+function useMoodJourney() {
+  const main = useRef(null)
+  const floor = useRef(null)
+  const still = useMediaQuery(JOURNEY_QUERY)
+  const [chapter, setChapter] = useState({ mood: 'up', say: '' })
+  useEffect(() => {
+    if (still) return undefined
+    let frame = 0
+    const update = () => {
+      frame = 0
+      const el = main.current
+      if (!el) return
+      const vh = window.innerHeight
+      let current = null
+      for (const c of el.querySelectorAll('[data-mood]')) {
+        const box = c.getBoundingClientRect()
+        if (box.top < vh * 0.5) current = c
+        const ghost = c.querySelector('.landing-ghost')
+        if (ghost) {
+          const through = Math.min(1, Math.max(0, (vh - box.top) / (vh + box.height)))
+          ghost.style.transform = `translate3d(0, ${((through - 0.5) * -220).toFixed(1)}px, 0)`
+        }
+      }
+      if (floor.current) {
+        floor.current.style.backgroundPosition = `0 ${window.scrollY * 0.5}px, 0 ${window.scrollY * 0.5}px, 0 0`
+      }
+      const next = { mood: current?.dataset.mood ?? 'up', say: current?.dataset.say ?? '' }
+      setChapter((old) => (old.mood === next.mood && old.say === next.say ? old : next))
+    }
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update)
+    }
+    update()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+      cancelAnimationFrame(frame)
+    }
+  }, [still])
+  return { chapter, main, floor }
+}
+
+// A chapter of the page: the mood it sets, what the mascot says there, and the
+// giant word behind it. Bands are chapters that are also a stripe.
+function Chapter({ mood, say, word, band, children }) {
+  return (
+    <div
+      className={`landing-chapter${band ? ' landing-band' : ''}`}
+      data-mood={mood}
+      data-say={say}
+    >
+      <span className="landing-ghost" aria-hidden="true">
+        {word}
+      </span>
+      {children}
+    </div>
+  )
+}
+
 function Points({ items }) {
   return (
     <ul className="landing-points">
@@ -248,10 +320,15 @@ function Relay({ down }) {
 
 export default function Landing() {
   // The whole page plays through the mascot's moods, as the sign-in page does:
-  // its glow, and the hero's trace and readouts, change with them.
-  const mood = useBrandMood()
+  // its glow, and the hero's trace and readouts, change with them. In the hero
+  // they follow the clock; below it, the chapter on screen.
+  const clockMood = useBrandMood()
+  const { chapter, main, floor } = useMoodJourney()
+  const inHero = !chapter.say
+  const mood = inHero ? clockMood : chapter.mood
   return (
     <div className={`landing is-${mood}`}>
+      <div className="landing-floor" ref={floor} aria-hidden="true" />
       <header className="landing-nav">
         <nav className="landing-nav-links" aria-label="Page sections">
           <a href="#checks">What it checks</a>
@@ -263,8 +340,8 @@ export default function Landing() {
         </nav>
       </header>
 
-      <main>
-        <div className="landing-hero-wrap" {...POINTER}>
+      <main ref={main}>
+        <div className="landing-hero-wrap" data-mood="up" {...POINTER}>
           <NightTraces />
           <NightReadouts mood={mood} />
           <section className="landing-section landing-hero">
@@ -290,27 +367,29 @@ export default function Landing() {
           </section>
         </div>
 
-        <section className="landing-section" id="checks">
-          <div className="landing-head">
-            <h2>Three ways to watch</h2>
-            <p className="muted">
-              Each check runs on its own interval, and each can be paused, edited or run by hand
-              at any time.
-            </p>
-          </div>
-          <div className="landing-grid">
-            {CHECKS.map((c) => (
-              <article key={c.title} className="landing-card" {...POINTER}>
-                <Icon name={c.icon} />
-                <h3>{c.title}</h3>
-                <p className="muted">{c.lead}</p>
-                <Points items={c.points} />
-              </article>
-            ))}
-          </div>
-        </section>
+        <Chapter mood="slow" say="Hm. That took 2.4 s…" word="SLOW">
+          <section className="landing-section" id="checks">
+            <div className="landing-head">
+              <h2>Three ways to watch</h2>
+              <p className="muted">
+                Each check runs on its own interval, and each can be paused, edited or run by hand
+                at any time.
+              </p>
+            </div>
+            <div className="landing-grid">
+              {CHECKS.map((c) => (
+                <article key={c.title} className="landing-card" {...POINTER}>
+                  <Icon name={c.icon} />
+                  <h3>{c.title}</h3>
+                  <p className="muted">{c.lead}</p>
+                  <Points items={c.points} />
+                </article>
+              ))}
+            </div>
+          </section>
+        </Chapter>
 
-        <div className="landing-band">
+        <Chapter band mood="down" say="Outage! Telling everyone." word="DOWN">
           <section className="landing-section" id="alerts">
             <div className="landing-head">
               <h2>Alerts people act on</h2>
@@ -332,21 +411,23 @@ export default function Landing() {
               ))}
             </div>
           </section>
-        </div>
+        </Chapter>
 
-        <section className="landing-section">
-          <div className="landing-grid landing-grid-2">
-            {TEAM.map((t) => (
-              <article key={t.title} className="landing-card" {...POINTER}>
-                <Icon name={t.icon} />
-                <h3>{t.title}</h3>
-                <Points items={t.points} />
-              </article>
-            ))}
-          </div>
-        </section>
+        <Chapter mood="up" say="Back up. Every check kept." word="UP">
+          <section className="landing-section">
+            <div className="landing-grid landing-grid-2">
+              {TEAM.map((t) => (
+                <article key={t.title} className="landing-card" {...POINTER}>
+                  <Icon name={t.icon} />
+                  <h3>{t.title}</h3>
+                  <Points items={t.points} />
+                </article>
+              ))}
+            </div>
+          </section>
+        </Chapter>
 
-        <div className="landing-band">
+        <Chapter band mood="maint" say="Tinkering. Alerts muted." word="FIX">
           <section className="landing-section" id="how">
             <div className="landing-head">
               <h2>How it works</h2>
@@ -376,8 +457,28 @@ export default function Landing() {
               </span>
             </p>
           </section>
-        </div>
+        </Chapter>
+
+        <Chapter mood="up" say="Back up. You heard first." word="UP">
+          <section className="landing-section landing-closing">
+            <div className="landing-head">
+              <h2>Hear about it first.</h2>
+              <p className="muted">The moment it fails, and again the moment it is fixed.</p>
+            </div>
+            <Actions />
+          </section>
+        </Chapter>
       </main>
+
+      <div className={`landing-buddy${inHero ? ' is-hidden' : ''}`} aria-hidden="true">
+        {!inHero && <i className="landing-ripple" key={chapter.say} />}
+        {!inHero && (
+          <span className="landing-say" key={`say-${chapter.say}`}>
+            {chapter.say}
+          </span>
+        )}
+        <BrandMark mood={mood} />
+      </div>
 
       <footer className="landing-footer">
         <span className="brand">

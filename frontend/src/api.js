@@ -152,6 +152,8 @@ export const api = {
 
   me: () => v1('/users/me'),
   updateMe: (payload) => v1('/users/me', { method: 'PATCH', body: payload }),
+  // Where you have signed in from; empty unless the server reads a country header.
+  myCountries: () => v1('/users/me/countries'),
   changePassword: (payload) => v1('/users/me/password', { method: 'POST', body: payload }),
   // A new address only takes over once the link emailed to it is opened;
   // confirmEmail is that link's call, and needs no sign-in.

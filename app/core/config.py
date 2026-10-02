@@ -4,7 +4,7 @@ import re
 from functools import lru_cache
 from typing import Annotated, NamedTuple
 
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -16,6 +16,7 @@ class RateLimit(NamedTuple):
 
 
 _RATE_LIMIT = re.compile(r"(\d+)\s*/\s*(\d*)\s*(second|minute|hour|day)s?", re.IGNORECASE)
+_COUNTRY_CODE = re.compile(r"[A-Z]{2}")
 _RATE_LIMIT_UNITS = {"second": 1, "minute": 60, "hour": 3600, "day": 86_400}
 
 
@@ -99,6 +100,26 @@ class Settings(BaseSettings):
     #: Accounts asked for with `POST /account-requests`, whichever addresses
     #: they name: each new one emails every admin and DevOps user.
     RATE_LIMIT_ACCOUNT_REQUESTS: Annotated[RateLimit, NoDecode] = RateLimit(5, 3600)
+
+    # --- Visitor country ------------------------------------------------
+    #: Name of the request header in which whatever sits in front of Watchly
+    #: (AWS WAF, CloudFront, Cloudflare...) puts the visitor's two-letter
+    #: country code, e.g. `X-Client-Country`. Empty turns the feature off: no
+    #: country is read, recorded or blocked. Anyone who can reach Watchly
+    #: without passing through that proxy could send the header themselves, so
+    #: the proxy must overwrite it and nothing else may reach the API.
+    COUNTRY_HEADER: str = ""
+    #: Only these countries may use the API; anyone else gets 403. Empty allows
+    #: everyone. Two-letter codes, comma-separated. A request whose country is
+    #: unknown (no header, or a code like `XX`) is always let through, so a
+    #: proxy that stops sending the header cannot lock everyone out.
+    #: NoDecode: see ALERT_DEFAULT_EMAILS.
+    COUNTRY_ALLOW: Annotated[list[str], NoDecode] = []
+    #: These countries get 403 from the API. Cannot be set with COUNTRY_ALLOW.
+    COUNTRY_DENY: Annotated[list[str], NoDecode] = []
+    #: Email a user when they sign in from a country they have not signed in
+    #: from before. Their first sign-in only starts the list.
+    COUNTRY_ALERT_NEW: bool = True
 
     # --- Monitoring -----------------------------------------------------
     MONITORING_ENABLED: bool = True
@@ -263,6 +284,31 @@ class Settings(BaseSettings):
                 return json.loads(value)
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("COUNTRY_ALLOW", "COUNTRY_DENY", mode="before")
+    @classmethod
+    def _split_countries(cls, value: object, info: ValidationInfo) -> object:
+        """Accept `NP,IN` as well as a JSON list; returned upper-case."""
+        if isinstance(value, str):
+            if value.strip().startswith("["):
+                value = json.loads(value)
+            else:
+                value = [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            codes = [str(item).strip().upper() for item in value]
+            for code in codes:
+                if not _COUNTRY_CODE.fullmatch(code):
+                    raise ValueError(
+                        f"{info.field_name} entry {code!r} is not a two-letter country code"
+                    )
+            return list(dict.fromkeys(codes))
+        return value
+
+    @model_validator(mode="after")
+    def _allow_or_deny(self) -> "Settings":
+        if self.COUNTRY_ALLOW and self.COUNTRY_DENY:
+            raise ValueError("set COUNTRY_ALLOW or COUNTRY_DENY, not both")
+        return self
 
     @field_validator("SSL_EXPIRY_ALERT_DAYS", "DOMAIN_EXPIRY_ALERT_DAYS", mode="before")
     @classmethod

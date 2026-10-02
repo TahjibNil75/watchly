@@ -7,6 +7,7 @@ from fastapi import (
     Cookie,
     Depends,
     HTTPException,
+    Request,
     Response,
     status,
 )
@@ -18,6 +19,7 @@ from app.auth.cookies import (
     clear_refresh_cookie,
     set_refresh_cookie,
 )
+from app.auth.countries import record_sign_in, send_new_country_email
 from app.auth.dependencies import get_auth_service
 from app.auth.mail import send_temporary_password, temporary_password_email
 from app.auth.schemas import (
@@ -40,6 +42,7 @@ from app.auth.service import (
     UserAlreadyExistsError,
 )
 from app.core.config import settings
+from app.core.geo import country_of
 from app.core.rate_limit import RATE_LIMITED, rate_limit
 from app.db.models.user import User
 from app.db.session import get_db
@@ -74,6 +77,22 @@ async def issue_tokens(
     return access_token_for(user)
 
 
+async def note_country(
+    request: Request,
+    user: User,
+    service: AuthService,
+    background: BackgroundTasks,
+) -> None:
+    """Record where `user` signed in from, and email them if it is a new
+    country. Does nothing without a known country (see `COUNTRY_HEADER`)."""
+    country = country_of(request)
+    if country is None:
+        return
+    is_new = await record_sign_in(service.session, user, country)
+    if is_new and settings.COUNTRY_ALERT_NEW:
+        background.add_task(send_new_country_email, user, country)
+
+
 @router.post(
     "/signup",
     response_model=SignupResponse,
@@ -88,7 +107,9 @@ async def issue_tokens(
 )
 async def signup(
     payload: SignupRequest,
+    request: Request,
     response: Response,
+    background: BackgroundTasks,
     service: AuthService = Depends(get_auth_service),
 ) -> SignupResponse:
     """Create the first account on a fresh install as `Admin` and sign them
@@ -110,6 +131,7 @@ async def signup(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
 
+    await note_country(request, user, service, background)
     return SignupResponse(
         user=UserRead.model_validate(user),
         tokens=await issue_tokens(user, service, response),
@@ -145,7 +167,9 @@ async def signup_status(
 )
 async def login(
     payload: LoginRequest,
+    request: Request,
     response: Response,
+    background: BackgroundTasks,
     service: AuthService = Depends(get_auth_service),
 ) -> LoginResponse:
     """Authenticate against `username` or `email`. Returns an access token and
@@ -162,6 +186,10 @@ async def login(
     Separately, each client may try `RATE_LIMIT_LOGIN` times, right or wrong,
     whichever accounts (`429` past that), so it cannot try a few passwords on
     every account instead.
+
+    With `COUNTRY_HEADER` set, the country the proxy reports is recorded (see
+    `GET /users/me/countries`), and the user is emailed when it is one they
+    have not signed in from before.
     """
     try:
         user = await service.authenticate(payload.identifier, payload.password)
@@ -183,6 +211,7 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
         ) from exc
 
+    await note_country(request, user, service, background)
     return LoginResponse(
         user=UserRead.model_validate(user),
         tokens=await issue_tokens(user, service, response),

@@ -7,6 +7,7 @@ from app import __version__
 from app.account_requests.routes import router as account_requests_router
 from app.auth.routes import router as auth_router
 from app.core.config import settings
+from app.core.geo import block_countries
 from app.core.handlers import register_exception_handlers
 from app.db.session import engine
 from app.invitations.routes import router as invitations_router
@@ -45,6 +46,7 @@ app = FastAPI(
 )
 
 register_exception_handlers(app)
+app.middleware("http")(block_countries)
 
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 app.include_router(user_router, prefix=settings.API_V1_PREFIX)
