@@ -189,8 +189,8 @@ def content_rule_problem(website: Website) -> WebsiteContentRuleError | None:
     return None
 
 
-#: What a site learned about its host's certificate and domain, forgotten
-#: when its `url` changes.
+#: What a site learned about its host (certificate, domain, CDN, server),
+#: forgotten when its `url` changes.
 _HOST_STATE = (
     "ssl_expires_at",
     "ssl_checked_at",
@@ -215,6 +215,8 @@ _HOST_STATE = (
     "security_checked_at",
     "cdn",
     "cdn_checked_at",
+    "server",
+    "server_checked_at",
 )
 
 

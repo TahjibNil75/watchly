@@ -223,6 +223,13 @@ class Settings(BaseSettings):
     CDN_CHECK_ENABLED: bool = True
     #: How often that is re-read. Putting a CDN in front moves in days.
     CDN_CHECK_INTERVAL_SECONDS: int = 21_600
+    #: Look up where each HTTP site is served from: the address it answered on,
+    #: its network (ASN, over Team Cymru's DNS service) and reverse name. Sends
+    #: that address, in a DNS query, to Team Cymru. Shown on the site's page;
+    #: never alerts.
+    SERVER_CHECK_ENABLED: bool = True
+    #: How often that is re-read, besides whenever a new address answers.
+    SERVER_CHECK_INTERVAL_SECONDS: int = 86_400
     #: Look up when each site's domain registration ends (over RDAP, from the
     #: registry) and warn before it lapses.
     DOMAIN_CHECK_ENABLED: bool = True

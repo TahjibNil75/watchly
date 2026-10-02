@@ -32,6 +32,8 @@ from app.monitoring.websites.cdn import detect as detect_cdn
 from app.monitoring.websites.dns_probe import DnsResult, configured_resolvers, lookup
 from app.monitoring.websites.models import CheckType, DnsRecordType, Website
 from app.monitoring.websites.pinger import PingStats, ping
+from app.monitoring.websites.server_info import ServerInfo
+from app.monitoring.websites.server_info import lookup as lookup_server
 from app.monitoring.websites.security_headers import capture as capture_security_headers
 from app.monitoring.websites.domain_lookup import DomainInfo, lookup_domain, lookup_host
 
@@ -50,6 +52,7 @@ DIAGNOSTIC_HEADERS = (
     "cf-ray",
     "content-encoding",
     "server-timing",
+    "alt-svc",
 )
 
 #: Hops kept of a redirect chain, and certificates kept of a presented chain.
@@ -87,6 +90,9 @@ class _Stopwatch:
     def __init__(self) -> None:
         self._totals: dict[str, float] = {}
         self._started: dict[str, float] = {}
+        #: The address the probe's first connection went to; None when it
+        #: reused one opened earlier.
+        self.address: str | None = None
 
     def add(self, step: str, seconds: float) -> None:
         self._totals[step] = self._totals.get(step, 0.0) + seconds
@@ -111,6 +117,15 @@ class _Stopwatch:
 #: The stopwatch of the probe running in this task. One backend serves every
 #: probe on a client, so this is how it knows whose connection it is timing.
 _stopwatch: ContextVar[_Stopwatch | None] = ContextVar("check_stopwatch", default=None)
+
+
+def _peer_address(stream) -> str | None:
+    """The IP address a connected stream is joined to, if it says."""
+    try:
+        peer = stream.get_extra_info("server_addr")
+    except Exception:  # noqa: BLE001 - a hint; some streams do not offer it
+        return None
+    return str(peer[0]) if peer else None
 
 
 def _connect_order(infos: list) -> list[str]:
@@ -164,6 +179,8 @@ class _TimedBackend(httpcore.AsyncNetworkBackend):
                     _connect_order(infos), port, local_address, socket_options
                 )
                 stopwatch.add("connect_ms", time.perf_counter() - resolved)
+                if stopwatch.address is None:
+                    stopwatch.address = _peer_address(stream)
                 return stream
         except TimeoutError as exc:
             raise httpcore.ConnectTimeout(str(exc)) from exc
@@ -292,6 +309,12 @@ class CheckResult:
     #: Set only on the HTTP checks that came up and were due to look for a
     #: CDN; see `cdn_check_due`. None means "not looked at".
     cdn: CdnInfo | None = None
+    #: HTTP checks that got a response: the address its host answered on (the
+    #: first hop's, when redirected). None when unknown.
+    ip_address: str | None = None
+    #: Set only on the HTTP checks that came up and were due to look up the
+    #: server; see `server_check_due`. None means "not looked at".
+    server: ServerInfo | None = None
     #: Set only on ping checks that got as far as sending.
     ping: PingStats | None = None
     #: Set on every DNS check: what each resolver answered.
@@ -383,6 +406,24 @@ def cdn_check_due(website: Website, now: datetime | None = None) -> bool:
         return True
     elapsed = ((now or datetime.now(UTC)) - website.cdn_checked_at).total_seconds()
     return elapsed >= settings.CDN_CHECK_INTERVAL_SECONDS
+
+
+def server_check_due(website: Website, ip: str | None, now: datetime | None = None) -> bool:
+    """Whether this check should also look up the server behind `ip`: the first
+    time, whenever an address not seen before answers, then every
+    SERVER_CHECK_INTERVAL_SECONDS. It rides on a successful response."""
+    if (
+        not settings.SERVER_CHECK_ENABLED
+        or website.check_type is not CheckType.HTTP
+        or ip is None
+    ):
+        return False
+    if website.server_checked_at is None or not website.server:
+        return True
+    if ip not in website.server.get("ips_seen", []):
+        return True
+    elapsed = ((now or datetime.now(UTC)) - website.server_checked_at).total_seconds()
+    return elapsed >= settings.SERVER_CHECK_INTERVAL_SECONDS
 
 
 def domain_check_due(website: Website, now: datetime | None = None) -> bool:
@@ -641,6 +682,16 @@ async def _dns_probe(
     )
 
 
+def _response_address(response: httpx.Response, stopwatch: _Stopwatch) -> str | None:
+    """The IP address the site's own host answered on: the first hop's, so a
+    redirect to another host does not stand in for it. Read off the response's
+    connection, which still works when the connection was reused; failing
+    that, off the first connection the probe opened."""
+    first = response.history[0] if response.history else response
+    stream = first.extensions.get("network_stream")
+    return (_peer_address(stream) if stream is not None else None) or stopwatch.address
+
+
 async def _http_probe(
     website: Website, client: httpx.AsyncClient | None = None
 ) -> CheckResult:
@@ -685,6 +736,7 @@ async def _http_probe(
             else content_problem(website, response)
         )
         is_up = status_ok and problem is None
+        ip = _response_address(response, stopwatch)
         return CheckResult(
             is_up=is_up,
             checked_at=checked_at,
@@ -720,6 +772,16 @@ async def _http_probe(
             cdn=(
                 await detect_cdn(str(response.url), response.headers)
                 if is_up and cdn_check_due(website, checked_at)
+                else None
+            ),
+            ip_address=ip,
+            server=(
+                await lookup_server(
+                    ip,
+                    response.headers.get("alt-svc"),
+                    (website.server or {}).get("ips_seen"),
+                )
+                if is_up and server_check_due(website, ip, checked_at)
                 else None
             ),
             timings=stopwatch.timings(),

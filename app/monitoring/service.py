@@ -262,7 +262,7 @@ class MonitoringService:
             rtt_avg_ms=ping.avg_ms if ping else None,
             rtt_max_ms=ping.max_ms if ping else None,
             jitter_ms=ping.jitter_ms if ping else None,
-            ip_address=ping.address if ping else None,
+            ip_address=ping.address if ping else result.ip_address,
             dns=result.dns.as_dict() if result.dns else None,
         )
         self.session.add(check)
@@ -288,6 +288,9 @@ class MonitoringService:
         if result.cdn is not None:
             website.cdn = result.cdn.as_dict()
             website.cdn_checked_at = result.checked_at
+        if result.server is not None:
+            website.server = result.server.as_dict()
+            website.server_checked_at = result.checked_at
         events: list[Notification] = []
 
         if result.is_up:

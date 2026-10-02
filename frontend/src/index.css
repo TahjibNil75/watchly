@@ -3195,12 +3195,32 @@ strong + .badge {
   color: var(--muted);
 }
 
-/* Data on the left, settings on the right. */
-.site-layout {
+/* Cards that share a row share a top and a bottom edge: the grid stretches
+   the shorter ones to the tallest. */
+.site-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  column-gap: 20px;
-  align-items: start;
+  gap: 20px;
+  margin-bottom: 20px;
+  align-items: stretch;
+}
+.site-row > .card {
+  min-width: 0;
+  margin-bottom: 0;
+}
+.site-pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+/* The footers line up along the bottom edge. */
+.site-pair > .card {
+  display: flex;
+  flex-direction: column;
+}
+.site-pair > .card > .sec-foot {
+  margin-top: auto;
+  padding-top: 12px;
+}
+.site-trio {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 /* The certificate and the domain: one card, split down the middle. */
 .site-registry {
@@ -3230,37 +3250,39 @@ strong + .badge {
   margin: 0 0 12px;
 }
 
-/* Settings in the narrow column: labels take less room, and the
-   maintenance controls stack. */
+/* Three settings cards across: labels take less room, and the maintenance
+   controls stack. */
 @container site (min-width: 1001px) {
-  .site-side .kv > div {
+  .site-trio .kv > div {
     grid-template-columns: 120px minmax(0, 1fr);
   }
-  .site-side .maint-row .maint-grow {
+  .site-trio .maint-row .maint-grow {
     flex: 1 1 0;
   }
-  .site-side .maint-row .btn {
+  .site-trio .maint-row .btn {
     flex: 1 1 100%;
   }
-  .site-side .row-3 {
+  .site-trio .row-3 {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-/* Stacked, the data comes first, then the settings, two up. */
+/* Narrower: maintenance across the top, configuration and alerting under it. */
 @container site (max-width: 1000px) {
-  .site-layout {
+  .site-trio {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .site-trio > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+@container site (max-width: 800px) {
+  .site-pair {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-@container site (min-width: 641px) and (max-width: 1000px) {
-  .site-side-pair {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 20px;
-    margin-bottom: 20px;
-  }
-  .site-side-pair > .card {
-    margin-bottom: 0;
+@container site (max-width: 640px) {
+  .site-trio {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 @container site (max-width: 640px) {
@@ -4140,6 +4162,9 @@ strong + .badge {
 .card-head p {
   margin: 2px 0 0;
 }
+.card-head + .kv {
+  margin-top: 12px;
+}
 .card-icon {
   flex: none;
   display: grid;
@@ -4413,6 +4438,52 @@ tbody tr:hover td {
 }
 .series-2 {
   --series: var(--series-2);
+}
+.chart .stack-dns_ms,
+.swatch.stack-dns_ms {
+  fill: var(--series-1);
+  background: var(--series-1);
+}
+.chart .stack-connect_ms,
+.swatch.stack-connect_ms {
+  fill: var(--series-2);
+  background: var(--series-2);
+}
+.chart .stack-tls_ms,
+.swatch.stack-tls_ms {
+  fill: var(--teal);
+  background: var(--teal);
+}
+.chart .stack-first_byte_ms,
+.swatch.stack-first_byte_ms {
+  fill: var(--tag-pink);
+  background: var(--tag-pink);
+}
+/* Two or three options, one chosen: a view switch. */
+.segmented {
+  display: inline-flex;
+  margin-bottom: 10px;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.segmented-btn {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 4px 12px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.segmented-btn.active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 .chart-legend {
   display: flex;

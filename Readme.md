@@ -41,6 +41,8 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **Security headers**: each website's HSTS, CSP, X-Frame-Options, X-Content-Type-Options and Referrer-Policy, graded A to F; Permissions-Policy and the Cross-Origin policies are listed alongside
 - **CDN detection**: whether a site is served through Cloudflare, CloudFront, Fastly, Akamai, Vercel, Netlify and others, with the evidence (headers, DNS aliases) and whether a cache answered
 - **Network details**: for each check, where the time went (DNS, connect, TLS, first byte), the redirect chain, response size and headers; for each certificate, its cipher, HTTP/2 support and chain
+- **Server details**: the address a site answers on, its network (ASN and owner), reverse DNS and HTTP/2 and HTTP/3 support
+- **Response-time history**: median, 95th and 99th percentile and slowest response per range, and for HTTP sites a chart of where the time goes (DNS, connect, TLS, first byte) kept after the raw checks are purged
 - **Maintenance windows**: start one from a site's page for a deployment ("Start maintenance for 30 min" / "End now") or schedule one ahead; no checks or alerts until it ends
 - **Alerts where your team works**: email (any SMTP provider), Slack, Telegram, WhatsApp and generic webhooks
 - **Projects and recipients**: each project's members hear about all of its sites, and each site can add its own recipients
@@ -96,6 +98,16 @@ own.
 <p align="center">
   <img src="doc/images/features.png" alt="Website, server and DNS checks, and the alerting features" width="900">
   <br><em>Website, server and DNS checks, with alerts by email, Slack, Telegram, WhatsApp and webhook</em>
+</p>
+
+<p align="center">
+  <img src="doc/images/site-history.png" alt="A website's page with its uptime history, response-time percentiles and the time-breakdown chart" width="900">
+  <br><em>A website's page: uptime history, median, 95th and 99th percentile, and where each check's time goes</em>
+</p>
+
+<p align="center">
+  <img src="doc/images/site-cards.png" alt="The Server, CDN and security headers cards, with maintenance, configuration and alerting settings below" width="900">
+  <br><em>Server, CDN and security headers side by side, with maintenance, configuration and alerting underneath</em>
 </p>
 
 <p align="center">

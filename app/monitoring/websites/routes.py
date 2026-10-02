@@ -550,7 +550,11 @@ async def website_stats(
     stats = await HistoryService(service.session).stats(website_id, range_)
     if format_ is StatsFormat.CSV:
         return csv_response(
-            stats_csv(stats, packet_loss=website.check_type is CheckType.PING),
+            stats_csv(
+                stats,
+                packet_loss=website.check_type is CheckType.PING,
+                steps=website.check_type is CheckType.HTTP,
+            ),
             f"watchly-site-{website_id}-{range_.value}.csv",
         )
     return stats

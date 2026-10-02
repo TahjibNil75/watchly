@@ -31,17 +31,25 @@ def _render(header: list[str], rows: list[list]) -> str:
     return out.getvalue()
 
 
-def stats_csv(stats: WebsiteStats, *, packet_loss: bool = False) -> str:
+def stats_csv(
+    stats: WebsiteStats, *, packet_loss: bool = False, steps: bool = False
+) -> str:
     """One row per bucket, oldest first, including empty ones (blank figures).
-    `packet_loss` adds a column for it, for a ping check."""
+    `packet_loss` adds a column for it, for a ping check; `steps` adds the
+    average time of each step of the request, for an HTTP check."""
     header = [
         "bucket_start_utc",
         "checks",
         "up_checks",
         "uptime_percent",
         "avg_response_ms",
+        "p50_response_ms",
         "p95_response_ms",
+        "p99_response_ms",
+        "max_response_ms",
     ]
+    if steps:
+        header += ["avg_dns_ms", "avg_connect_ms", "avg_tls_ms", "avg_first_byte_ms"]
     if packet_loss:
         header.append("packet_loss_percent")
     rows = []
@@ -52,8 +60,18 @@ def stats_csv(stats: WebsiteStats, *, packet_loss: bool = False) -> str:
             b.up_checks,
             _cell(b.uptime_percent),
             _cell(b.avg_response_ms),
+            _cell(b.p50_response_ms),
             _cell(b.p95_response_ms),
+            _cell(b.p99_response_ms),
+            _cell(b.max_response_ms),
         ]
+        if steps:
+            row += [
+                _cell(b.avg_dns_ms),
+                _cell(b.avg_connect_ms),
+                _cell(b.avg_tls_ms),
+                _cell(b.avg_first_byte_ms),
+            ]
         if packet_loss:
             row.append(_cell(b.packet_loss_percent))
         rows.append(row)

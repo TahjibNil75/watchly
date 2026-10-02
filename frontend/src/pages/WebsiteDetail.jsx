@@ -85,6 +85,7 @@ const hasDetails = (c) =>
   STEPS.some(([key]) => c[key] != null) ||
   c.redirects?.length > 0 ||
   c.content_length != null ||
+  c.ip_address != null ||
   Object.keys(c.headers ?? {}).length > 0
 
 // One check's time as a bar split by step, with whatever is left over
@@ -158,8 +159,16 @@ function CheckDetails({ check: c }) {
           </ol>
         </div>
       )}
-      {(c.content_length != null || headers.length > 0) && (
+      {(c.content_length != null || c.ip_address != null || headers.length > 0) && (
         <dl className="kv">
+          {c.ip_address != null && (
+            <div>
+              <dt>Server address</dt>
+              <dd>
+                <code>{c.ip_address}</code>
+              </dd>
+            </div>
+          )}
           {c.content_length != null && (
             <div>
               <dt>Response size</dt>
@@ -728,6 +737,114 @@ function CdnCard({ site: s }) {
   )
 }
 
+// "United States (US)"; the bare code where the browser cannot name it.
+function countryName(code) {
+  try {
+    const name = new Intl.DisplayNames(undefined, { type: 'region' }).of(code)
+    return name && name !== code ? `${name} (${code})` : code
+  } catch {
+    return code
+  }
+}
+
+// What an HTTP site is served from: the address it answered on, whose network
+// that is and what the address is called.
+function ServerCard({ site: s }) {
+  const server = s.server
+  const h2 = s.ssl_alpn === 'h2'
+  const protocols = [h2 && 'HTTP/2', server?.h3 && 'HTTP/3'].filter(Boolean)
+  const others = (server?.ips_seen ?? []).filter((ip) => ip !== server.ip)
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>Server</h2>
+        {server && <span className="badge badge-paused">IPv{server.version}</span>}
+      </div>
+      {!server ? (
+        <p className="muted small">Read with the next check that comes up.</p>
+      ) : (
+        <>
+          <dl className="kv">
+            <div>
+              <dt>Address</dt>
+              <dd>
+                <code>{server.ip}</code>
+              </dd>
+            </div>
+            {server.ptr && (
+              <div>
+                <dt>Reverse DNS</dt>
+                <dd className="truncate" title={server.ptr}>
+                  {server.ptr}
+                </dd>
+              </div>
+            )}
+            {server.asn != null && (
+              <div>
+                <dt>Network</dt>
+                <dd>
+                  AS{server.asn}
+                  {server.as_name && <span className="muted"> · {server.as_name}</span>}
+                </dd>
+              </div>
+            )}
+            {server.prefix && (
+              <div>
+                <dt>Range</dt>
+                <dd>
+                  <code>{server.prefix}</code>
+                </dd>
+              </div>
+            )}
+            {server.country && (
+              <div>
+                <dt>Registered in</dt>
+                <dd>
+                  {countryName(server.country)}
+                  {server.registry && (
+                    <span className="muted small"> · {server.registry.toUpperCase()}</span>
+                  )}
+                </dd>
+              </div>
+            )}
+            <div>
+              <dt>Protocols</dt>
+              <dd>
+                {protocols.length ? (
+                  protocols.map((p) => (
+                    <span key={p} className="chip">
+                      {p}
+                    </span>
+                  ))
+                ) : (
+                  <span className="muted">HTTP/1.1 only</span>
+                )}
+              </dd>
+            </div>
+            {others.length > 0 && (
+              <div className="kv-stack">
+                <dt>Also answered on</dt>
+                <dd>
+                  <div className="ns-list">
+                    {others.map((ip) => (
+                      <code key={ip}>{ip}</code>
+                    ))}
+                  </div>
+                </dd>
+              </div>
+            )}
+          </dl>
+          <p className="muted small sec-foot">
+            The country is where the address block is registered, which a CDN or anycast address
+            can answer from elsewhere. Last read{' '}
+            <span title={dateTime(s.server_checked_at)}>{timeAgo(s.server_checked_at)}</span>.
+          </p>
+        </>
+      )}
+    </section>
+  )
+}
+
 // How the last successful response's security headers grade, one row each.
 function SecurityHeaders({ site: s }) {
   const report = s.security
@@ -1254,230 +1371,229 @@ export default function WebsiteDetail() {
       <div className="site-body">
         <SiteStats site={s} latest={checks.data?.[0]} day={day.data} month={month.data} />
 
-        <div className="site-layout">
-          <div className="site-main">
-            {dns && !checks.loading && <Resolvers check={checks.data?.[0]} />}
+        {dns && !checks.loading && <Resolvers check={checks.data?.[0]} />}
 
-            <SiteHistory websiteId={s.id} ping={ping} dns={dns} />
+        <SiteHistory websiteId={s.id} ping={ping} dns={dns} />
 
-            <Registration site={s} />
+        <Registration site={s} />
 
-            {!ping && !dns && <CdnCard site={s} />}
+        {/* Equal-height rows: the cards in a row share a top and a bottom edge. */}
+        {!ping && !dns && (
+          <>
+            <div className="site-row site-pair">
+              <ServerCard site={s} />
+              <CdnCard site={s} />
+            </div>
+            <SecurityHeaders site={s} />
+          </>
+        )}
 
-            {!ping && !dns && <SecurityHeaders site={s} />}
+        <div className="site-row site-trio">
+          <Maintenance
+            site={s}
+            canManage={canManage}
+            onChange={site.setData}
+            onBoundary={site.reload}
+          />
 
-          </div>
-
-          <aside className="site-side">
-            <Maintenance
-              site={s}
-              canManage={canManage}
-              onChange={site.setData}
-              onBoundary={site.reload}
-            />
-
-            <div className="site-side-pair">
-              <section className="card">
-                <h2>Configuration</h2>
-                <dl className="kv">
+          <section className="card">
+            <h2>Configuration</h2>
+            <dl className="kv">
+              <div>
+                <dt>Interval</dt>
+                <dd>every {duration(s.check_interval_seconds)}</dd>
+              </div>
+              {ping ? (
+                <>
                   <div>
-                    <dt>Interval</dt>
-                    <dd>every {duration(s.check_interval_seconds)}</dd>
-                  </div>
-                  {ping ? (
-                    <>
-                      <div>
-                        <dt>Check</dt>
-                        <dd>
-                          ICMP ping, {s.ping_count} {s.ping_count === 1 ? 'ping' : 'pings'}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Reply timeout</dt>
-                        <dd>{s.timeout_seconds}s</dd>
-                      </div>
-                      <div>
-                        <dt>Packet loss alert at</dt>
-                        <dd>
-                          {s.packet_loss_threshold_percent
-                            ? `${s.packet_loss_threshold_percent}%`
-                            : 'server default'}
-                        </dd>
-                      </div>
-                    </>
-                  ) : dns ? (
-                    <>
-                      <div>
-                        <dt>Check</dt>
-                        <dd>{s.dns_record_type} record lookup</dd>
-                      </div>
-                      <div>
-                        <dt>Resolver timeout</dt>
-                        <dd>{s.timeout_seconds}s</dd>
-                      </div>
-                      <div>
-                        <dt>Expected</dt>
-                        <dd>
-                          {s.dns_expected_values.length
-                            ? recordsText(s.dns_record_type, s.dns_expected_values)
-                            : 'nothing pinned: alerts when the records change'}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Last agreed</dt>
-                        <dd className="truncate">
-                          {s.dns_records
-                            ? recordsText(s.dns_record_type, s.dns_records)
-                            : 'not learned yet'}
-                        </dd>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <dt>Request</dt>
-                        <dd>
-                          {s.method}, expects {s.expected_status}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Timeout</dt>
-                        <dd>{s.timeout_seconds}s</dd>
-                      </div>
-                    </>
-                  )}
-                  <div>
-                    <dt>Alerts per outage</dt>
-                    <dd>{s.max_down_alerts}</dd>
-                  </div>
-                  <div>
-                    <dt>Retries</dt>
-                    <dd>{s.retries_on_failure}</dd>
-                  </div>
-                  {s.must_contain && (
-                    <div>
-                      <dt>Contains</dt>
-                      <dd className="truncate">{s.must_contain}</dd>
-                    </div>
-                  )}
-                  {s.must_not_contain && (
-                    <div>
-                      <dt>Does not contain</dt>
-                      <dd className="truncate">{s.must_not_contain}</dd>
-                    </div>
-                  )}
-                  {s.request_headers?.length > 0 && (
-                    <div>
-                      <dt>Request headers</dt>
-                      {/* Names only: the values may be secrets. */}
-                      <dd className="truncate">
-                        {s.request_headers.map((h) => h.name).join(', ')}
-                      </dd>
-                    </div>
-                  )}
-                  <div>
-                    <dt>
-                      {ping
-                        ? 'Latency alert above'
-                        : dns
-                          ? 'Slow answer alert above'
-                          : 'Slow after'}
-                    </dt>
-                    <dd>{s.slow_threshold_ms ? `${s.slow_threshold_ms} ms` : 'server default'}</dd>
-                  </div>
-                  <div>
-                    <dt>Monitoring since</dt>
-                    <dd>{dateTime(s.created_at)}</dd>
-                  </div>
-                </dl>
-              </section>
-
-              <section className="card">
-                <h2>Alerting</h2>
-                <dl className="kv">
-                  <div>
-                    <dt>Channels</dt>
+                    <dt>Check</dt>
                     <dd>
-                      {s.alert_channels.length
-                        ? s.alert_channels.map((c) => (
-                            <span key={c} className="chip">
-                              {c}
-                            </span>
-                          ))
-                        : '—'}
+                      ICMP ping, {s.ping_count} {s.ping_count === 1 ? 'ping' : 'pings'}
                     </dd>
                   </div>
                   <div>
-                    <dt>Project recipients</dt>
-                    <dd>{s.inherit_project_recipients ? 'included' : 'not included'}</dd>
+                    <dt>Reply timeout</dt>
+                    <dd>{s.timeout_seconds}s</dd>
                   </div>
                   <div>
-                    <dt>Extra emails</dt>
-                    <dd>{s.alert_emails.length ? s.alert_emails.join(', ') : '—'}</dd>
+                    <dt>Packet loss alert at</dt>
+                    <dd>
+                      {s.packet_loss_threshold_percent
+                        ? `${s.packet_loss_threshold_percent}%`
+                        : 'server default'}
+                    </dd>
                   </div>
-                  {(s.slack_channel_id || s.alert_channels.includes('slack')) && (
-                    <div>
-                      <dt>Slack</dt>
-                      <dd>
-                        {s.slack_channel_id ?? "project's channel"} ·{' '}
-                        {s.slack_token_hint ? `own bot (${s.slack_token_hint})` : "project's bot"}
-                      </dd>
-                    </div>
-                  )}
-                  {(s.telegram_chat_id || s.alert_channels.includes('telegram')) && (
-                    <div>
-                      <dt>Telegram</dt>
-                      <dd>
-                        {s.telegram_chat_id ?? "project's chat"} ·{' '}
-                        {s.telegram_token_hint
-                          ? `own bot (${s.telegram_token_hint})`
-                          : "project's bot"}
-                      </dd>
-                    </div>
-                  )}
-                  {(s.whatsapp_recipients.length > 0 || s.alert_channels.includes('whatsapp')) && (
-                    <div>
-                      <dt>WhatsApp</dt>
-                      <dd>
-                        {s.whatsapp_recipients.length
-                          ? s.whatsapp_recipients.join(', ')
-                          : "project's numbers"}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-                <h3>Site recipients</h3>
-                <p className="muted small">
-                  Recipients can see this site and its checks, even if they aren&apos;t in its
-                  project.
-                </p>
-                <PersonList
-                  people={s.recipients}
-                  onRemove={canManage ? removeRecipient : null}
-                  emptyLabel="No users are alerted about this site specifically."
-                />
-                {canManage && candidates.length > 0 && (
-                  <details className="advanced">
-                    <summary>Add recipients</summary>
-                    <UserChecklist users={candidates} selected={adding} onChange={setAdding} />
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      onClick={addRecipients}
-                      disabled={busy || !adding.length}
-                    >
-                      Add {adding.length || ''} selected
-                    </button>
-                  </details>
-                )}
-              </section>
-            </div>
+                </>
+              ) : dns ? (
+                <>
+                  <div>
+                    <dt>Check</dt>
+                    <dd>{s.dns_record_type} record lookup</dd>
+                  </div>
+                  <div>
+                    <dt>Resolver timeout</dt>
+                    <dd>{s.timeout_seconds}s</dd>
+                  </div>
+                  <div>
+                    <dt>Expected</dt>
+                    <dd>
+                      {s.dns_expected_values.length
+                        ? recordsText(s.dns_record_type, s.dns_expected_values)
+                        : 'nothing pinned: alerts when the records change'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Last agreed</dt>
+                    <dd className="truncate">
+                      {s.dns_records
+                        ? recordsText(s.dns_record_type, s.dns_records)
+                        : 'not learned yet'}
+                    </dd>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <dt>Request</dt>
+                    <dd>
+                      {s.method}, expects {s.expected_status}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Timeout</dt>
+                    <dd>{s.timeout_seconds}s</dd>
+                  </div>
+                </>
+              )}
+              <div>
+                <dt>Alerts per outage</dt>
+                <dd>{s.max_down_alerts}</dd>
+              </div>
+              <div>
+                <dt>Retries</dt>
+                <dd>{s.retries_on_failure}</dd>
+              </div>
+              {s.must_contain && (
+                <div>
+                  <dt>Contains</dt>
+                  <dd className="truncate">{s.must_contain}</dd>
+                </div>
+              )}
+              {s.must_not_contain && (
+                <div>
+                  <dt>Does not contain</dt>
+                  <dd className="truncate">{s.must_not_contain}</dd>
+                </div>
+              )}
+              {s.request_headers?.length > 0 && (
+                <div>
+                  <dt>Request headers</dt>
+                  {/* Names only: the values may be secrets. */}
+                  <dd className="truncate">
+                    {s.request_headers.map((h) => h.name).join(', ')}
+                  </dd>
+                </div>
+              )}
+              <div>
+                <dt>
+                  {ping
+                    ? 'Latency alert above'
+                    : dns
+                      ? 'Slow answer alert above'
+                      : 'Slow after'}
+                </dt>
+                <dd>{s.slow_threshold_ms ? `${s.slow_threshold_ms} ms` : 'server default'}</dd>
+              </div>
+              <div>
+                <dt>Monitoring since</dt>
+                <dd>{dateTime(s.created_at)}</dd>
+              </div>
+            </dl>
+          </section>
 
-          </aside>
+          <section className="card">
+            <h2>Alerting</h2>
+            <dl className="kv">
+              <div>
+                <dt>Channels</dt>
+                <dd>
+                  {s.alert_channels.length
+                    ? s.alert_channels.map((c) => (
+                        <span key={c} className="chip">
+                          {c}
+                        </span>
+                      ))
+                    : '—'}
+                </dd>
+              </div>
+              <div>
+                <dt>Project recipients</dt>
+                <dd>{s.inherit_project_recipients ? 'included' : 'not included'}</dd>
+              </div>
+              <div>
+                <dt>Extra emails</dt>
+                <dd>{s.alert_emails.length ? s.alert_emails.join(', ') : '—'}</dd>
+              </div>
+              {(s.slack_channel_id || s.alert_channels.includes('slack')) && (
+                <div>
+                  <dt>Slack</dt>
+                  <dd>
+                    {s.slack_channel_id ?? "project's channel"} ·{' '}
+                    {s.slack_token_hint ? `own bot (${s.slack_token_hint})` : "project's bot"}
+                  </dd>
+                </div>
+              )}
+              {(s.telegram_chat_id || s.alert_channels.includes('telegram')) && (
+                <div>
+                  <dt>Telegram</dt>
+                  <dd>
+                    {s.telegram_chat_id ?? "project's chat"} ·{' '}
+                    {s.telegram_token_hint
+                      ? `own bot (${s.telegram_token_hint})`
+                      : "project's bot"}
+                  </dd>
+                </div>
+              )}
+              {(s.whatsapp_recipients.length > 0 || s.alert_channels.includes('whatsapp')) && (
+                <div>
+                  <dt>WhatsApp</dt>
+                  <dd>
+                    {s.whatsapp_recipients.length
+                      ? s.whatsapp_recipients.join(', ')
+                      : "project's numbers"}
+                  </dd>
+                </div>
+              )}
+            </dl>
+            <h3>Site recipients</h3>
+            <p className="muted small">
+              Recipients can see this site and its checks, even if they aren&apos;t in its
+              project.
+            </p>
+            <PersonList
+              people={s.recipients}
+              onRemove={canManage ? removeRecipient : null}
+              emptyLabel="No users are alerted about this site specifically."
+            />
+            {canManage && candidates.length > 0 && (
+              <details className="advanced">
+                <summary>Add recipients</summary>
+                <UserChecklist users={candidates} selected={adding} onChange={setAdding} />
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={addRecipients}
+                  disabled={busy || !adding.length}
+                >
+                  Add {adding.length || ''} selected
+                </button>
+              </details>
+            )}
+          </section>
         </div>
 
-        {/* Below both columns: the full log has room for its error column,
-            and deleting comes last. */}
+        {/* Full width: the log has room for its error column, and deleting
+            comes last. */}
         <section className="card">
           <h2>Recent checks</h2>
           <ErrorBanner error={checks.error} />

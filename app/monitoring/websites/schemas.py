@@ -728,6 +728,13 @@ class WebsiteCheckRead(BaseModel):
         ),
     )
     final_url: str | None
+    ip_address: str | None = Field(
+        default=None,
+        description=(
+            "HTTP checks: the address the site's host answered on (the first hop's "
+            "when redirected); null when unknown. Ping checks report theirs in `ping`."
+        ),
+    )
     headers: dict[str, str] | None = Field(
         default=None, description="Diagnostic response headers, e.g. `server`, `cf-ray`."
     )
@@ -891,6 +898,32 @@ class CdnRead(BaseModel):
     def _set_detected(self):
         self.detected = bool(self.providers) or self.unidentified_cache
         return self
+
+
+class ServerRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    ip: str = Field(description="The address the site's host answered on.")
+    version: int = Field(description="4 or 6.")
+    ptr: str | None = Field(default=None, description="The address's reverse DNS name.")
+    asn: int | None = Field(default=None, description="Autonomous system number.")
+    as_name: str | None = Field(default=None, description="Who runs that network.")
+    prefix: str | None = Field(
+        default=None, description="The announced network the address is in, e.g. `104.16.0.0/12`."
+    )
+    country: str | None = Field(
+        default=None,
+        description=(
+            "Two-letter country the address block is registered in; not where the "
+            "server stands, which an anycast or CDN address can differ from."
+        ),
+    )
+    registry: str | None = Field(default=None, description="e.g. `arin`, `ripencc`.")
+    h3: bool = Field(default=False, description="The server advertised HTTP/3 (`Alt-Svc`).")
+    ips_seen: list[str] = Field(
+        default_factory=list,
+        description="Addresses the host answered on lately, newest first.",
+    )
 
 
 class SecurityExtraRead(BaseModel):
@@ -1080,6 +1113,17 @@ class WebsiteRead(BaseModel):
     cdn_checked_at: datetime | None = Field(
         default=None, description="When the CDN was last looked for."
     )
+    server: ServerRead | None = Field(
+        default=None,
+        description=(
+            "Where the site is served from: the address its host answered on, the "
+            "network that address belongs to and its reverse name. Null before the "
+            "first read, and for ping and DNS checks."
+        ),
+    )
+    server_checked_at: datetime | None = Field(
+        default=None, description="When the server was last looked up."
+    )
     maintenance: MaintenanceWindowRead | None = Field(
         default=None,
         description=(
@@ -1197,11 +1241,48 @@ class StatsFigures(BaseModel):
     avg_response_ms: int | None = Field(
         description="Mean response time of successful checks; null with none."
     )
+    p50_response_ms: int | None = Field(
+        default=None,
+        description=(
+            "Median response time of successful checks, read from response-time "
+            "buckets: accurate to within about 25%."
+        ),
+    )
     p95_response_ms: int | None = Field(
         description=(
             "95th percentile of successful checks, read from response-time "
             "buckets: accurate to within about 25%."
         )
+    )
+    p99_response_ms: int | None = Field(
+        default=None,
+        description=(
+            "99th percentile of successful checks, read from response-time "
+            "buckets: accurate to within about 25%."
+        ),
+    )
+    max_response_ms: int | None = Field(
+        default=None, description="The slowest successful check; null with none."
+    )
+    avg_dns_ms: int | None = Field(
+        default=None,
+        description=(
+            "HTTP checks: mean time of the DNS lookup, over the successful checks "
+            "that did one (a reused connection skips it); null when none did."
+        ),
+    )
+    avg_connect_ms: int | None = Field(
+        default=None, description="HTTP checks: mean TCP connect time, as `avg_dns_ms`."
+    )
+    avg_tls_ms: int | None = Field(
+        default=None, description="HTTP checks: mean TLS handshake time, as `avg_dns_ms`."
+    )
+    avg_first_byte_ms: int | None = Field(
+        default=None,
+        description=(
+            "HTTP checks: mean time from the request being sent to the response "
+            "headers arriving."
+        ),
     )
     packet_loss_percent: float | None = Field(
         default=None,

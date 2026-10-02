@@ -17,6 +17,16 @@ const SERIES = [
   { key: 'p95_response_ms', label: '95th percentile', className: 'series-2' },
 ]
 
+// Where an HTTP check's time goes, in the order a request spends it.
+const STEPS = [
+  { key: 'avg_dns_ms', label: 'DNS lookup', className: 'stack-dns_ms' },
+  { key: 'avg_connect_ms', label: 'TCP connect', className: 'stack-connect_ms' },
+  { key: 'avg_tls_ms', label: 'TLS handshake', className: 'stack-tls_ms' },
+  { key: 'avg_first_byte_ms', label: 'Waiting for first byte', className: 'stack-first_byte_ms' },
+]
+
+const stepTotal = (b) => STEPS.reduce((sum, s) => sum + (b[s.key] ?? 0), 0)
+
 const UPTIME_TIERS = [
   { className: 'is-up', label: '100%' },
   { className: 'is-degraded', label: '99–99.99%' },
@@ -91,7 +101,7 @@ const MIN_TICK_GAP = 64
 
 // Response time as lines, with each bucket's uptime as a strip beneath them
 // on the same x positions; one crosshair and tooltip read both.
-function HistoryChart({ stats, ping }) {
+function HistoryChart({ stats, ping, view }) {
   const [ref, width] = useWidth()
   const [active, setActive] = useState(null)
   const series = stats.series
@@ -99,8 +109,12 @@ function HistoryChart({ stats, ping }) {
   const plotWidth = Math.max(width - PAD.left - PAD.right, 0)
   const step = plotWidth / n
   const x = (i) => PAD.left + (i + 0.5) * step
+  const steps = view === 'steps'
+  const lines = steps ? [] : SERIES
   const { top, ticks } = yScale(
-    Math.max(0, ...series.flatMap((b) => SERIES.map((s) => b[s.key] ?? 0))),
+    steps
+      ? Math.max(0, ...series.map(stepTotal))
+      : Math.max(0, ...series.flatMap((b) => SERIES.map((s) => b[s.key] ?? 0))),
   )
   const y = (v) => PAD.top + PLOT_HEIGHT * (1 - v / top)
 
@@ -161,7 +175,7 @@ function HistoryChart({ stats, ping }) {
       ref={ref}
       className="chart"
       tabIndex={0}
-      aria-label="Response time and uptime chart. Arrow keys step through the buckets."
+      aria-label={`${steps ? 'Time breakdown' : 'Response time'} and uptime chart. Arrow keys step through the buckets.`}
       onPointerMove={pick}
       onPointerLeave={() => setActive(null)}
       onFocus={() => setActive((i) => i ?? n - 1)}
@@ -178,7 +192,7 @@ function HistoryChart({ stats, ping }) {
               </text>
             </g>
           ))}
-          {SERIES.map((s) => (
+          {lines.map((s) => (
             <g key={s.key} className={s.className}>
               <path className="chart-line" d={path(s.key)} />
               {lonePoints(s.key).map((i) => (
@@ -186,6 +200,27 @@ function HistoryChart({ stats, ping }) {
               ))}
             </g>
           ))}
+          {steps &&
+            series.map((bucket, i) => {
+              // Stacked from the bottom, in the order a request spends the time.
+              let floor = 0
+              return STEPS.map((s) => {
+                const ms = bucket[s.key] ?? 0
+                if (ms <= 0) return null
+                const from = floor
+                floor += ms
+                return (
+                  <rect
+                    key={`${bucket.start}-${s.key}`}
+                    className={s.className}
+                    x={PAD.left + i * step + barGap / 2}
+                    y={y(floor)}
+                    width={Math.max(step - barGap, 0.5)}
+                    height={Math.max(y(from) - y(floor), 0.5)}
+                  />
+                )
+              })
+            })}
 
           <text className="chart-tick" x={PAD.left - 8} y={STRIP_TOP + STRIP_HEIGHT / 2} textAnchor="end" dominantBaseline="middle">
             Uptime
@@ -219,7 +254,7 @@ function HistoryChart({ stats, ping }) {
                 height={STRIP_HEIGHT + 4}
                 rx={3}
               />
-              {SERIES.map(
+              {lines.map(
                 (s) =>
                   b[s.key] != null && (
                     <circle key={s.key} className={`chart-dot is-active ${s.className}`} cx={x(active)} cy={y(b[s.key])} r={4} />
@@ -238,13 +273,21 @@ function HistoryChart({ stats, ping }) {
           }}
         >
           <div className="muted">{bucketLabel(stats, b.start)}</div>
-          {SERIES.map((s) => (
+          {lines.map((s) => (
             <div key={s.key} className={`chart-tip-row ${s.className}`}>
               <span className="line-key" />
               <strong>{ms(b[s.key])}</strong>
               <span className="muted">{s.label}</span>
             </div>
           ))}
+          {steps &&
+            [...STEPS].reverse().map((s) => (
+              <div key={s.key} className="chart-tip-row">
+                <span className={`swatch ${s.className}`} />
+                <strong>{ms(b[s.key])}</strong>
+                <span className="muted">{s.label}</span>
+              </div>
+            ))}
           <div className="chart-tip-row">
             <span className={`swatch ${uptimeTier(b)}`} />
             <strong>{percent(b.uptime_percent)}</strong>
@@ -266,7 +309,7 @@ function HistoryChart({ stats, ping }) {
   )
 }
 
-function HistoryTable({ stats, ping }) {
+function HistoryTable({ stats, ping, http }) {
   // Newest first, like the checks table.
   const rows = [...stats.series].reverse().filter((b) => b.checks > 0)
   return (
@@ -280,7 +323,11 @@ function HistoryTable({ stats, ping }) {
               <th>Checks</th>
               <th>Uptime</th>
               <th>Average</th>
+              <th>Median</th>
               <th>95th percentile</th>
+              <th>99th percentile</th>
+              <th>Slowest</th>
+              {http && STEPS.map((s) => <th key={s.key}>{s.label}</th>)}
               {ping && <th>Packet loss</th>}
             </tr>
           </thead>
@@ -291,7 +338,11 @@ function HistoryTable({ stats, ping }) {
                 <td className="num">{b.checks.toLocaleString()}</td>
                 <td className="num">{percent(b.uptime_percent)}</td>
                 <td className="num">{ms(b.avg_response_ms)}</td>
+                <td className="num">{ms(b.p50_response_ms)}</td>
                 <td className="num">{ms(b.p95_response_ms)}</td>
+                <td className="num">{ms(b.p99_response_ms)}</td>
+                <td className="num">{ms(b.max_response_ms)}</td>
+                {http && STEPS.map((s) => <td key={s.key} className="num">{ms(b[s.key])}</td>)}
                 {ping && <td className="num">{loss(b.packet_loss_percent)}</td>}
               </tr>
             ))}
@@ -307,6 +358,9 @@ function HistoryTable({ stats, ping }) {
 // average answer time.
 export default function SiteHistory({ websiteId, ping = false, dns = false }) {
   const [range, setRange] = useState('24h')
+  // HTTP sites only: response time as lines, or where each check's time goes.
+  const [view, setView] = useState('response')
+  const http = !ping && !dns
   const [downloadError, setDownloadError] = useState(null)
   // The rollup behind these moves once a minute, with the scheduler.
   const stats = useApi(() => api.getWebsiteStats(websiteId, range), [websiteId, range], {
@@ -357,8 +411,20 @@ export default function SiteHistory({ websiteId, ping = false, dns = false }) {
               <strong>{ms(s.avg_response_ms)}</strong>
             </div>
             <div>
+              <span>Median</span>
+              <strong>{ms(s.p50_response_ms)}</strong>
+            </div>
+            <div>
               <span>95th percentile</span>
               <strong>{ms(s.p95_response_ms)}</strong>
+            </div>
+            <div>
+              <span>99th percentile</span>
+              <strong>{ms(s.p99_response_ms)}</strong>
+            </div>
+            <div>
+              <span>Slowest</span>
+              <strong>{ms(s.max_response_ms)}</strong>
             </div>
             {ping && (
               <div>
@@ -378,12 +444,36 @@ export default function SiteHistory({ websiteId, ping = false, dns = false }) {
             <Empty>No checks in the last {label}.</Empty>
           ) : (
             <>
+              {http && (
+                <div className="segmented" role="group" aria-label="What the chart shows">
+                  {[
+                    ['response', 'Response time'],
+                    ['steps', 'Time breakdown'],
+                  ].map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className={view === key ? 'segmented-btn active' : 'segmented-btn'}
+                      aria-pressed={view === key}
+                      onClick={() => setView(key)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="chart-legend">
-                {SERIES.map((series) => (
-                  <span key={series.key} className={series.className}>
-                    <span className="line-key" /> {series.label}
-                  </span>
-                ))}
+                {http && view === 'steps'
+                  ? STEPS.map((step) => (
+                      <span key={step.key}>
+                        <span className={`swatch ${step.className}`} /> {step.label}
+                      </span>
+                    ))
+                  : SERIES.map((series) => (
+                      <span key={series.key} className={series.className}>
+                        <span className="line-key" /> {series.label}
+                      </span>
+                    ))}
                 <span className="chart-legend-sep" aria-hidden="true" />
                 {UPTIME_TIERS.map((t) => (
                   <span key={t.className}>
@@ -391,17 +481,19 @@ export default function SiteHistory({ websiteId, ping = false, dns = false }) {
                   </span>
                 ))}
               </div>
-              <HistoryChart stats={s} ping={ping} />
+              <HistoryChart stats={s} ping={ping} view={http ? view : 'response'} />
               <p className="muted small">
-                {ping
-                  ? 'Times are UTC. Round trips are each check’s average, over checks that got a reply, in whole milliseconds; '
-                  : dns
-                    ? 'Times are UTC. Answer times are each check’s average over its resolvers, for successful checks only; '
-                    : 'Times are UTC. Response times count successful checks only; '}
-                the 95th percentile is read from response-time buckets, so it is accurate to within
-                about 25%.
+                {http && view === 'steps'
+                  ? 'Times are UTC. Each step is its average over the successful checks that performed it: a reused connection skips the lookup, connect and handshake, and the time spent reading the body after the first byte is not drawn. Hours from before this was recorded show no breakdown.'
+                  : `${
+                      ping
+                        ? 'Times are UTC. Round trips are each check’s average, over checks that got a reply, in whole milliseconds; '
+                        : dns
+                          ? 'Times are UTC. Answer times are each check’s average over its resolvers, for successful checks only; '
+                          : 'Times are UTC. Response times count successful checks only; '
+                    }the median and the 95th and 99th percentiles are read from response-time buckets, so they are accurate to within about 25%.`}
               </p>
-              <HistoryTable stats={s} ping={ping} />
+              <HistoryTable stats={s} ping={ping} http={http} />
             </>
           )}
         </div>

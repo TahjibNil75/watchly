@@ -23,6 +23,10 @@ from app.monitoring.websites.models import RESPONSE_BUCKETS_MS, WebsiteCheckHour
 from app.monitoring.websites.schemas import StatsBucket, StatsRange, WebsiteStats
 from app.monitoring.websites.service import WebsiteService
 
+#: The steps of an HTTP check that are timed, as `website_checks` columns
+#: without the `_ms`.
+STEPS = ("dns", "connect", "tls", "first_byte")
+
 HOUR = timedelta(hours=1)
 DAY = timedelta(days=1)
 
@@ -41,13 +45,21 @@ _HISTOGRAM = ", ".join(
     for n in range(1, len(RESPONSE_BUCKETS_MS) + 1)
 )
 
+_STEP_COLUMNS = ", ".join(f"sum_{s}_ms, n_{s}" for s in STEPS)
+_STEP_INPUTS = ", ".join(f"CASE WHEN is_up THEN {s}_ms END AS {s}" for s in STEPS)
+_STEP_SUMS = ", ".join(f"coalesce(sum({s}), 0), count({s})" for s in STEPS)
+_STEP_UPDATES = ", ".join(
+    f"sum_{s}_ms = EXCLUDED.sum_{s}_ms, n_{s} = EXCLUDED.n_{s}" for s in STEPS
+)
+
 #: Re-sums every hour from :since on. Idempotent, so an hour can be rolled up
 #: again as late checks land in it. Migration 0017 ran this statement to
 #: backfill, from a copy of its own.
 ROLLUP_SQL = text(f"""
 INSERT INTO website_check_hourly
     (website_id, hour, checks, up_checks, timed_checks, sum_ms, max_ms, histogram,
-     packets_sent, packets_received)
+     packets_sent, packets_received,
+     {_STEP_COLUMNS})
 SELECT website_id,
        hour,
        count(*),
@@ -57,7 +69,8 @@ SELECT website_id,
        max(response_time_ms) FILTER (WHERE bucket IS NOT NULL),
        ARRAY[{_HISTOGRAM}],
        coalesce(sum(packets_sent), 0),
-       coalesce(sum(packets_received), 0)
+       coalesce(sum(packets_received), 0),
+       {_STEP_SUMS}
 FROM (
     SELECT website_id,
            date_trunc('hour', checked_at, 'UTC') AS hour,
@@ -67,7 +80,8 @@ FROM (
                 THEN width_bucket(greatest(response_time_ms, 0), CAST(:bounds AS integer[]))
            END AS bucket,
            packets_sent,
-           packets_received
+           packets_received,
+           {_STEP_INPUTS}
     FROM website_checks
     WHERE checked_at >= :since
 ) AS c
@@ -80,7 +94,8 @@ ON CONFLICT (website_id, hour) DO UPDATE SET
     max_ms = EXCLUDED.max_ms,
     histogram = EXCLUDED.histogram,
     packets_sent = EXCLUDED.packets_sent,
-    packets_received = EXCLUDED.packets_received
+    packets_received = EXCLUDED.packets_received,
+    {_STEP_UPDATES}
 """)
 
 
@@ -130,6 +145,9 @@ class Tally:
     histogram: list[int] = field(default_factory=lambda: [0] * len(RESPONSE_BUCKETS_MS))
     packets_sent: int = 0
     packets_received: int = 0
+    #: Per step: milliseconds spent, and checks that performed it.
+    step_ms: dict[str, int] = field(default_factory=lambda: dict.fromkeys(STEPS, 0))
+    step_n: dict[str, int] = field(default_factory=lambda: dict.fromkeys(STEPS, 0))
 
     def add(self, row: WebsiteCheckHourly) -> None:
         self.checks += row.checks
@@ -138,6 +156,9 @@ class Tally:
         self.sum_ms += row.sum_ms
         self.packets_sent += row.packets_sent
         self.packets_received += row.packets_received
+        for step in STEPS:
+            self.step_ms[step] += getattr(row, f"sum_{step}_ms")
+            self.step_n[step] += getattr(row, f"n_{step}")
         if row.max_ms is not None:
             self.max_ms = row.max_ms if self.max_ms is None else max(self.max_ms, row.max_ms)
         for index, count in enumerate(row.histogram[: len(self.histogram)]):
@@ -153,7 +174,16 @@ class Tally:
             "avg_response_ms": (
                 round(self.sum_ms / self.timed_checks) if self.timed_checks else None
             ),
+            "p50_response_ms": percentile_ms(self.histogram, self.max_ms, 0.5),
             "p95_response_ms": percentile_ms(self.histogram, self.max_ms),
+            "p99_response_ms": percentile_ms(self.histogram, self.max_ms, 0.99),
+            "max_response_ms": self.max_ms,
+            **{
+                f"avg_{step}_ms": (
+                    round(self.step_ms[step] / self.step_n[step]) if self.step_n[step] else None
+                )
+                for step in STEPS
+            },
             "packet_loss_percent": (
                 round(100 * (self.packets_sent - self.packets_received) / self.packets_sent, 3)
                 if self.packets_sent

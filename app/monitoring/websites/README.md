@@ -269,6 +269,17 @@ and the cache status (`HIT`/`MISS`, the `Age`). It is a hint and never alerts:
 a CDN that strips its headers and sits behind plain address records goes
 unseen, and a recognised one says nothing about whether it is set up well.
 
+An HTTP check also records the address its host answered on (`ip_address`, the
+first hop's when redirected). The first successful check, any check that finds
+an address not seen lately, and one every `SERVER_CHECK_INTERVAL_SECONDS` (a
+day) after, look that address up (`server_info.py`): its reverse (PTR) name, and
+its network (ASN, name, announced range, registry country) from Team Cymru's
+IP-to-ASN service, which answers over plain DNS and is sent only that address.
+The site keeps it as `server`, with the addresses seen lately (`ips_seen`) and
+whether `Alt-Svc` advertises HTTP/3. The country is where the block is
+registered, not where a CDN or anycast address answers from. A private
+address is not looked up. Set `SERVER_CHECK_ENABLED=false` to turn it off.
+
 Every `SSL_CHECK_INTERVAL_SECONDS` (6 hours) an HTTPS site's certificate is
 read without verifying it, so even an expired or untrusted one can be
 described: its end date, who it was issued to and by, the names it covers

@@ -413,6 +413,14 @@ class Website(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
+    # --- server, read from a successful HTTP check ---------------------------
+    #: `server_info.ServerInfo.as_dict()`: the address the host answered on, its
+    #: network and reverse name. None means not looked at yet.
+    server: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    server_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     #: DNS checks: the records the resolvers last agreed on, what a change is
     #: measured against. None before they first agree, and after the record
     #: type or domain changes.
@@ -805,5 +813,32 @@ class WebsiteCheckHourly(Base):
         Integer, default=0, server_default=text("0"), nullable=False
     )
     packets_received: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    # Where the time went, summed over successful checks: milliseconds spent in
+    # each step and how many checks performed it (a reused connection skips
+    # the lookup, connect and handshake). Their ratio is the step's average.
+    sum_dns_ms: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default=text("0"), nullable=False
+    )
+    n_dns: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    sum_connect_ms: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default=text("0"), nullable=False
+    )
+    n_connect: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    sum_tls_ms: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default=text("0"), nullable=False
+    )
+    n_tls: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    sum_first_byte_ms: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default=text("0"), nullable=False
+    )
+    n_first_byte: Mapped[int] = mapped_column(
         Integer, default=0, server_default=text("0"), nullable=False
     )
