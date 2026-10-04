@@ -9,12 +9,14 @@ from app.auth.routes import router as auth_router
 from app.core.config import settings
 from app.core.geo import block_countries
 from app.core.handlers import register_exception_handlers
+from app.core.logging_config import log_requests, setup_logging
 from app.db.session import engine
 from app.invitations.routes import router as invitations_router
 from app.monitoring.routes import router as monitoring_router
 from app.monitoring.scheduler import scheduler
 from app.user.routes import router as user_router
 
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -30,10 +32,18 @@ async def lifespan(app: FastAPI):
             "Monitoring is on but SMTP_HOST is unset — outages will be detected "
             "and recorded, but no email alerts will go out."
         )
+    logger.info(
+        "Watchly %s starting (monitoring %s, log level %s, logs in %s)",
+        __version__,
+        "on" if settings.MONITORING_ENABLED else "off",
+        settings.LOG_LEVEL.upper(),
+        settings.LOG_DIR,
+    )
     scheduler.start()
     try:
         yield
     finally:
+        logger.info("Watchly shutting down")
         await scheduler.stop()
         await engine.dispose()
 
@@ -47,6 +57,9 @@ app = FastAPI(
 
 register_exception_handlers(app)
 app.middleware("http")(block_countries)
+# Added last so it is outermost: it also times and logs the requests the
+# country block turns away.
+app.middleware("http")(log_requests)
 
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 app.include_router(user_router, prefix=settings.API_V1_PREFIX)

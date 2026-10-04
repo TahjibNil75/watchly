@@ -5,6 +5,7 @@ them onto status codes. Sending the emails is not done here either — the calle
 hands what these methods return to `mail.py`.
 """
 
+import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import ColumnElement, and_, delete, func, select
@@ -18,6 +19,8 @@ from app.db.models.account_request import AccountRequest, AccountRequestStatus
 from app.db.models.invitation import Invitation
 from app.db.models.user import User, UserRole
 from app.invitations.service import InvitationService
+
+logger = logging.getLogger(__name__)
 
 #: What an approved request's account starts as. Whoever approved it can
 #: change the role afterwards, as for any user.
@@ -101,6 +104,7 @@ class AccountRequestService:
         )
         for statement in already:
             if await self.session.scalar(statement) is not None:
+                logger.info("Account request ignored: the address has no use for one.")
                 return None
 
         account_request = AccountRequest(
@@ -112,9 +116,11 @@ class AccountRequestService:
         except IntegrityError:
             # Lost a race with the same address asking twice at once.
             await self.session.rollback()
+            logger.info("Account request ignored: the same address asked twice at once.")
             return None
 
         await self.session.refresh(account_request)
+        logger.info("Account request %s received.", account_request.id)
         return account_request
 
     async def reviewers(self) -> list[str]:
@@ -222,6 +228,10 @@ class AccountRequestService:
             raise
 
         await self.session.refresh(account_request)
+        logger.info(
+            "User %s approved account request %s (invitation %s).",
+            actor.id, account_request.id, invitation.id,
+        )
         return account_request, invitation, token
 
     async def reject(self, actor: User, request_id: int) -> AccountRequest:
@@ -236,6 +246,7 @@ class AccountRequestService:
         account_request.decided_by_id = actor.id
         await self.session.commit()
         await self.session.refresh(account_request)
+        logger.info("User %s rejected account request %s.", actor.id, account_request.id)
         return account_request
 
     async def unblock(self, request_id: int) -> AccountRequest:
@@ -262,4 +273,5 @@ class AccountRequestService:
 
         await self.session.delete(account_request)
         await self.session.commit()
+        logger.info("Rejected account request %s unblocked.", request_id)
         return account_request

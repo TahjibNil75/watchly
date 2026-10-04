@@ -346,7 +346,10 @@ export default function Landing() {
           <NightReadouts mood={mood} />
           <section className="landing-section landing-hero">
             <div className="landing-hero-text">
-              <BrandMark mood={mood} />
+              <span className="brand brand-hero">
+                <BrandMark mood={mood} />
+                <span className="brand-word">Watchly</span>
+              </span>
               <span className="live-pill">
                 <span className="live-pill-dot" />
                 Uptime, ping and DNS monitoring

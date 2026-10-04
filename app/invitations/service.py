@@ -5,6 +5,7 @@ them onto status codes. Sending the email is not done here either — the caller
 gets the raw token back from `invite()` and hands it to `mail.py`.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import ColumnElement, and_, delete, func, select
@@ -19,6 +20,8 @@ from app.core.security import generate_hash_password, hash_token, new_link_token
 from app.db.models.invitation import Invitation, InvitationStatus
 from app.db.models.user import User, UserRole
 from app.invitations.schemas import AcceptInvitationRequest
+
+logger = logging.getLogger(__name__)
 
 
 class InvitationError(Exception):
@@ -221,6 +224,10 @@ class InvitationService:
             raise InvitationConflictError from exc
 
         await self.session.refresh(invitation)
+        logger.info(
+            "User %s invited a %s (invitation %s, expires %s).",
+            actor.id, role.value, invitation.id, invitation.expires_at.isoformat(),
+        )
         return invitation, token
 
     async def revoke(self, actor: User, invitation_id: int) -> Invitation:
@@ -246,6 +253,7 @@ class InvitationService:
         invitation.revoked_at = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(invitation)
+        logger.info("User %s revoked invitation %s.", actor.id, invitation.id)
         return invitation
 
     async def _get_usable(self, token: str, *, lock: bool = False) -> Invitation:
@@ -347,4 +355,8 @@ class InvitationService:
             raise UserAlreadyExistsError(field, value) from exc
 
         await self.session.refresh(user)
+        logger.info(
+            "Invitation %s accepted: user %s created as %s.",
+            invitation.id, user.id, user.role.value,
+        )
         return user

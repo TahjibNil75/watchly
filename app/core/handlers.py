@@ -1,5 +1,6 @@
 """Exception handlers registered on the FastAPI app."""
 
+import logging
 from typing import Any
 
 from fastapi import FastAPI, Request, status
@@ -13,6 +14,8 @@ SENSITIVE_FIELDS = frozenset(
     {"password", "confirm_password", "current_password", "new_password", "token"}
 )
 REDACTED = "***"
+
+logger = logging.getLogger(__name__)
 
 
 def redact(value: Any) -> Any:
@@ -29,6 +32,16 @@ def redact(value: Any) -> Any:
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
+    # Where and why only: the input itself may be a password.
+    logger.warning(
+        "Rejected %s %s: %s",
+        request.method,
+        request.url.path,
+        "; ".join(
+            f"{'.'.join(str(part) for part in error.get('loc', ()))}: {error.get('msg')}"
+            for error in exc.errors()
+        ),
+    )
     errors = []
     for error in exc.errors():
         cleaned = dict(error)

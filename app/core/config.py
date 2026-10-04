@@ -34,6 +34,17 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     DEBUG: bool = False
 
+    # --- Logging ----------------------------------------------------------
+    #: Where the per-module log files go (see app/core/logging_config.py).
+    #: Relative paths start from the directory the API is run in.
+    LOG_DIR: str = "logs"
+    #: DEBUG, INFO, WARNING or ERROR: how much goes to the console and files.
+    LOG_LEVEL: str = "INFO"
+    #: A log file is rotated once it reaches this size, and this many old ones
+    #: are kept next to it.
+    LOG_MAX_BYTES: int = Field(default=10_485_760, ge=1024)
+    LOG_BACKUP_COUNT: int = Field(default=5, ge=0)
+
     # PostgreSQL
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"

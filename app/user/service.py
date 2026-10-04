@@ -4,6 +4,7 @@ Knows nothing about HTTP: it raises the domain errors below and
 `app/user/routes.py` maps them onto status codes.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
@@ -21,6 +22,8 @@ from app.core.security import (
     verify_password,
 )
 from app.db.models.user import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 
 class UserError(Exception):
@@ -150,9 +153,14 @@ class UserService:
         if target.role is new_role:
             return target
 
+        old_role = target.role
         target.role = new_role
         await self.session.commit()
         await self.session.refresh(target)
+        logger.info(
+            "User %s changed the role of user %s from %s to %s.",
+            actor.id, target.id, old_role.value, new_role.value,
+        )
         return target
 
     async def set_suspended(
@@ -197,6 +205,9 @@ class UserService:
             target.locked_until = None
         await self.session.commit()
         await self.session.refresh(target)
+        logger.info(
+            "User %s %s user %s.", actor.id, "suspended" if suspended else "reinstated", target.id
+        )
         return target
 
     # -- the signed-in user's own account ----------------------------------
@@ -231,6 +242,7 @@ class UserService:
                 username, email or name.
         """
         if not verify_password(current_password, user.password_hash):
+            logger.info("Password change refused for user %s: wrong current password.", user.id)
             raise IncorrectPasswordError
         if verify_password(new_password, user.password_hash):
             raise SamePasswordError
@@ -245,6 +257,7 @@ class UserService:
         await AuthService(self.session).end_all_sessions(user.id)
         await self.session.commit()
         await self.session.refresh(user)
+        logger.info("User %s changed their password; all their sessions ended.", user.id)
         return user
 
     async def request_email_change(
@@ -307,8 +320,10 @@ class UserService:
             select(User).where(User.email_token_hash == hash_token(token)).with_for_update()
         )
         if user is None or user.pending_email is None:
+            logger.info("Email confirmation refused: no pending change matches the link.")
             raise EmailLinkNotFoundError
         if user.email_token_expires_at is None or user.email_token_expires_at <= datetime.now(UTC):
+            logger.info("Email confirmation refused for user %s: link expired.", user.id)
             raise EmailLinkExpiredError
         if not user.is_active:
             raise InactiveUserError
@@ -327,6 +342,7 @@ class UserService:
             await self.session.rollback()
             raise UserAlreadyExistsError("email", new_email) from exc
         await self.session.refresh(user)
+        logger.info("User %s confirmed a new email address.", user.id)
         return user
 
 

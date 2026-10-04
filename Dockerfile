@@ -16,7 +16,8 @@ COPY alembic ./alembic
 COPY app ./app
 COPY --chmod=0755 docker/api-entrypoint.sh /usr/local/bin/api-entrypoint
 
-RUN useradd --create-home --uid 1000 watchly
+RUN useradd --create-home --uid 1000 watchly \
+    && mkdir logs && chown watchly:watchly logs
 USER watchly
 
 EXPOSE 8000

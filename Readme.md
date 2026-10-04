@@ -256,6 +256,32 @@ option. The most important ones:
 | `ALERT_LOGO_URL` | the logo on GitHub | Public HTTPS logo Slack and Telegram show on alerts; blank turns it off (email always embeds it) |
 | `DNS_RESOLVERS` | Cloudflare, Google, Quad9, OpenDNS | Resolvers queried by DNS checks |
 | `MONTHLY_REPORTS_ENABLED` | `true` | Send the monthly uptime report |
+| `LOG_LEVEL` / `LOG_DIR` | `INFO` / `logs` | Log verbosity, and the folder for the per-module log files (see [Logs](#logs)) |
+
+## Logs
+
+The API writes one log file per part of the backend, plus the console output
+that `docker compose logs` shows. Under Docker Compose they appear in `./logs`
+on the host (or in `LOG_DIR` when running the API directly):
+
+| File | What is in it |
+| ---- | ------------- |
+| `errors.log` | Every error from anywhere, with tracebacks: **start here** when something breaks |
+| `access.log` | One line per HTTP request: method, path, status, time taken, client |
+| `auth.log` | Sign-in, sign-up, lockouts, token refresh |
+| `user.log` | Role changes, suspensions, password and email changes |
+| `invitations.log` / `account_requests.log` | Invitations and account requests |
+| `monitoring.log` | The scheduler and check/alert orchestration |
+| `monitoring_websites.log` | The checks themselves (HTTP, ping, DNS, SSL, CDN, domain) |
+| `monitoring_alerts.log` | Email, Slack, Telegram, WhatsApp and webhook delivery |
+| `monitoring_notifications.log` | Notification rules and monthly reports |
+| `core.log` / `db.log` / `main.log` / `server.log` | Mail and rate limits, database, startup, uvicorn |
+
+Each line has a UTC time, level and the request id, which is also returned to
+the client as the `X-Request-ID` header, so one failing request can be followed
+across files with `grep <id> logs/*.log`. Files rotate at `LOG_MAX_BYTES`
+(10 MB), keeping `LOG_BACKUP_COUNT` (5) old ones. Passwords, tokens and query
+strings are never logged. Set `LOG_LEVEL=DEBUG` for more detail.
 
 ## Useful commands
 

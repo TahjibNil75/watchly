@@ -161,12 +161,17 @@ class AuthService:
             and verify_password(password, user.temp_password_hash)
         )
         if user is None:
+            logger.info("Sign-in refused: no account matches the identifier given.")
             raise InvalidCredentialsError
         # Refused whether or not the password is right, and without counting,
         # so a locked account is no oracle for guessing its password.
         if user.locked_until is not None and user.locked_until > now and not used_temporary:
+            logger.warning(
+                "Sign-in refused for user %s: locked until %s.", user.id, user.locked_until
+            )
             raise AccountLockedError(user.locked_until)
         if not (password_ok or used_temporary):
+            logger.info("Sign-in refused for user %s: wrong password.", user.id)
             await self._record_failed_login(user)
             raise InvalidCredentialsError
 
@@ -176,9 +181,13 @@ class AuthService:
         # reveals whether the account exists or is suspended — including on the
         # attempt that suspends it, which is answered like any other.
         if not user.is_active:
+            logger.warning("Sign-in refused for user %s: account is suspended.", user.id)
             raise InactiveUserError
 
         if used_temporary:
+            logger.info(
+                "User %s signed in with a temporary password; their sessions end.", user.id
+            )
             # Only now does the old password stop working: someone has shown
             # they can read the account's mailbox. Sessions opened with the old
             # one end with it — that is what a reset is for.
@@ -191,6 +200,7 @@ class AuthService:
         user.last_activity = now
         await self.session.commit()
         await self.session.refresh(user)
+        logger.info("User %s signed in.", user.id)
         return user
 
     async def _record_failed_login(self, user: User) -> None:
@@ -281,6 +291,7 @@ class AuthService:
         # Before the checks below, so a closed signup does not tell a stranger
         # which emails and usernames have accounts.
         if not await self._is_first_account():
+            logger.info("Sign-up refused: an account already exists.")
             raise SignupClosedError
 
         if await self.user_exists_by_email(payload.email):

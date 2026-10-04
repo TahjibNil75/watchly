@@ -1518,10 +1518,15 @@ html:has(.landing) {
 .landing-hero-text > :nth-child(5) { --stagger: 4; }
 .landing-hero-text > :nth-child(6) { --stagger: 5; }
 .landing-hero-text > :nth-child(7) { --stagger: 6; }
+.landing-hero .brand-hero {
+  gap: 16px;
+  margin-bottom: 10px;
+  font-size: clamp(2.6rem, 6vw, 3.8rem);
+  line-height: 1;
+}
 .landing-hero .brand-mark {
   width: 104px;
   height: 104px;
-  margin-bottom: 10px;
 }
 .landing-hero h1 {
   display: block;
