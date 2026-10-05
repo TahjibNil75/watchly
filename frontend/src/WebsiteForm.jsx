@@ -1,5 +1,12 @@
 import { useState } from 'react'
-import { CHECK_TYPES, RECORD_TYPES, recordType } from './checkTypes.js'
+import {
+  CHECK_TYPES,
+  DB_ENGINES,
+  RECORD_TYPES,
+  dbEngine,
+  parseConnectionUrl,
+  recordType,
+} from './checkTypes.js'
 import { ErrorBanner, UserChecklist } from './components.jsx'
 import { ENVIRONMENTS } from './environments.js'
 import { duration, parseEmails, parsePhoneNumbers } from './format.js'
@@ -10,9 +17,10 @@ const countWords = (text) => text.trim().split(/\s+/).filter(Boolean).length
 
 const METHODS = ['GET', 'HEAD', 'POST', 'OPTIONS']
 const INTERVALS = [30, 60, 120, 300, 600, 900, 1800, 3600, 21600, 86400]
-// Each type's default timeout: a ping waits for echo replies, not pages, and
-// a resolver may have to recurse on a cache miss.
-const TIMEOUTS = { http: 10, ping: 2, dns: 5 }
+// Each type's default timeout: a ping waits for echo replies, not pages, a
+// resolver may have to recurse on a cache miss, and a database answers a new
+// connection in milliseconds.
+const TIMEOUTS = { http: 10, ping: 2, dns: 5, database: 5 }
 
 const BLANK = {
   project_id: '',
@@ -37,6 +45,8 @@ const BLANK = {
   dns_record_type: 'A',
   // One per line.
   dns_expected_values: '',
+  db_engine: 'postgresql',
+  db_tls: false,
   alert_emails: '',
   inherit_project_recipients: true,
   slack_channel_id: '',
@@ -70,6 +80,8 @@ function fromSite(site) {
     packet_loss_threshold_percent: site.packet_loss_threshold_percent ?? '',
     dns_record_type: site.dns_record_type ?? 'A',
     dns_expected_values: (site.dns_expected_values ?? []).join('\n'),
+    db_engine: site.db_engine ?? 'postgresql',
+    db_tls: site.db_tls ?? false,
     environment: site.environment ?? '',
   }
 }
@@ -214,7 +226,41 @@ export default function WebsiteForm({
 
   const ping = form.check_type === 'ping'
   const dns = form.check_type === 'dns'
-  const http = !ping && !dns
+  const database = form.check_type === 'database'
+  const http = !ping && !dns && !database
+  const engine = dbEngine(form.db_engine)
+  // Set when a pasted connection URL had a user or password, which were
+  // dropped before anything was sent.
+  const [droppedCredentials, setDroppedCredentials] = useState(false)
+
+  // A pasted connection URL fills in the engine and TLS, and leaves just
+  // host:port in the field.
+  const takeConnectionUrl = (text) => {
+    const parsed = parseConnectionUrl(text)
+    if (!parsed) return false
+    setForm((f) => ({
+      ...f,
+      url: parsed.endpoint,
+      db_engine: parsed.engine,
+      db_tls: dbEngine(parsed.engine).tlsFromStart ? parsed.tls || f.db_tls : false,
+    }))
+    setDroppedCredentials(parsed.hadCredentials)
+    return true
+  }
+  // Another engine: its usual port replaces the old one's, if that is the
+  // port the endpoint has.
+  const pickEngine = (e) => {
+    const next = dbEngine(e.target.value)
+    const oldPort = `:${engine.port}`
+    setForm({
+      ...form,
+      db_engine: next.value,
+      db_tls: next.tlsFromStart ? form.db_tls : false,
+      url: form.url.trim().endsWith(oldPort)
+        ? form.url.trim().slice(0, -oldPort.length) + `:${next.port}`
+        : form.url,
+    })
+  }
   // Switching type swaps in its default timeout, unless one was typed in.
   const pickType = (type) =>
     setForm({
@@ -259,7 +305,7 @@ export default function WebsiteForm({
     const payload = {
       name: form.name.trim(),
       environment: form.environment || null,
-      url: http ? withScheme(form.url) : hostOf(form.url),
+      url: http ? withScheme(form.url) : database ? form.url.trim() : hostOf(form.url),
       method: form.method,
       expected_status: Number(form.expected_status),
       timeout_seconds: Number(form.timeout_seconds),
@@ -284,6 +330,10 @@ export default function WebsiteForm({
     if (dns) {
       payload.dns_record_type = form.dns_record_type
       payload.dns_expected_values = lines(form.dns_expected_values)
+    }
+    if (database) {
+      payload.db_engine = form.db_engine
+      payload.db_tls = engine.tlsFromStart ? form.db_tls : false
     }
     if (http) {
       payload.request_headers = form.request_headers
@@ -312,7 +362,7 @@ export default function WebsiteForm({
   }
 
   return (
-    <form className="form" onSubmit={submit}>
+    <form className="form" onSubmit={submit} autoComplete="off">
       <ErrorBanner error={error} />
 
       {/* Fixed once created: each keeps a different history. */}
@@ -377,27 +427,99 @@ export default function WebsiteForm({
               )
               set('name')(e)
             }}
-            placeholder={ping ? 'Core router' : dns ? 'Mail servers (MX)' : 'Marketing site'}
+            placeholder={
+              ping
+                ? 'Core router'
+                : dns
+                  ? 'Mail servers (MX)'
+                  : database
+                    ? 'Orders database'
+                    : 'Marketing site'
+            }
             required
             maxLength={255}
           />
         </label>
         <label className="field">
-          <span>{ping ? 'Host or IP address' : dns ? 'Domain' : 'URL'}</span>
+          <span>
+            {ping ? 'Host or IP address' : dns ? 'Domain' : database ? 'Endpoint' : 'URL'}
+          </span>
           <input
             value={form.url}
-            onChange={set('url')}
+            onChange={(e) => {
+              setDroppedCredentials(false)
+              set('url')(e)
+            }}
+            onPaste={(e) => {
+              if (database && takeConnectionUrl(e.clipboardData.getData('text'))) {
+                e.preventDefault()
+              }
+            }}
+            onBlur={() => database && takeConnectionUrl(form.url)}
             placeholder={
               ping
                 ? '203.0.113.10 or server.example.com'
                 : dns
                   ? 'example.com or _dmarc.example.com'
-                  : 'https://example.com/'
+                  : database
+                    ? `db.example.com:${engine.port}`
+                    : 'https://example.com/'
             }
+            spellCheck={database ? false : undefined}
             required
           />
+          {database && (
+            <span className="muted small">
+              {droppedCredentials
+                ? 'Took the host and port from the connection URL. Its user and password were left out: they were not sent, and are not needed.'
+                : `host:port, or paste a connection URL. The port defaults to ${engine.port}.`}
+            </span>
+          )}
         </label>
       </div>
+
+      {database && (
+        <div className="row-2">
+          <label className="field">
+            <span>Database</span>
+            <select value={form.db_engine} onChange={pickEngine}>
+              {DB_ENGINES.map((e) => (
+                <option key={e.value} value={e.value}>
+                  {e.label}
+                </option>
+              ))}
+            </select>
+            <span className="muted small">
+              Also {engine.covers}. Watchly opens a session as far as the server&apos;s first answer
+              and never logs in, so it needs no user or password. It connects from Watchly&apos;s
+              server, so the endpoint must be reachable from there.
+            </span>
+          </label>
+          {engine.tlsFromStart ? (
+            <div className="field">
+              <span>TLS</span>
+              <label className="check">
+                <input type="checkbox" checked={form.db_tls} onChange={set('db_tls')} />
+                <span>Connect over TLS</span>
+              </label>
+              <span className="muted small">
+                Turn on for a server that only takes TLS, such as{' '}
+                {form.db_engine === 'redis'
+                  ? 'ElastiCache with in-transit encryption'
+                  : 'DocumentDB or Atlas'}
+                . The certificate is not verified: nothing secret is sent.
+              </span>
+            </div>
+          ) : (
+            <div className="field">
+              <span>TLS</span>
+              <span className="muted small">
+                Used whenever the server offers it, as {engine.label} clients do. Nothing to set.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {dns && (
         <div className="row-2">
@@ -450,7 +572,9 @@ export default function WebsiteForm({
               ? 'Reply timeout (seconds)'
               : dns
                 ? 'Resolver timeout (seconds)'
-                : 'Timeout (seconds)'}
+                : database
+                  ? 'Timeout per step (seconds)'
+                  : 'Timeout (seconds)'}
           </span>
           <input
             type="number"
@@ -573,6 +697,43 @@ export default function WebsiteForm({
               <span className="muted small">
                 When the record fails or is wrong, look again a few seconds later before
                 alerting. 0 alerts at once.
+              </span>
+            </label>
+          </div>
+        </details>
+      )}
+
+      {database && (
+        <details className="advanced">
+          <summary>Database options</summary>
+          <div className="row-3">
+            <label className="field">
+              <span>Slow answer alert above (ms)</span>
+              <input
+                type="number"
+                min={1}
+                max={120000}
+                value={form.slow_threshold_ms}
+                onChange={set('slow_threshold_ms')}
+                placeholder="Server default"
+              />
+              <span className="muted small">
+                Alert when connecting and getting the server&apos;s answer stays slower than this.
+              </span>
+            </label>
+            <label className="field">
+              <span>Retries before failing</span>
+              <input
+                type="number"
+                min={0}
+                max={3}
+                value={form.retries_on_failure}
+                onChange={set('retries_on_failure')}
+                required
+              />
+              <span className="muted small">
+                When the database does not answer, try again a few seconds later before alerting.
+                0 alerts at once.
               </span>
             </label>
           </div>
@@ -761,7 +922,7 @@ export default function WebsiteForm({
                     ? "Project's bot"
                     : 'xoxb-…'
               }
-              autoComplete="off"
+              autoComplete="new-password"
               required={needsToken}
             />
           </label>
@@ -795,7 +956,7 @@ export default function WebsiteForm({
                     ? "Project's bot"
                     : '123456789:AA…'
               }
-              autoComplete="off"
+              autoComplete="new-password"
               required={needsTgToken}
             />
           </label>

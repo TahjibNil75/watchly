@@ -20,6 +20,18 @@ from app.monitoring.alerts.events import (
     SlowResponseEvent,
     SslExpiryEvent,
 )
+from app.monitoring.infra.aws.events import (
+    CheckLine,
+    DeployedResource,
+    DeployEvent,
+    InfraDegradedEvent,
+    InfraOutageEvent,
+    ScaledInstance,
+    ScalingEvent,
+    ResourceSnapshot,
+    VpcEvent,
+)
+from app.monitoring.infra.aws.models import ResourceKind
 from app.monitoring.websites.checker import CheckResult, Timings
 from app.monitoring.websites.dns_probe import DnsResult, ResolverAnswer
 from app.monitoring.websites.models import CheckType, DnsRecordType
@@ -230,6 +242,140 @@ def sample_event(kind: NotificationKind) -> Notification:
                     SiteStats(3, "Public API", "https://api.acme.example/health", 8640, 8583, 17100, 3, 9000, 95, 210),
                 ],
                 sites_without_data=1,
+                recipients=recipients,
+            )
+    return _infra_sample(kind, now, recipients)
+
+
+def _infra_sample(kind: NotificationKind, now: datetime, recipients: tuple[str, ...]) -> Notification:
+    server = ResourceSnapshot(
+        id=15,
+        project_id=1,
+        project_name=_PROJECT,
+        name="report-runner",
+        kind=ResourceKind.SERVER,
+        aws_id="i-0b2e5d6c7b8a9f0e1",
+        address="10.20.21.55",
+        vpc_name="prod-vpc",
+        aws_state="running",
+        down_since=now - timedelta(minutes=12),
+    )
+    load_balancer = replace(
+        server,
+        id=21,
+        name="orders-api-alb",
+        kind=ResourceKind.LOAD_BALANCER,
+        aws_id="arn:aws:elasticloadbalancing:ap-southeast-1:123456789012:loadbalancer/app/orders-api-alb/50dc6c495c0c9188",
+        address="internal-orders-api-alb-1234567890.ap-southeast-1.elb.amazonaws.com",
+        aws_state="active",
+        down_since=None,
+    )
+    failing = (
+        CheckLine("ping", "ping", "No reply to 3 pings within 2s.", "no_reply"),
+        CheckLine(
+            "tcp 22",
+            "tcp",
+            "TCP 22: No answer: the packets were dropped (security group, NACL or route).",
+            "connect_timeout",
+        ),
+    )
+    match kind:
+        case NotificationKind.INFRA_DOWN:
+            return InfraOutageEvent(
+                kind=kind, resource=server, checked_at=now, failing=failing,
+                attempt=1, max_attempts=4, recipients=recipients,
+            )
+        case NotificationKind.INFRA_STILL_DOWN:
+            return InfraOutageEvent(
+                kind=kind, resource=server, checked_at=now, failing=failing,
+                downtime_seconds=735, attempt=2, max_attempts=4, recipients=recipients,
+            )
+        case NotificationKind.INFRA_RECOVERED:
+            return InfraOutageEvent(
+                kind=kind, resource=server, checked_at=now,
+                downtime_seconds=1260, attempt=3, max_attempts=4, recipients=recipients,
+            )
+        case NotificationKind.INFRA_DEGRADED:
+            return InfraDegradedEvent(
+                resource=load_balancer,
+                checked_at=now,
+                problem="targets_unhealthy",
+                problem_detail=(
+                    "orders-api-tg: 2 of 3 targets healthy; i-0c4d5e6f7a8b9c0d1 failing with "
+                    "Target.Timeout (Request timed out)"
+                ),
+                check=CheckLine("targets of orders-api-tg", "target_health", "orders-api-tg: 2 of 3 targets healthy"),
+                recipients=recipients,
+            )
+        case NotificationKind.ASG_SCALED_OUT | NotificationKind.ASG_SCALED_IN:
+            group = replace(
+                server,
+                id=30,
+                name="orders-api-asg",
+                kind=ResourceKind.AUTO_SCALING_GROUP,
+                aws_id="orders-api-asg",
+                address=None,
+                aws_state="4 of 4 in service",
+                down_since=None,
+            )
+            out = kind is NotificationKind.ASG_SCALED_OUT
+            return ScalingEvent(
+                kind=kind,
+                resource=group,
+                checked_at=now,
+                instances=(
+                    ScaledInstance(
+                        "i-0a1b2c3d4e5f60718", "ap-southeast-1a", "10.20.21.71",
+                        True if out else None, "200 in 41 ms" if out else None,
+                    ),
+                    ScaledInstance(
+                        "i-0f9e8d7c6b5a43210", "ap-southeast-1b", "10.20.22.64",
+                        False if out else None, "no answer: connection refused" if out else None,
+                    ),
+                ),
+                in_service=4,
+                desired=4,
+                health_endpoint="HTTP port 80, GET /health" if out else None,
+                recipients=recipients,
+            )
+        case NotificationKind.VPC_UNREACHABLE | NotificationKind.VPC_RECOVERED:
+            return VpcEvent(
+                kind=kind,
+                vpc_id=1,
+                vpc_name="prod-vpc",
+                cidrs=("10.20.0.0/16",),
+                project_id=1,
+                project_name=_PROJECT,
+                occurred_at=now,
+                failed_checks=11,
+                total_checks=14,
+                downtime_seconds=720,
+                failing=failing,
+                recipients=recipients,
+            )
+        case NotificationKind.DEPLOY_STARTED | NotificationKind.DEPLOY_FINISHED:
+            finished = kind is NotificationKind.DEPLOY_FINISHED
+            return DeployEvent(
+                kind=kind,
+                project_id=1,
+                project_name=_PROJECT,
+                account_name="Production",
+                aws_account_id="123456789012",
+                region="ap-southeast-1",
+                deployment_id="d-7Q2X9ABCD",
+                application="orders-api",
+                group="orders-api-prod",
+                environment="production",
+                started_at=now - timedelta(minutes=4) if finished else now,
+                creator="user",
+                description="Release 2.4.1",
+                revision="github acme/orders-api@4f1c2d9",
+                resources=(
+                    DeployedResource(30, "orders-api-asg", ResourceKind.AUTO_SCALING_GROUP),
+                    DeployedResource(21, "orders-api-alb", ResourceKind.LOAD_BALANCER),
+                ),
+                status="Succeeded" if finished else None,
+                finished_at=now if finished else None,
                 recipients=recipients,
             )
     raise ValueError(f"No sample for {kind}")

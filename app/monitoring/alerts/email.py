@@ -296,6 +296,10 @@ class EmailAlerter(Alerter):
         mail["To"] = ", ".join(recipients)
         if isinstance(event, SiteEvent):
             mail["X-Watchly-Website-Id"] = str(event.website.id)
+        elif (resource := getattr(event, "resource", None)) is not None:
+            # Infrastructure events; matched by shape, which keeps the
+            # alert channels free of imports from the infra package.
+            mail["X-Watchly-Resource-Id"] = str(resource.id)
         mail["X-Watchly-Project-Id"] = str(event.project_id)
         mail["X-Watchly-Alert-Kind"] = event.kind.value
         mail.set_content(render_text(message))

@@ -50,6 +50,14 @@ _EMOJI = {
     NotificationKind.PACKET_LOSS: ":signal_strength:",
     NotificationKind.DNS_CHANGED: ":globe_with_meridians:",
     NotificationKind.MONTHLY_REPORT: ":bar_chart:",
+    NotificationKind.INFRA_DOWN: ":rotating_light:",
+    NotificationKind.INFRA_STILL_DOWN: ":warning:",
+    NotificationKind.INFRA_RECOVERED: ":white_check_mark:",
+    NotificationKind.INFRA_DEGRADED: ":large_yellow_circle:",
+    NotificationKind.VPC_UNREACHABLE: ":no_entry:",
+    NotificationKind.VPC_RECOVERED: ":link:",
+    NotificationKind.ASG_SCALED_OUT: ":arrow_up:",
+    NotificationKind.ASG_SCALED_IN: ":arrow_down:",
 }
 
 _TONE_DOT = {

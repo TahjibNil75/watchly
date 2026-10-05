@@ -12,11 +12,13 @@ from app.monitoring.alerts.base import NotificationKind
 _SITE = {
     "project": "Project name",
     "website": "Website name",
-    "url": "Website URL, the host of a ping check, or the domain of a DNS check",
-    "status_code": "HTTP status of the latest check, “no response”, or “—” for a ping or "
-    "DNS check",
+    "url": "Website URL, the host of a ping check, the domain of a DNS check, or the "
+    "host:port of a database check",
+    "status_code": "HTTP status of the latest check, “no response”, or “—” for a ping, "
+    "DNS or database check",
     "response_time": "Response time of the latest check, e.g. “212 ms”; for a ping check "
-    "the average round trip, for a DNS check the resolvers’ average answer time",
+    "the average round trip, for a DNS check the resolvers’ average answer time, for a "
+    "database check the time to the server’s answer",
     "checked_at": "When the latest check ran (UTC)",
     "summary": "One-line result of the latest check, e.g. “HTTP 503 Service Unavailable”",
     "dashboard_url": "Link to this website in Watchly (empty if ALERT_DASHBOARD_URL is unset)",
@@ -92,6 +94,93 @@ _REPORT = {
     "sites": "“1 site” or “4 sites”",
     "dashboard_url": "Link to this project in Watchly (empty if ALERT_DASHBOARD_URL is unset)",
 }
+
+
+_INFRA = {
+    "project": "Project name",
+    "resource_name": "The resource's name, e.g. “orders-api-1”",
+    "resource_kind": "server, load balancer or Auto Scaling group",
+    "aws_id": "Instance id, load balancer ARN or Auto Scaling group name",
+    "vpc_name": "The VPC it is in, as registered in Watchly",
+    "aws_state": "What AWS last said about it, e.g. “running”, “stopped”, “active”, “2 of 3 in service”, or “—”",
+    "address": "Its private IP or DNS name, or “—” (an Auto Scaling group has none)",
+    "checked_at": "When the latest check ran (UTC)",
+    "dashboard_url": "Link to this resource in Watchly (empty if ALERT_DASHBOARD_URL is unset)",
+}
+
+_INFRA_OUTAGE = {
+    **_INFRA,
+    "failing_checks": "Each failing check and why, e.g. “ping (ping): No reply to 3 pings; "
+    "tcp 22 (tcp): TCP 22: No answer…”; “none” on recovery",
+    "downtime": "How long it has been down, e.g. “1h 2m”",
+    "down_since": "When the outage began (UTC)",
+    "attempt": "Which alert this is within the outage",
+    "max_attempts": "How many alerts an outage may send",
+}
+
+_INFRA_DEGRADED = {
+    **_INFRA,
+    "problem": "What is wrong, e.g. “Unhealthy targets” or “Slow response”",
+    "problem_detail": "The figures, e.g. “orders-api-tg: 2 of 3 targets healthy; i-0a1b… failing with Target.Timeout”",
+    "check": "The check that found it, e.g. “targets of orders-api-tg (target_health)”",
+}
+
+_INFRA_SCALING = {
+    **_INFRA,
+    "change": "“added” or “removed”",
+    "instance_count": "How many instances joined or left",
+    "instances": "Each instance with its zone and address; for a scale-out with a health "
+    "endpoint set, whether it answered",
+    "in_service": "Instances in service now",
+    "desired": "The group's desired capacity",
+    "health_endpoint": "The health endpoint probed on new instances, or “not set”",
+}
+
+_VPC = {
+    "project": "Project name",
+    "vpc_name": "The VPC, as registered in Watchly",
+    "cidrs": "Its address ranges, e.g. “10.20.0.0/16”",
+    "dashboard_url": "Link to this VPC in Watchly (empty if ALERT_DASHBOARD_URL is unset)",
+}
+
+_VPC_UNREACHABLE = {
+    **_VPC,
+    "failed_checks": "Checks in the VPC that failed to connect",
+    "total_checks": "Checks in the VPC that were looked at",
+}
+
+_VPC_RECOVERED = {**_VPC, "downtime": "How long it was unreachable, e.g. “12m”"}
+
+_DEPLOY = {
+    "project": "Project name",
+    "environment": "Where it deploys to, e.g. “production” or “development”: its resources' "
+    "environment, else its AWS account's, else “—”",
+    "application": "The CodeDeploy application, e.g. “orders-api”",
+    "deployment_group": "The CodeDeploy deployment group, e.g. “orders-api-prod”",
+    "deployment_id": "CodeDeploy's id, e.g. “d-7Q2X9ABCD”",
+    "account": "The AWS account, as named in Watchly",
+    "region": "The AWS region, e.g. “ap-southeast-1”",
+    "revision": "What is deployed, e.g. “github acme/orders-api@4f1c2d9” or “s3://bucket/key”, "
+    "or “—”",
+    "initiated_by": "Who started it, as CodeDeploy says: “user”, “CloudFormation”, "
+    "“codeDeployRollback”…, or “—”",
+    "resources": "The monitored resources it pauses, e.g. “orders-api-asg (Auto Scaling "
+    "group); orders-api-alb (load balancer)”, or “none”",
+    "resource_count": "How many monitored resources it pauses",
+    "dashboard_url": "Link to the project in Watchly (empty if ALERT_DASHBOARD_URL is unset)",
+}
+
+_DEPLOY_FINISHED = {
+    **_DEPLOY,
+    "status": "“succeeded”, “failed” or “was stopped”",
+    "duration": "How long it took, e.g. “4m”",
+    "error": "CodeDeploy's error message when it failed, or “—”",
+}
+
+_INFRA_AUDIENCE = (
+    "The project's members and extra emails, the resource's extra recipients, and the "
+    "project's Slack channel, Telegram chat and WhatsApp numbers."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +331,126 @@ CATALOG: dict[NotificationKind, KindInfo] = {
                 "{{average_uptime}} average uptime with {{incidents}}."
             ),
             placeholders=_REPORT,
+        ),
+        KindInfo(
+            kind=NotificationKind.INFRA_DOWN,
+            label="Resource down",
+            description="The first of an AWS server's, load balancer's or Auto Scaling "
+            "group's checks failed: one alert per resource, listing every failing check.",
+            audience=_INFRA_AUDIENCE,
+            default_subject="[DOWN] {{project}} / {{resource_name}} ({{resource_kind}}) is down",
+            default_body="{{resource_name}} in {{vpc_name}} is down: {{failing_checks}}",
+            placeholders=_INFRA_OUTAGE,
+        ),
+        KindInfo(
+            kind=NotificationKind.INFRA_STILL_DOWN,
+            label="Resource still down",
+            description="Follow-up reminders while a resource stays down, up to its alert limit.",
+            audience="Same as “Resource down”.",
+            default_subject="[STILL DOWN] {{project}} / {{resource_name}} has been down for "
+            "{{downtime}}",
+            default_body="{{resource_name}} is still down after {{downtime}}: {{failing_checks}}",
+            placeholders=_INFRA_OUTAGE,
+        ),
+        KindInfo(
+            kind=NotificationKind.INFRA_RECOVERED,
+            label="Resource back up",
+            description="Every check of a resource passes again after an outage.",
+            audience="Same as “Resource down”.",
+            default_subject="[RECOVERED] {{project}} / {{resource_name}} is back up after "
+            "{{downtime}}",
+            default_body="{{resource_name}} is healthy again after {{downtime}} of downtime.",
+            placeholders=_INFRA_OUTAGE,
+        ),
+        KindInfo(
+            kind=NotificationKind.INFRA_DEGRADED,
+            label="Resource degraded",
+            description="A resource is up, but a problem has lasted several checks: "
+            "unhealthy load balancer targets, an Auto Scaling group's instances failing "
+            "their health check or short of its desired capacity, slow responses or "
+            "packet loss.",
+            audience="Same as “Resource down”.",
+            default_subject="[DEGRADED] {{project}} / {{resource_name}}: {{problem}}",
+            default_body="{{resource_name}} is up but degraded: {{problem_detail}}. Found by "
+            "{{check}}.",
+            placeholders=_INFRA_DEGRADED,
+        ),
+        KindInfo(
+            kind=NotificationKind.ASG_SCALED_OUT,
+            label="Servers added (scale out)",
+            description="Instances joined an Auto Scaling group. Opt-in: only for groups "
+            "whose “notify on scale-out” is on. If the group has a health endpoint, the "
+            "message says whether each new server answered it.",
+            audience=_INFRA_AUDIENCE,
+            default_subject="[SCALED OUT] {{project}} / {{resource_name}} added {{instance_count}} "
+            "instance(s)",
+            default_body="{{resource_name}} in {{vpc_name}} added {{instance_count}} instance(s): "
+            "{{instances}}. {{in_service}} in service, {{desired}} desired.",
+            placeholders=_INFRA_SCALING,
+        ),
+        KindInfo(
+            kind=NotificationKind.ASG_SCALED_IN,
+            label="Servers removed (scale in)",
+            description="Instances left an Auto Scaling group. Opt-in: only for groups whose "
+            "“notify on scale-in” is on.",
+            audience="Same as “Servers added (scale out)”.",
+            default_subject="[SCALED IN] {{project}} / {{resource_name}} removed {{instance_count}} "
+            "instance(s)",
+            default_body="{{resource_name}} in {{vpc_name}} removed {{instance_count}} instance(s): "
+            "{{instances}}. {{in_service}} in service, {{desired}} desired.",
+            placeholders=_INFRA_SCALING,
+        ),
+        KindInfo(
+            kind=NotificationKind.VPC_UNREACHABLE,
+            label="VPC unreachable",
+            description="Most checks in a VPC failed to connect at once: one alert for the "
+            "VPC, and each resource's own down alert is held.",
+            audience="The members and extra emails, Slack channel, Telegram chat and WhatsApp "
+            "numbers of each project with resources in the VPC.",
+            default_subject="[VPC UNREACHABLE] {{project}} / {{vpc_name}} cannot be reached",
+            default_body=(
+                "Watchly cannot reach into {{vpc_name}} ({{cidrs}}): {{failed_checks}} of "
+                "{{total_checks}} checks failed to connect. Look for a security group, NACL, "
+                "route or peering change."
+            ),
+            placeholders=_VPC_UNREACHABLE,
+        ),
+        KindInfo(
+            kind=NotificationKind.VPC_RECOVERED,
+            label="VPC reachable again",
+            description="An unreachable VPC answers again.",
+            audience="Same as “VPC unreachable”.",
+            default_subject="[VPC RECOVERED] {{project}} / {{vpc_name}} answers again",
+            default_body="{{vpc_name}} can be reached again after {{downtime}}.",
+            placeholders=_VPC_RECOVERED,
+        ),
+        KindInfo(
+            kind=NotificationKind.DEPLOY_STARTED,
+            label="Deployment started",
+            description="A CodeDeploy deployment started in an AWS account that watches them. "
+            "Down alerts for the servers, load balancers and Auto Scaling groups it deploys "
+            "to pause until it ends.",
+            audience="The project's members and extra emails, ALERT_DEFAULT_EMAILS, and the "
+            "project's Slack channel, Telegram chat and WhatsApp numbers.",
+            default_subject="[DEPLOYING] {{project}} / {{application}} to {{environment}}",
+            default_body=(
+                "Deploying {{application}} ({{deployment_group}}) to {{environment}}: "
+                "{{revision}}. Down alerts paused for {{resource_count}} resource(s) until it ends."
+            ),
+            placeholders=_DEPLOY,
+        ),
+        KindInfo(
+            kind=NotificationKind.DEPLOY_FINISHED,
+            label="Deployment finished",
+            description="That deployment succeeded, failed or was stopped. Its resources' "
+            "checks resume shortly after; any still down then alerts as usual.",
+            audience="Same as “Deployment started”.",
+            default_subject="[DEPLOY] {{project}} / {{application}} to {{environment}} {{status}}",
+            default_body=(
+                "Deploying {{application}} ({{deployment_group}}) to {{environment}} {{status}} "
+                "after {{duration}}."
+            ),
+            placeholders=_DEPLOY_FINISHED,
         ),
     )
 }

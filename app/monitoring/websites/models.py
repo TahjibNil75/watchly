@@ -68,6 +68,9 @@ class CheckType(str, enum.Enum):
     PING = "ping"
     #: Ask several DNS resolvers for one record of the domain in `url`.
     DNS = "dns"
+    #: Open a session with the database server at `url` (`host:port`) as far
+    #: as its first answer, without logging in.
+    DATABASE = "database"
 
 
 check_type_enum = SAEnum(
@@ -93,6 +96,27 @@ class DnsRecordType(str, enum.Enum):
 dns_record_type_enum = SAEnum(
     DnsRecordType,
     name="dns_record_type",
+    native_enum=True,
+    create_constraint=False,
+    validate_strings=True,
+    values_callable=lambda enum_cls: [member.value for member in enum_cls],
+)
+
+
+class DbEngine(str, enum.Enum):
+    """The protocols a database check speaks. Each covers its relatives:
+    MySQL covers MariaDB and Aurora MySQL, PostgreSQL Aurora PostgreSQL,
+    Redis Valkey and ElastiCache, MongoDB DocumentDB."""
+
+    POSTGRESQL = "postgresql"
+    MYSQL = "mysql"
+    REDIS = "redis"
+    MONGODB = "mongodb"
+
+
+db_engine_enum = SAEnum(
+    DbEngine,
+    name="db_engine",
     native_enum=True,
     create_constraint=False,
     validate_strings=True,
@@ -160,8 +184,9 @@ class Website(Base, TimestampMixin):
     """A site to poll, together with the live state of its current outage.
 
     Also a host to ping (`check_type` ping), which keeps its host name or IP
-    address in `url` and ignores the HTTP-only settings; or one DNS record of a
-    domain (`check_type` dns), which keeps the domain in `url`.
+    address in `url` and ignores the HTTP-only settings; one DNS record of a
+    domain (`check_type` dns), which keeps the domain in `url`; or a database
+    server (`check_type` database), which keeps `host:port` in `url`.
     """
 
     __tablename__ = "websites"
@@ -183,8 +208,9 @@ class Website(Base, TimestampMixin):
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    #: The URL to request, for a ping check the host name or IP address, or
-    #: for a DNS check the domain name.
+    #: The URL to request, for a ping check the host name or IP address, for
+    #: a DNS check the domain name, or for a database check `host:port`
+    #: (`[v6]:port` for an IPv6 address).
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
 
     # --- how to check ---------------------------------------------------
@@ -207,6 +233,16 @@ class Website(Base, TimestampMixin):
     #: learns the records and alerts when they change.
     dns_expected_values: Mapped[list[str]] = mapped_column(
         ARRAY(Text), default=list, server_default=text("'{}'"), nullable=False
+    )
+    #: Database checks: the protocol the server at `url` speaks; None for
+    #: every other check type.
+    db_engine: Mapped[DbEngine | None] = mapped_column(db_engine_enum, nullable=True)
+    #: Database checks of Redis and MongoDB: use TLS from the start, as
+    #: ElastiCache with in-transit encryption, DocumentDB and Atlas need.
+    #: PostgreSQL and MySQL offer TLS in their handshake, so it is used
+    #: whenever the server offers it and this stays false.
+    db_tls: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
     )
     method: Mapped[str] = mapped_column(
         String(10), default="GET", server_default=text("'GET'"), nullable=False
@@ -647,6 +683,12 @@ class WebsiteCheck(Base):
     #: resolver's answer, as `dns_probe.DnsResult.as_dict()` writes them. For a
     #: DNS check `response_time_ms` is the resolvers' average answer time.
     dns: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    #: Database checks only: what the server said, as
+    #: `db_probe.DbResult.as_dict()` writes it. For a database check
+    #: `ip_address` is the address connected to, and `first_byte_ms` the time
+    #: from its request to the server's answer.
+    database: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     website: Mapped[Website] = relationship(back_populates="checks")
 

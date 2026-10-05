@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, st
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_roles
-from app.core.permissions import PROJECT_CREATORS
+from app.core.permissions import PROJECT_CREATORS, ROLE_MANAGERS
 from app.db.models.user import User
 from app.db.session import get_db
-from app.monitoring.projects.models import Project
+from app.monitoring.projects.models import Project, ProjectMonitors
 from app.monitoring.projects.service import (
     ProjectForbiddenError,
     ProjectNotFoundError,
@@ -18,6 +18,7 @@ from app.monitoring.websites.history import HistoryService
 from app.monitoring.websites.models import CheckType, WebsiteStatus
 from app.monitoring.websites.pinger import IcmpUnavailableError
 from app.monitoring.websites.schemas import (
+    BlockedWebsites,
     CheckNowResponse,
     MaintenanceCreate,
     StatsFormat,
@@ -135,7 +136,7 @@ async def list_websites(
         ),
     ),
     check_type: CheckType | None = Query(
-        None, description="Only HTTP sites, only pinged hosts, or only DNS checks."
+        None, description="Only HTTP sites, pinged hosts, DNS checks or database checks."
     ),
     in_maintenance: bool | None = Query(
         None,
@@ -182,7 +183,7 @@ async def summarize_websites(
         None, max_length=200, description="Only sites whose name or URL contains this."
     ),
     check_type: CheckType | None = Query(
-        None, description="Only HTTP sites, only pinged hosts, or only DNS checks."
+        None, description="Only HTTP sites, pinged hosts, DNS checks or database checks."
     ),
     actor: User = Depends(get_current_user),
     service: WebsiteService = Depends(get_website_service),
@@ -191,6 +192,25 @@ async def summarize_websites(
     `check_type`, so a dashboard can show every count while paging through one
     state."""
     return await service.summary(actor, project_id=project_id, q=q, check_type=check_type)
+
+
+# Declared before "/{website_id}", which would otherwise claim the path.
+@router.get(
+    "/blocked",
+    response_model=BlockedWebsites,
+    summary="Website checks the egress policy refuses",
+    responses={403: {"description": "Requires admin or DevOps"}},
+)
+async def blocked_websites(
+    actor: User = Depends(require_roles(*ROLE_MANAGERS)),
+    service: WebsiteService = Depends(get_website_service),
+) -> BlockedWebsites:
+    """Resolves the host of every HTTP, ping and database check now, as its
+    next check would, and lists the ones the policy refuses: loopback,
+    link-local and this server's own addresses always; private addresses
+    while WEBSITE_PRIVATE_TARGETS is `block`. Use it to find what turning the
+    policy on stops. DNS checks connect to nothing and are not listed."""
+    return await service.blocked_by_egress()
 
 
 # Declared before "/{website_id}", which would otherwise claim the path.
@@ -233,7 +253,8 @@ async def list_events(
                 "Unknown recipient id, no alert channel, Slack, Telegram or WhatsApp "
                 "settings that send nowhere, a URL that does not suit the check "
                 "type, DNS expected values that do not suit the record type, or "
-                "content rules on a HEAD/OPTIONS request, a ping or a DNS check"
+                "content rules on a HEAD/OPTIONS request or a check other than "
+                "HTTP, or a database check without db_engine"
             )
         },
     },
@@ -248,7 +269,10 @@ async def create_website(
     ICMP echo requests to, `ping_count` of them per check. With
     `check_type: "dns"`, `url` is a domain name whose `dns_record_type` record
     is looked up at every resolver in DNS_RESOLVERS; pin `dns_expected_values`
-    to treat any other answer as an outage.
+    to treat any other answer as an outage. With `check_type: "database"`,
+    `url` is a database endpoint, `host:port`, and `db_engine` the protocol it
+    speaks; each check opens a session as far as the server's first answer,
+    and never logs in, so it needs no user or password.
 
     The site emails its project's members and extra_emails, plus its own
     `recipient_ids` (users) and `alert_emails` (addresses). Set
@@ -260,6 +284,10 @@ async def create_website(
     sends the site's WhatsApp alerts to its own numbers, from the project's
     business number."""
     project = await _assert_can_manage(projects, payload.project_id, actor)
+    if project.monitors is ProjectMonitors.INFRASTRUCTURE:
+        raise _unprocessable(
+            ValueError(f"{project.name} monitors infrastructure: add websites to a websites project.")
+        )
     try:
         website = await service.create(payload, project, created_by_id=actor.id)
     except DuplicateWebsiteError as exc:
@@ -308,8 +336,8 @@ async def read_website(
                 "The change would leave no alert channel, Slack, Telegram or WhatsApp "
                 "settings that send nowhere, a URL that does not suit the check "
                 "type, DNS expected values that do not suit the record type, "
-                "content rules on a HEAD/OPTIONS request, a ping or a DNS check, "
-                "or a request header left to keep a value that is not stored"
+                "content rules on a HEAD/OPTIONS request or a check other than "
+                "HTTP, or a request header left to keep a value that is not stored"
             )
         },
     },
@@ -542,7 +570,8 @@ async def website_stats(
     response times count successful checks only, as in the monthly report. For a
     ping check, response time is the average round trip, and
     `packet_loss_percent` the share of pings lost; for a DNS check, it is the
-    resolvers' average answer time."""
+    resolvers' average answer time; for a database check, the time to the
+    server's answer."""
     try:
         website = await service.get_visible(website_id, actor)
     except WebsiteNotFoundError as exc:
@@ -553,7 +582,7 @@ async def website_stats(
             stats_csv(
                 stats,
                 packet_loss=website.check_type is CheckType.PING,
-                steps=website.check_type is CheckType.HTTP,
+                steps=website.check_type in (CheckType.HTTP, CheckType.DATABASE),
             ),
             f"watchly-site-{website_id}-{range_.value}.csv",
         )

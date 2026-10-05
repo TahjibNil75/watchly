@@ -1,7 +1,11 @@
 """CRUD for monitored websites. No HTTP concerns, no probing."""
 
+import asyncio
+import socket
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 
+import anyio
 from sqlalchemy import and_, case, delete, func, literal_column, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,8 +15,10 @@ from app.core.config import settings
 from app.core.crypto import encrypt_secret
 from app.core.permissions import can_view_all_projects
 from app.db.models.user import User
+from app.monitoring import egress
 from app.monitoring.projects.models import Project, visible_project_ids
 from app.monitoring.projects.service import resolve_users
+from app.monitoring.websites.db_probe import TLS_FROM_START, split_endpoint
 from app.monitoring.websites.models import (
     CheckType,
     DnsRecordType,
@@ -26,6 +32,9 @@ from app.monitoring.websites.models import (
 )
 from app.monitoring.websites.schemas import (
     MAX_MAINTENANCE_MINUTES,
+    BlockedWebsite,
+    BlockedWebsites,
+    EgressPolicyRead,
     MaintenanceCreate,
     WebsiteCreate,
     WebsiteSort,
@@ -176,7 +185,11 @@ def content_rule_problem(website: Website) -> WebsiteContentRuleError | None:
     if not (website.must_contain or website.must_not_contain):
         return None
     if website.check_type is not CheckType.HTTP:
-        what = "A ping" if website.check_type is CheckType.PING else "A DNS check"
+        what = {
+            CheckType.PING: "A ping",
+            CheckType.DNS: "A DNS check",
+            CheckType.DATABASE: "A database check",
+        }[website.check_type]
         return WebsiteContentRuleError(
             f"{what} has no response body to search: remove must_contain / "
             "must_not_contain."
@@ -454,11 +467,25 @@ class WebsiteService:
         website = await self.get(website_id)
         changes = payload.model_dump(exclude_unset=True)
 
+        if website.check_type is CheckType.DATABASE:
+            if changes.get("db_engine") is None:
+                changes.pop("db_engine", None)
+            engine = changes.get("db_engine", website.db_engine)
+            tls = changes.get("db_tls")
+            if tls is None:
+                tls = website.db_tls
+            # Only Redis and MongoDB use TLS from the start.
+            changes["db_tls"] = bool(tls) and engine in TLS_FROM_START
+        else:
+            changes.pop("db_engine", None)
+            changes.pop("db_tls", None)
         if changes.get("url") is not None:
             # What a valid target looks like depends on the site's check type,
             # which the payload cannot change.
             try:
-                changes["url"] = monitor_target(website.check_type, changes["url"])
+                changes["url"] = monitor_target(
+                    website.check_type, changes["url"], changes.get("db_engine", website.db_engine)
+                )
             except ValueError as exc:
                 raise WebsiteTargetError(f"url: {exc}") from exc
         if website.check_type is CheckType.DNS:
@@ -805,6 +832,67 @@ class WebsiteService:
             .limit(limit)
         )
         return list(rows), total or 0
+
+    async def blocked_by_egress(self) -> BlockedWebsites:
+        """Every HTTP, ping and database check whose host the egress policy
+        refuses now: resolved afresh, as the next check would. For finding the
+        checks that WEBSITE_PRIVATE_TARGETS=block stops, before or after
+        turning it on."""
+        rows = list(
+            await self.session.scalars(
+                select(Website)
+                .where(
+                    Website.check_type.in_(
+                        [CheckType.HTTP, CheckType.PING, CheckType.DATABASE]
+                    )
+                )
+                .order_by(Website.id)
+            )
+        )
+        scope = egress.website_scope()
+        gate = asyncio.Semaphore(20)
+
+        async def judge(website: Website) -> BlockedWebsite | None:
+            if website.check_type is CheckType.HTTP:
+                host = urlsplit(website.url).hostname
+            elif website.check_type is CheckType.DATABASE:
+                host = split_endpoint(website.url)[0]
+            else:
+                host = website.url
+            address: str | None = None
+            async with gate:
+                try:
+                    infos = await asyncio.wait_for(
+                        anyio.getaddrinfo(host or "", None, type=socket.SOCK_STREAM), 5
+                    )
+                    addresses = list(dict.fromkeys(str(info[4][0]) for info in infos))
+                    egress.vet(addresses, scope)
+                    return None
+                except egress.BlockedAddressError as exc:
+                    reason, address = exc.reason, exc.address
+                except (OSError, TimeoutError):
+                    # Does not resolve: down, but not the policy's doing.
+                    return None
+            return BlockedWebsite(
+                website_id=website.id,
+                name=website.name,
+                url=website.url,
+                check_type=website.check_type,
+                address=address,
+                reason=reason,
+            )
+
+        verdicts = await asyncio.gather(*(judge(website) for website in rows))
+        return BlockedWebsites(
+            policy=EgressPolicyRead(
+                always_blocked=[f"{network} ({why})" for network, why in egress.ALWAYS_BLOCKED],
+                deny_extra=list(settings.EGRESS_DENY_CIDRS),
+                own_addresses=egress.own_addresses(),
+                website_private_targets=settings.WEBSITE_PRIVATE_TARGETS,
+            ),
+            blocked=[verdict for verdict in verdicts if verdict is not None],
+            checked=len(rows),
+        )
 
     async def purge_old_events(self, now: datetime | None = None) -> int:
         """Delete feed events older than CHECK_RETENTION_DAYS. Called on every

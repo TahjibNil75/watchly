@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -12,6 +13,7 @@ from app.core.handlers import register_exception_handlers
 from app.core.logging_config import log_requests, setup_logging
 from app.db.session import engine
 from app.invitations.routes import router as invitations_router
+from app.monitoring import egress
 from app.monitoring.routes import router as monitoring_router
 from app.monitoring.scheduler import scheduler
 from app.user.routes import router as user_router
@@ -39,11 +41,21 @@ async def lifespan(app: FastAPI):
         settings.LOG_LEVEL.upper(),
         settings.LOG_DIR,
     )
+    if settings.WEBSITE_PRIVATE_TARGETS == "allow":
+        logger.warning(
+            "WEBSITE_PRIVATE_TARGETS=allow: website checks may reach private "
+            "addresses. Never run this way on a server inside a VPC."
+        )
+    # Off EC2 the metadata service takes a second to not answer; nothing
+    # should wait for that. Until it is done, loopback and link-local are
+    # refused anyway.
+    own_addresses = asyncio.create_task(egress.load_own_addresses(), name="egress-own")
     scheduler.start()
     try:
         yield
     finally:
         logger.info("Watchly shutting down")
+        own_addresses.cancel()
         await scheduler.stop()
         await engine.dispose()
 
@@ -74,4 +86,6 @@ async def health() -> dict[str, str]:
         "status": "ok",
         "version": __version__,
         "monitoring": "on" if scheduler.is_running else "off",
+        # Whether the dashboard should offer the Infrastructure page.
+        "infra_aws": "on" if settings.INFRA_AWS_ENABLED else "off",
     }

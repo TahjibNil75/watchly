@@ -72,12 +72,106 @@ const KIND_META = {
     ),
   },
   monthly_report: { tone: 'info', group: 'reports', icon: <path d="M4 20h16M7 16v-5M12 16V7M17 16v-8" /> },
+  infra_down: {
+    tone: 'down',
+    group: 'infrastructure',
+    icon: (
+      <>
+        <rect x="3.5" y="4" width="17" height="6.5" rx="1.5" />
+        <rect x="3.5" y="13.5" width="17" height="6.5" rx="1.5" />
+        <path d="M7.5 7.25h.01M7.5 16.75h.01M14 15l4 4M18 15l-4 4" />
+      </>
+    ),
+  },
+  infra_still_down: {
+    tone: 'down',
+    group: 'infrastructure',
+    icon: <path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3" />,
+  },
+  infra_recovered: {
+    tone: 'up',
+    group: 'infrastructure',
+    icon: (
+      <>
+        <rect x="3.5" y="4" width="17" height="6.5" rx="1.5" />
+        <rect x="3.5" y="13.5" width="17" height="6.5" rx="1.5" />
+        <path d="m13.5 17 2 2 4-4" />
+      </>
+    ),
+  },
+  infra_degraded: {
+    tone: 'pending',
+    group: 'infrastructure',
+    icon: (
+      <>
+        <circle cx="12" cy="5" r="2.5" />
+        <circle cx="5" cy="19" r="2.5" />
+        <circle cx="19" cy="19" r="2.5" />
+        <path d="M12 7.5v4M10.5 9.5 6 16.8M13.5 9.5 18 16.8M12 15v1.5M12 19.5v.01" />
+      </>
+    ),
+  },
+  asg_scaled_out: {
+    tone: 'pending',
+    group: 'infrastructure',
+    icon: <path d="M12 19V5M5 12l7-7 7 7" />,
+  },
+  asg_scaled_in: {
+    tone: 'pending',
+    group: 'infrastructure',
+    icon: <path d="M12 5v14M19 12l-7 7-7-7" />,
+  },
+  vpc_unreachable: {
+    tone: 'down',
+    group: 'infrastructure',
+    icon: (
+      <>
+        <rect x="3" y="3" width="18" height="18" rx="3" />
+        <path d="m9 9 6 6M15 9l-6 6" />
+      </>
+    ),
+  },
+  vpc_recovered: {
+    tone: 'up',
+    group: 'infrastructure',
+    icon: (
+      <>
+        <rect x="3" y="3" width="18" height="18" rx="3" />
+        <path d="m8 12.5 2.8 2.8L16.5 9.5" />
+      </>
+    ),
+  },
+  deploy_started: {
+    tone: 'maintenance',
+    group: 'deployments',
+    icon: <path d="M12 3c3 2 4.5 5 4.5 9l-2 3h-5l-2-3c0-4 1.5-7 4.5-9zM9.5 15 7 18l3-.5M14.5 15l2.5 3-3-.5M12 21v-3M12 9.5h.01" />,
+  },
+  deploy_finished: {
+    tone: 'up',
+    group: 'deployments',
+    icon: (
+      <>
+        <path d="M4 12.5 9 17.5 20 6.5" />
+        <path d="M4 20h16" />
+      </>
+    ),
+  },
 }
 
 const GROUPS = [
   { key: 'outages', title: 'Outages', note: 'When a site stops answering, and when it answers again.' },
   { key: 'warnings', title: 'Early warnings', note: 'Trouble spotted while a site is still up.' },
   { key: 'reports', title: 'Reports', note: 'How each project did last month, sent on the 1st.' },
+  {
+    key: 'infrastructure',
+    title: 'Infrastructure',
+    note: 'AWS servers and load balancers: one alert per resource, and one per VPC when the whole VPC is lost.',
+  },
+  {
+    key: 'deployments',
+    title: 'Deployments',
+    note: 'AWS CodeDeploy, for accounts that watch it: down alerts pause while a deployment runs.',
+  },
   { key: 'other', title: 'Other' },
 ]
 
@@ -651,7 +745,9 @@ function KindEditor({ setting, scope, canEdit, channels, titleTag: Title, onSave
  * channels) only annotates the switches — a switch for a channel that is not
  * set up is kept but has no effect.
  */
-export default function NotificationSettings({ projectId, canEdit, channels }) {
+// `monitors`: a project's, to show only what it can send. Every group shows
+// without it (the global settings).
+export default function NotificationSettings({ projectId, canEdit, channels, monitors }) {
   const scope = projectId ? 'project' : 'global'
   const list = useApi(
     () => (projectId ? api.projectNotificationSettings(projectId) : api.notificationSettings()),
@@ -685,7 +781,9 @@ export default function NotificationSettings({ projectId, canEdit, channels }) {
   return (
     <div>
       <ErrorBanner error={list.error} />
-      {GROUPS.map((group) => {
+      {GROUPS.filter(
+        (group) => !monitors || (monitors === 'infrastructure') === (group.key === 'infrastructure'),
+      ).map((group) => {
         const items = list.data.items.filter((s) => groupOf(s.kind) === group.key)
         if (!items.length) return null
         return (

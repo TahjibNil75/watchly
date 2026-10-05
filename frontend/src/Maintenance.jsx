@@ -34,10 +34,25 @@ function localNow() {
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
+// The website calls; an infrastructure resource passes its own.
+const SITE_ACTIONS = {
+  start: api.startMaintenance,
+  end: api.endMaintenance,
+  cancel: api.cancelMaintenance,
+}
+
 // Starting, ending and scheduling maintenance windows, during which the site
-// is not checked and nobody is alerted. `onChange` takes the updated site;
-// `onBoundary` refetches it when a window starts or ends by the clock.
-export default function Maintenance({ site, canManage, onChange, onBoundary }) {
+// (or resource: `noun`, `actions`) is not checked and nobody is alerted.
+// `onChange` takes the updated site; `onBoundary` refetches it when a window
+// starts or ends by the clock.
+export default function Maintenance({
+  site,
+  canManage,
+  onChange,
+  onBoundary,
+  noun = 'site',
+  actions = SITE_ACTIONS,
+}) {
   const [minutes, setMinutes] = useState(30)
   const [reason, setReason] = useState('')
   const [plan, setPlan] = useState({ starts_at: '', ends_at: '', reason: '' })
@@ -77,10 +92,10 @@ export default function Maintenance({ site, canManage, onChange, onBoundary }) {
 
   const start = async () => {
     const body = { duration_minutes: Number(minutes), reason: reason.trim() || null }
-    if (await run(() => api.startMaintenance(site.id, body))) setReason('')
+    if (await run(() => actions.start(site.id, body))) setReason('')
   }
 
-  const end = () => run(() => api.endMaintenance(site.id))
+  const end = () => run(() => actions.end(site.id))
 
   const schedule = async (event) => {
     event.preventDefault()
@@ -89,14 +104,14 @@ export default function Maintenance({ site, canManage, onChange, onBoundary }) {
       ends_at: toIso(plan.ends_at),
       reason: plan.reason.trim() || null,
     }
-    if (await run(() => api.startMaintenance(site.id, body))) {
+    if (await run(() => actions.start(site.id, body))) {
       setPlan({ starts_at: '', ends_at: '', reason: '' })
     }
   }
 
   const cancel = (w) => {
     if (!window.confirm(`Cancel the maintenance planned for ${span(w)}?`)) return
-    run(() => api.cancelMaintenance(site.id, w.id))
+    run(() => actions.cancel(site.id, w.id))
   }
 
   const setPlanField = (key) => (e) => setPlan({ ...plan, [key]: e.target.value })
@@ -106,8 +121,8 @@ export default function Maintenance({ site, canManage, onChange, onBoundary }) {
     <section className={`card${active ? ' card-maintenance' : ''}`}>
       <h2>Maintenance</h2>
       <p className="muted small">
-        During a maintenance window this site isn&apos;t checked and nobody is alerted, so a
-        deployment doesn&apos;t page anyone. When it ends, checks resume: if the site is still
+        During a maintenance window this {noun} isn&apos;t checked and nobody is alerted, so a
+        deployment doesn&apos;t page anyone. When it ends, checks resume: if the {noun} is still
         down, the usual alert goes out.
       </p>
       <ErrorBanner error={error} />

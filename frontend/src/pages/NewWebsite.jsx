@@ -12,7 +12,7 @@ export default function NewWebsite() {
   const [params] = useSearchParams()
   const allowed = canCreateProjects(user)
 
-  const projects = useApi(() => (allowed ? api.listProjects() : null), [allowed])
+  const projects = useApi(() => (allowed ? api.listProjects({ monitors: 'websites' }) : null), [allowed])
   const users = useApi(() => (allowed ? api.listUsers({ is_active: true }) : null), [allowed])
 
   if (!allowed) {
@@ -28,7 +28,7 @@ export default function NewWebsite() {
     <>
       <PageHeader
         title="Add website"
-        subtitle="Watchly will request this URL, ping this host, or look up this DNS record, on its interval and alert the project when it stops answering or changes."
+        subtitle="Watchly will request this URL, ping this host, look up this DNS record, or knock on this database, on its interval and alert the project when it stops answering or changes."
       />
       <ErrorBanner error={projects.error} />
       {manageable.length === 0 ? (

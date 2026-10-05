@@ -26,8 +26,10 @@ from app.monitoring.projects.schemas import (
     TelegramSettings,
     WhatsAppSettings,
 )
+from app.monitoring.websites.db_probe import DEFAULT_PORTS, TLS_FROM_START, join_endpoint
 from app.monitoring.websites.models import (
     CheckType,
+    DbEngine,
     DnsRecordType,
     WebsiteEnvironment,
     WebsiteStatus,
@@ -40,8 +42,29 @@ PING_TIMEOUT_SECONDS = 2
 #: A resolver may have to recurse through slow name servers on a cache miss,
 #: so a DNS check waits longer than a ping, but not as long as for a page.
 DNS_TIMEOUT_SECONDS = 5
+#: A database answers a new connection in milliseconds; seconds is trouble.
+DATABASE_TIMEOUT_SECONDS = 5
 #: Each check type's timeout when none is given; HTTP keeps the field default.
-_DEFAULT_TIMEOUTS = {CheckType.PING: PING_TIMEOUT_SECONDS, CheckType.DNS: DNS_TIMEOUT_SECONDS}
+_DEFAULT_TIMEOUTS = {
+    CheckType.PING: PING_TIMEOUT_SECONDS,
+    CheckType.DNS: DNS_TIMEOUT_SECONDS,
+    CheckType.DATABASE: DATABASE_TIMEOUT_SECONDS,
+}
+#: Connection URL schemes, and the engine each names. `mongodb+srv` names a
+#: cluster rather than a server, so it is not among them.
+DB_SCHEMES = {
+    "postgres": DbEngine.POSTGRESQL,
+    "postgresql": DbEngine.POSTGRESQL,
+    "mysql": DbEngine.MYSQL,
+    "mariadb": DbEngine.MYSQL,
+    "redis": DbEngine.REDIS,
+    "rediss": DbEngine.REDIS,
+    "valkey": DbEngine.REDIS,
+    "valkeys": DbEngine.REDIS,
+    "mongodb": DbEngine.MONGODB,
+}
+#: The schemes that mean TLS from the start.
+_TLS_SCHEMES = frozenset({"rediss", "valkeys"})
 #: Values a DNS check may pin; a record set rarely runs longer.
 MAX_DNS_VALUES = 20
 #: One pinned value; room for a DKIM key, which runs to several hundred.
@@ -200,11 +223,91 @@ def dns_name(value: str) -> str:
     return host
 
 
+def _endpoint_error(message: str) -> PydanticCustomError:
+    return PydanticCustomError("database_endpoint", message)
+
+
+def _split_host_port(text: str) -> tuple[str, str | None]:
+    """`host:port`, `[v6]:port`, `[v6]`, a bare IPv6 address or a bare host."""
+    if text.startswith("["):
+        host, _, rest = text[1:].partition("]")
+        if rest and not rest.startswith(":"):
+            raise _endpoint_error("Write an IPv6 endpoint as [2001:db8::5]:5432.")
+        return host, rest[1:] or None
+    if text.count(":") == 1:
+        host, _, port = text.partition(":")
+        return host, port
+    return text, None
+
+
+def database_endpoint(value: str, engine: DbEngine | None = None) -> str:
+    """`host:port` for a database check: lower case, an IPv6 address in
+    brackets, and the engine's usual port when none is given.
+
+    A connection URL (`postgresql://db.example.com:5432/app`) is taken apart
+    for its host and port, but not one with a user or password in it: a check
+    never logs in, so it has no use for them, and they are not taken."""
+    text = value.strip()
+    if "://" in text:
+        scheme, _, rest = text.partition("://")
+        netloc = rest.split("/", 1)[0].split("?", 1)[0]
+        if "@" in netloc:
+            raise _endpoint_error(
+                "Leave the user name and password out: Watchly never logs in to a "
+                "database, so it needs only the host and port."
+            )
+        scheme = scheme.lower()
+        if scheme == "mongodb+srv":
+            raise _endpoint_error(
+                "A mongodb+srv URL names a cluster, not a server: give one member's "
+                "host:port, e.g. shard-00-00.example.mongodb.net:27017."
+            )
+        named = DB_SCHEMES.get(scheme)
+        if named is None:
+            raise _endpoint_error(f"{scheme}:// is not a database Watchly can check.")
+        if engine is not None and named is not engine:
+            raise _endpoint_error(f"A {scheme}:// URL is not a {engine.value} endpoint.")
+        if "," in netloc:
+            raise _endpoint_error("Give one server's host:port, not a list of them.")
+        text = netloc
+    elif "@" in text:
+        raise _endpoint_error(
+            "Leave the user name and password out: Watchly never logs in to a "
+            "database, so it needs only the host and port."
+        )
+    elif "/" in text:
+        raise _endpoint_error(
+            "Enter the endpoint as host:port, e.g. db.example.com:5432."
+        )
+    host, port_text = _split_host_port(text)
+    if (address := _ip_address(host)) is not None:
+        host = address.compressed
+    elif (name := _host_name(host)) is not None:
+        host = name
+    else:
+        raise _endpoint_error(
+            "Enter a valid host name or IP address, e.g. db.example.com:5432 or "
+            "203.0.113.10:3306."
+        )
+    if port_text is None:
+        if engine is None:
+            raise _endpoint_error("Add the port, e.g. db.example.com:5432.")
+        port = DEFAULT_PORTS[engine]
+    elif port_text.isdigit() and 1 <= int(port_text) <= 65_535:
+        port = int(port_text)
+    else:
+        raise _endpoint_error(f"'{port_text}' is not a port: give a number from 1 to 65535.")
+    return join_endpoint(host, port)
+
+
 _TARGETS = {CheckType.HTTP: http_url, CheckType.PING: ping_host, CheckType.DNS: dns_name}
 
 
-def monitor_target(check_type: CheckType, value: str) -> str:
-    """What `url` holds for this kind of check, validated and normalized."""
+def monitor_target(check_type: CheckType, value: str, engine: DbEngine | None = None) -> str:
+    """What `url` holds for this kind of check, validated and normalized. A
+    database check's port defaults by `engine`."""
+    if check_type is CheckType.DATABASE:
+        return database_endpoint(value, engine)
     return _TARGETS[check_type](value)
 
 
@@ -280,7 +383,28 @@ class WebsiteBase(BaseModel):
         description=(
             "`http` requests `url`; `ping` sends ICMP echo requests to the host "
             "name or IP address in `url`; `dns` looks up one record of the domain "
-            "in `url` at several resolvers. Fixed once the site is created."
+            "in `url` at several resolvers; `database` opens a session with the "
+            "database server at `url` as far as its first answer, without "
+            "logging in. Fixed once the site is created."
+        ),
+    )
+    # Before `url`, whose default port depends on it.
+    db_engine: DbEngine | None = Field(
+        default=None,
+        description=(
+            "Database checks: the protocol the server speaks: `postgresql`, "
+            "`mysql` (MariaDB too), `redis` (Valkey too) or `mongodb` "
+            "(DocumentDB too). Taken from `url` when that is a connection URL. "
+            "Ignored for other check types."
+        ),
+    )
+    db_tls: bool = Field(
+        default=False,
+        description=(
+            "Database checks of Redis and MongoDB: use TLS from the start, as "
+            "ElastiCache with in-transit encryption, DocumentDB and Atlas need. "
+            "PostgreSQL and MySQL use TLS whenever the server offers it, so it "
+            "stays false for them."
         ),
     )
     name: str = Field(min_length=1, max_length=255)
@@ -290,7 +414,11 @@ class WebsiteBase(BaseModel):
         description=(
             "The http(s) URL to request; for a ping check the host name or IP "
             "address, e.g. `203.0.113.10` or `server.example.com`; for a DNS "
-            "check the domain name, e.g. `example.com` or `_dmarc.example.com`."
+            "check the domain name, e.g. `example.com` or `_dmarc.example.com`; "
+            "for a database check the endpoint, `host:port`, e.g. "
+            "`orders.c9akciq32.ap-southeast-1.rds.amazonaws.com:5432`, the port "
+            "defaulting to the engine's. A connection URL without a user or "
+            "password is taken apart for its host and port."
         ),
     )
     method: str = "GET"
@@ -302,7 +430,9 @@ class WebsiteBase(BaseModel):
         description=(
             "Per request; for a ping check, how long to wait for each reply "
             f"(default {PING_TIMEOUT_SECONDS}); for a DNS check, for each "
-            f"resolver's answer (default {DNS_TIMEOUT_SECONDS})."
+            f"resolver's answer (default {DNS_TIMEOUT_SECONDS}); for a database "
+            "check, for each step: connecting, TLS, the server's answer "
+            f"(default {DATABASE_TIMEOUT_SECONDS})."
         ),
     )
     check_interval_seconds: int = Field(default=300, ge=30, le=86_400)
@@ -353,8 +483,9 @@ class WebsiteBase(BaseModel):
         description=(
             "Alert when successful responses stay slower than this; for a ping "
             "check, the average round trip; for a DNS check, the resolvers' "
-            "average answer time. Leave null to use the server-wide "
-            "SLOW_RESPONSE_THRESHOLD_MS."
+            "average answer time; for a database check, the time to the "
+            "server's answer, connecting included. Leave null to use the "
+            "server-wide SLOW_RESPONSE_THRESHOLD_MS."
         ),
     )
     ping_count: int = Field(
@@ -451,11 +582,30 @@ class WebsiteBase(BaseModel):
 
     _name_length = field_validator("name")(check_name_length)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _engine_from_url(cls, data):
+        """A database check given a connection URL takes its engine from the
+        scheme, and TLS from `rediss://`, unless they are given."""
+        if not isinstance(data, dict) or data.get("check_type") != CheckType.DATABASE.value:
+            return data
+        url = data.get("url")
+        if not isinstance(url, str) or "://" not in url:
+            return data
+        scheme = url.strip().partition("://")[0].lower()
+        if data.get("db_engine") is None and scheme in DB_SCHEMES:
+            data = {**data, "db_engine": DB_SCHEMES[scheme].value}
+        if "db_tls" not in data and scheme in _TLS_SCHEMES:
+            data = {**data, "db_tls": True}
+        return data
+
     @field_validator("url")
     @classmethod
     def _valid_target(cls, value: str, info: ValidationInfo) -> str:
         # Missing when check_type itself failed validation; that error is reported.
-        return monitor_target(info.data.get("check_type", CheckType.HTTP), value)
+        return monitor_target(
+            info.data.get("check_type", CheckType.HTTP), value, info.data.get("db_engine")
+        )
 
     @field_validator("method")
     @classmethod
@@ -478,6 +628,16 @@ class WebsiteBase(BaseModel):
             # also slip it past the one-check-per-target rule.
             self.dns_record_type = None
             self.dns_expected_values = []
+        if self.check_type is CheckType.DATABASE:
+            if self.db_engine is None:
+                raise PydanticCustomError(
+                    "db_engine_missing",
+                    "A database check needs db_engine: postgresql, mysql, redis or mongodb.",
+                )
+            self.db_tls = self.db_tls and self.db_engine in TLS_FROM_START
+        else:
+            self.db_engine = None
+            self.db_tls = False
         if self.check_type is not CheckType.HTTP:
             self.request_headers = []
         return self
@@ -532,7 +692,7 @@ class WebsiteUpdate(BaseModel):
         max_length=2048,
         description=(
             "A URL; for a ping check a host name or IP address; for a DNS check a "
-            "domain name."
+            "domain name; for a database check `host:port`."
         ),
     )
     method: str | None = None
@@ -583,6 +743,10 @@ class WebsiteUpdate(BaseModel):
         default=None,
         max_length=MAX_DNS_VALUES,
         description="DNS checks only. Replaces the whole list; send [] to unpin.",
+    )
+    db_engine: DbEngine | None = Field(default=None, description="Database checks only.")
+    db_tls: bool | None = Field(
+        default=None, description="Database checks of Redis and MongoDB only."
     )
     alert_emails: list[EmailStr] | None = Field(
         default=None, description="Replaces the whole list when supplied."
@@ -709,6 +873,46 @@ class DnsCheckRead(BaseModel):
     answers: list[DnsAnswerRead]
 
 
+class DatabaseCheckRead(BaseModel):
+    """What the server said to one database check."""
+
+    engine: DbEngine
+    port: int
+    product: str | None = Field(
+        default=None,
+        description="The product, where it is not the engine itself, e.g. `MariaDB`.",
+    )
+    version: str | None = Field(
+        default=None,
+        description="The version the server announced; MySQL and MariaDB do, the others do not.",
+    )
+    state: str | None = Field(
+        default=None,
+        description=(
+            "What the server said, in words, e.g. `asks for a SCRAM-SHA-256 password`, "
+            "`answers without a password`, `primary of rs0`; null when it said "
+            "nothing an engine would."
+        ),
+    )
+    tls: bool | None = Field(
+        default=None, description="The session went over TLS; null when it never got that far."
+    )
+    tls_version: str | None = None
+    role: str | None = Field(
+        default=None,
+        description="MongoDB: `primary`, `secondary`, `arbiter`, `mongos` or `standalone`.",
+    )
+    replica_set: str | None = None
+    code: str | None = Field(
+        default=None,
+        description=(
+            "The server's own code for what it said: a SQLSTATE (`57P03`), a MySQL "
+            "error number (`1045`), a Redis error prefix (`NOAUTH`), a MongoDB code name."
+        ),
+    )
+    message: str | None = Field(default=None, description="The server's own message.")
+
+
 class WebsiteCheckRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -723,8 +927,10 @@ class WebsiteCheckRead(BaseModel):
         default=None,
         description=(
             "Why the check failed, e.g. `dns_error`, `connect_timeout`, `tls_error`, "
-            "`unexpected_status`, for a ping `no_reply`, or for a DNS check "
-            "`nxdomain` or `dns_mismatch`; null when it succeeded."
+            "`unexpected_status`, for a ping `no_reply`, for a DNS check "
+            "`nxdomain` or `dns_mismatch`, or for a database check "
+            "`connect_refused`, `protocol_error`, `db_unavailable` or "
+            "`db_too_many_connections`; null when it succeeded."
         ),
     )
     final_url: str | None
@@ -732,7 +938,8 @@ class WebsiteCheckRead(BaseModel):
         default=None,
         description=(
             "HTTP checks: the address the site's host answered on (the first hop's "
-            "when redirected); null when unknown. Ping checks report theirs in `ping`."
+            "when redirected); null when unknown. Database checks: the address "
+            "connected to. Ping checks report theirs in `ping`."
         ),
     )
     headers: dict[str, str] | None = Field(
@@ -769,6 +976,14 @@ class WebsiteCheckRead(BaseModel):
         description=(
             "DNS checks: each resolver's answer. `response_time_ms` is then the "
             "resolvers' average answer time."
+        ),
+    )
+    database: DatabaseCheckRead | None = Field(
+        default=None,
+        description=(
+            "Database checks: what the server said. `first_byte_ms` is then the "
+            "time from the request to the server's answer (for MySQL, which "
+            "speaks first, from the connection to its greeting)."
         ),
     )
 
@@ -969,6 +1184,8 @@ class WebsiteRead(BaseModel):
             "is measured against; null until they first agree."
         ),
     )
+    db_engine: DbEngine | None = None
+    db_tls: bool = False
     method: str
     expected_status: int
     timeout_seconds: int
@@ -1304,6 +1521,32 @@ class WebsiteStats(StatsFigures):
     series: list[StatsBucket] = Field(
         description="Oldest first, every bucket present; an empty one has 0 checks."
     )
+
+
+class BlockedWebsite(BaseModel):
+    """A website check the egress policy refuses."""
+
+    website_id: int
+    name: str
+    url: str
+    check_type: CheckType
+    address: str | None = Field(
+        description="The address refused; null when the host did not resolve at all."
+    )
+    reason: str
+
+
+class EgressPolicyRead(BaseModel):
+    always_blocked: list[str] = Field(description="Ranges no probe may reach, with why.")
+    deny_extra: list[str] = Field(description="EGRESS_DENY_CIDRS.")
+    own_addresses: list[str] = Field(description="This server's addresses, also refused.")
+    website_private_targets: str = Field(description="`block` or `allow`.")
+
+
+class BlockedWebsites(BaseModel):
+    policy: EgressPolicyRead
+    blocked: list[BlockedWebsite]
+    checked: int = Field(description="HTTP and ping checks looked at; DNS checks connect to nothing.")
 
 
 class CheckNowResponse(BaseModel):

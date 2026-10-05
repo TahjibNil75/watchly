@@ -2,7 +2,7 @@ import ipaddress
 import json
 import re
 from functools import lru_cache
-from typing import Annotated, NamedTuple
+from typing import Annotated, Literal, NamedTuple
 
 from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -286,6 +286,57 @@ class Settings(BaseSettings):
         "OpenDNS=208.67.222.222",
     ]
 
+    # --- Egress policy (app/monitoring/egress.py) ---------------------------
+    #: `block` keeps website checks to public addresses: on a server inside a
+    #: VPC, anyone who may add a site could otherwise probe the private
+    #: network with it. `allow` lets them reach private addresses, as before,
+    #: for an install on a LAN; never set it on EC2. Loopback, link-local
+    #: (instance metadata) and this server's own addresses are refused either
+    #: way.
+    WEBSITE_PRIVATE_TARGETS: Literal["block", "allow"] = "block"
+    #: More ranges no probe may reach, e.g. the subnet of Watchly's own
+    #: database, as CIDRs, comma-separated. NoDecode: see ALERT_DEFAULT_EMAILS.
+    EGRESS_DENY_CIDRS: Annotated[list[str], NoDecode] = []
+
+    # --- AWS infrastructure monitoring (app/monitoring/infra/aws) -----------
+    #: The /monitoring/infra/aws API (EC2 servers, ALBs and NLBs), its checks
+    #: and sync, and the Infrastructure page. Each AWS account is added from
+    #: the dashboard, with Watchly's own credentials (the instance role on
+    #: EC2), optionally assuming a role, or an access key of its own.
+    INFRA_AWS_ENABLED: bool = False
+    #: The region an account without a default region of its own uses. Blank
+    #: reads it from the instance metadata.
+    AWS_REGION: str = ""
+    #: How often resources' addresses and AWS states are read again.
+    AWS_SYNC_INTERVAL_SECONDS: int = Field(default=300, ge=60)
+    #: How long one discovery of a VPC is reused before AWS is asked again.
+    AWS_DISCOVERY_CACHE_SECONDS: int = Field(default=300, ge=0)
+    INFRA_MAX_CHECKS_PER_RESOURCE: int = Field(default=10, ge=1, le=50)
+    #: Checks in a row a problem (slow, lossy, unhealthy targets) must show
+    #: before the resource counts as degraded and an alert goes out.
+    INFRA_PROBLEM_CHECKS: int = Field(default=2, ge=1)
+    #: After a degraded alert, stay quiet this long about the same problem.
+    INFRA_PROBLEM_ALERT_COOLDOWN_SECONDS: int = 21_600
+    #: A VPC is unreachable when at least this share of its checks fail to
+    #: connect at once (and at least VPC_UNREACHABLE_MIN_CHECKS are known):
+    #: one alert for the VPC instead of one per resource.
+    VPC_UNREACHABLE_PERCENT: int = Field(default=60, ge=1, le=100)
+    VPC_UNREACHABLE_MIN_CHECKS: int = Field(default=3, ge=1)
+    #: How often an account that watches deployments asks CodeDeploy what is
+    #: in progress.
+    DEPLOY_WATCH_INTERVAL_SECONDS: int = Field(default=60, ge=30)
+    #: A deployment silences its resources this far ahead, renewed at every
+    #: look, so the silence lapses soon after Watchly loses sight of it.
+    DEPLOY_SILENCE_LEASE_MINUTES: int = Field(default=10, ge=2)
+    #: The longest one deployment keeps its resources silent, however long
+    #: it runs (a blue/green deployment may wait days for its reroute).
+    DEPLOY_SILENCE_MAX_MINUTES: int = Field(default=180, ge=10)
+    #: After a deployment ends, its resources stay silent this long more, for
+    #: the new code to start and its health checks to pass.
+    DEPLOY_SETTLE_SECONDS: int = Field(default=60, ge=0, le=900)
+    #: Diagnose runs and VPC tests, per user. NoDecode: see ALERT_DEFAULT_EMAILS.
+    RATE_LIMIT_INFRA_DIAGNOSE: Annotated[RateLimit, NoDecode] = RateLimit(30, 60)
+
     # --- Monthly uptime report --------------------------------------------
     MONTHLY_REPORTS_ENABLED: bool = True
     #: Day of the month to send the previous month's report. Capped at 28 so
@@ -350,6 +401,7 @@ class Settings(BaseSettings):
         "RATE_LIMIT_FORGOT_PASSWORD",
         "RATE_LIMIT_EMAIL_LINKS",
         "RATE_LIMIT_ACCOUNT_REQUESTS",
+        "RATE_LIMIT_INFRA_DIAGNOSE",
         mode="before",
     )
     @classmethod
@@ -366,6 +418,24 @@ class Settings(BaseSettings):
             if int(hits) < 1 or seconds < 1:
                 raise ValueError(f"{value!r} must allow at least 1 request per period")
             return RateLimit(int(hits), seconds)
+        return value
+
+    @field_validator("EGRESS_DENY_CIDRS", mode="before")
+    @classmethod
+    def _split_cidrs(cls, value: object) -> object:
+        """Accept `10.20.5.0/24,10.20.6.0/24` as well as a JSON list; each
+        entry must be a network."""
+        if isinstance(value, str):
+            if value.strip().startswith("["):
+                value = json.loads(value)
+            else:
+                value = [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            for item in value:
+                try:
+                    ipaddress.ip_network(str(item).strip(), strict=False)
+                except ValueError:
+                    raise ValueError(f"EGRESS_DENY_CIDRS entry {item!r} is not a CIDR") from None
         return value
 
     @field_validator("DNS_RESOLVERS", mode="before")

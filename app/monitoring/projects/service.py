@@ -1,5 +1,7 @@
 """Project CRUD and membership. No HTTP concerns."""
 
+from collections.abc import Iterable
+
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.crypto import encrypt_secret
 from app.core.permissions import can_manage_project, can_view_all_projects
 from app.db.models.user import User
-from app.monitoring.projects.models import Project, visible_project_ids
+from app.monitoring.projects.models import Project, ProjectMonitors, visible_project_ids
 from app.monitoring.projects.schemas import (
     ProjectCreate,
     ProjectUpdate,
@@ -127,9 +129,12 @@ class ProjectService:
         offset: int = 0,
         is_active: bool | None = None,
         owner_id: int | None = None,
+        monitors: ProjectMonitors | None = None,
     ) -> tuple[list[Project], int]:
         """One page of the projects `actor` is allowed to see."""
         filters = []
+        if monitors is not None:
+            filters.append(Project.monitors == monitors)
         if is_active is not None:
             filters.append(Project.is_active.is_(is_active))
         if owner_id is not None:
@@ -147,12 +152,16 @@ class ProjectService:
         )
         return list(rows), total or 0
 
-    async def create(self, payload: ProjectCreate, owner: User) -> Project:
+    async def create(self, payload: ProjectCreate, owner: User, with_rows: Iterable = ()) -> Project:
+        """`with_rows` belong to the new project and are saved with it, in one
+        commit: an infrastructure project's AWS accounts, already tried with
+        AWS."""
         members = await resolve_users(self.session, payload.member_ids)
         project = Project(
             name=payload.name,
             description=payload.description,
             is_active=payload.is_active,
+            monitors=payload.monitors,
             extra_emails=[str(email) for email in payload.extra_emails],
             slack_bot_token=(
                 encrypt_secret(payload.slack_bot_token)
@@ -177,6 +186,9 @@ class ProjectService:
         )
         project.members = members
         self.session.add(project)
+        for row in with_rows:
+            row.project = project
+            self.session.add(row)
         try:
             await self.session.commit()
         except IntegrityError as exc:

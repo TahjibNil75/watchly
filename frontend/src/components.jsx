@@ -53,7 +53,7 @@ export function EnvironmentBadge({ environment }) {
   return <span className={`badge badge-env badge-env-${environment}`}>{label}</span>
 }
 
-// How a site is checked: HTTP, Ping, or DNS with the record it watches.
+// How a site is checked: HTTP, Ping, DNS with the record it watches, or DB.
 export function CheckTypeBadge({ site }) {
   const type = checkType(site.check_type)
   return (
@@ -75,17 +75,21 @@ export function ErrorBanner({ error }) {
 
 // A modal that guards a destructive action: the confirm button stays disabled
 // until the user types the word. `onConfirm` runs the action; the caller closes
-// the dialog through `onCancel` or by navigating away.
+// the dialog through `onCancel` or by navigating away. `error` is the page's
+// action error: once the user has confirmed, it shows here, since the dialog
+// covers the page's own banner.
 export function ConfirmDialog({
   title,
   children,
   word = 'confirm',
   confirmLabel = 'Delete',
   busy = false,
+  error = null,
   onConfirm,
   onCancel,
 }) {
   const [typed, setTyped] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
   const inputId = useId()
   const ready = typed.trim().toLowerCase() === word
 
@@ -104,11 +108,15 @@ export function ConfirmDialog({
         aria-labelledby={`${inputId}-title`}
         onSubmit={(e) => {
           e.preventDefault()
-          if (ready && !busy) onConfirm()
+          if (ready && !busy) {
+            setConfirmed(true)
+            onConfirm()
+          }
         }}
       >
         <h2 id={`${inputId}-title`}>{title}</h2>
         <div className="modal-body muted small">{children}</div>
+        {confirmed && !busy && <ErrorBanner error={error} />}
         <label className="field" htmlFor={inputId}>
           <span>
             Type <strong>{word}</strong> to continue

@@ -2,9 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_roles
+from app.core.config import settings
 from app.core.permissions import PROJECT_CREATORS
 from app.db.models.user import User
 from app.db.session import get_db
+from app.monitoring.infra.aws.service import InfraConflictError, InfraInvalidError, new_project_accounts
+from app.monitoring.projects.models import ProjectMonitors
 from app.monitoring.projects.schemas import (
     ProjectCreate,
     ProjectListResponse,
@@ -56,6 +59,7 @@ async def list_projects(
     offset: int = Query(0, ge=0),
     is_active: bool | None = Query(None),
     owner_id: int | None = Query(None, ge=1),
+    monitors: ProjectMonitors | None = Query(None, description="Only websites or infrastructure projects."),
     actor: User = Depends(get_current_user),
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectListResponse:
@@ -65,7 +69,7 @@ async def list_projects(
     own or are a member of: an empty list until someone adds them to one.
     """
     projects, total = await service.list(
-        actor, limit=limit, offset=offset, is_active=is_active, owner_id=owner_id
+        actor, limit=limit, offset=offset, is_active=is_active, owner_id=owner_id, monitors=monitors
     )
     return ProjectListResponse(
         items=[ProjectRead.model_validate(p) for p in projects],
@@ -82,8 +86,11 @@ async def list_projects(
     summary="Create a project",
     responses={
         403: {"description": "Requires admin, DevOps or project manager"},
-        409: {"description": "Project name already taken"},
-        422: {"description": "One of the member ids does not exist"},
+        409: {"description": "Project name already taken, or an AWS account given twice"},
+        422: {
+            "description": "A member id does not exist, or AWS refused an account's credentials, "
+            "or infrastructure monitoring is off"
+        },
     },
 )
 async def create_project(
@@ -91,9 +98,27 @@ async def create_project(
     actor: User = Depends(require_project_creator),
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectRead:
-    """The caller becomes the project's owner and can manage it thereafter."""
+    """The caller becomes the project's owner and can manage it thereafter.
+
+    `monitors` decides what the project watches, for good: `websites`, or
+    `infrastructure`, which takes at least one AWS account in `aws_accounts`
+    (more may be added later). Each account's credentials are tried with AWS
+    first; the project is created only if all of them work."""
+    accounts = []
+    if payload.monitors is ProjectMonitors.INFRASTRUCTURE:
+        if not settings.INFRA_AWS_ENABLED:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Infrastructure monitoring is off: set INFRA_AWS_ENABLED=true.",
+            )
+        try:
+            accounts = await new_project_accounts(payload.aws_accounts, actor)
+        except InfraConflictError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except InfraInvalidError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     try:
-        project = await service.create(payload, owner=actor)
+        project = await service.create(payload, owner=actor, with_rows=accounts)
     except (DuplicateProjectError, UnknownMembersError) as exc:
         raise _translate(exc) from exc
     return ProjectRead.model_validate(project)

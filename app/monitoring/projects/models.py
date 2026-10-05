@@ -1,9 +1,11 @@
+import enum
 from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Enum as SAEnum,
     ForeignKey,
     Integer,
     String,
@@ -46,6 +48,16 @@ project_members = Table(
 )
 
 
+class ProjectMonitors(str, enum.Enum):
+    """What a project watches. Chosen when it is created, and fixed."""
+
+    #: Websites: URLs, hosts and DNS records (`app/monitoring/websites`).
+    WEBSITES = "websites"
+    #: AWS infrastructure, through the project's own AWS accounts
+    #: (`app/monitoring/infra/aws`).
+    INFRASTRUCTURE = "infrastructure"
+
+
 class Project(Base, TimestampMixin):
     """A client or product whose sites are monitored together."""
 
@@ -56,6 +68,19 @@ class Project(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
+    )
+    monitors: Mapped[ProjectMonitors] = mapped_column(
+        SAEnum(
+            ProjectMonitors,
+            name="project_monitors",
+            native_enum=True,
+            create_constraint=False,
+            validate_strings=True,
+            values_callable=lambda cls: [member.value for member in cls],
+        ),
+        default=ProjectMonitors.WEBSITES,
+        server_default=ProjectMonitors.WEBSITES.value,
+        nullable=False,
     )
     #: Addresses that are not user accounts — a client contact, a shared
     #: on-call inbox. Alerted for every site in the project, alongside members.

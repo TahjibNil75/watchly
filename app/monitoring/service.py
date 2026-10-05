@@ -40,7 +40,9 @@ recorded but changes no state and alerts nobody.
 A pinged host is UP while any of its pings is answered; one that answers none
 is DOWN, and goes through the same outage alerts as a website. A DNS check is
 DOWN when most resolvers cannot resolve its record, or any returns something
-other than its pinned values; see `dns_probe`.
+other than its pinned values; see `dns_probe`. A database check is DOWN when
+nothing answers as its engine does, or the server says it cannot take
+connections; see `db_probe`.
 """
 
 import asyncio
@@ -264,6 +266,7 @@ class MonitoringService:
             jitter_ms=ping.jitter_ms if ping else None,
             ip_address=ping.address if ping else result.ip_address,
             dns=result.dns.as_dict() if result.dns else None,
+            database=result.database.as_dict() if result.database else None,
         )
         self.session.add(check)
 

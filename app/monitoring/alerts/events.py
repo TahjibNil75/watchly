@@ -28,6 +28,7 @@ from app.monitoring.alerts.base import (
     uptime_tone,
 )
 from app.monitoring.websites.checker import CheckResult
+from app.monitoring.websites.db_probe import split_endpoint
 from app.monitoring.websites.dns_probe import format_records
 from app.monitoring.websites.pinger import format_rtt
 
@@ -44,6 +45,8 @@ _STEPS = (
 #: What the timed steps leave out of the total: sending the request, reading
 #: the body, following redirects.
 _REST = "Download & other"
+#: A database check's last step is the server answering, not a first byte.
+_DB_STEPS = (*_STEPS[:-1], ("first_byte_ms", "Server's answer"))
 
 
 def _utc(value: datetime) -> str:
@@ -69,8 +72,9 @@ def _time_split(result: CheckResult) -> list[tuple[str, int]]:
     check it would be the time spent failing, not downloading.
     """
     t = result.timings
+    steps = _DB_STEPS if result.database is not None else _STEPS
     split = [
-        (label, ms) for field, label in _STEPS if (ms := getattr(t, field)) is not None
+        (label, ms) for field, label in steps if (ms := getattr(t, field)) is not None
     ]
     if split and result.status_code is not None and result.response_time_ms is not None:
         rest = result.response_time_ms - sum(ms for _, ms in split)
@@ -116,6 +120,12 @@ class SiteEvent(Notification):
 
     def _identity_facts(self) -> list[tuple[str, str]]:
         site = self.website
+        if site.is_database:
+            rows = [("Project", site.project_name), ("Database", site.name), ("Endpoint", site.url)]
+            db = self.result.database
+            if db is not None and db.address and db.address != split_endpoint(site.url)[0]:
+                rows.append(("Resolved to", db.address))
+            return rows
         if site.is_dns:
             rows = [("Project", site.project_name), ("DNS check", site.name), ("Domain", site.url)]
             if self.result.dns is not None:
@@ -170,6 +180,24 @@ class SiteEvent(Notification):
             rows.append((a.label, f"{text} · {a.time_ms} ms"))
         return rows
 
+    def _database_facts(self) -> list[tuple[str, str]]:
+        """What the server said, and how the session went."""
+        db = self.result.database
+        if db is None:
+            return []
+        rows = [("Engine", db.name)]
+        if db.role:
+            rows.append(("Role", f"{db.role} of {db.replica_set}" if db.replica_set else db.role))
+        if db.is_up and db.state:
+            rows.append(("Server said", db.state))
+        elif db.message:
+            rows.append(("Server said", db.message))
+        if db.code:
+            rows.append(("Server code", db.code))
+        if db.tls is not None:
+            rows.append(("TLS", (db.tls_version or "yes") if db.tls else "no"))
+        return rows
+
     def _response_facts(self) -> list[tuple[str, str]]:
         r = self.result
         rows: list[tuple[str, str]] = []
@@ -190,7 +218,7 @@ class SiteEvent(Notification):
             status_code = "—"
             avg = r.ping.avg_ms if r.ping else None
             response_time = format_rtt(avg) if avg is not None else "—"
-        elif self.website.is_dns:
+        elif self.website.is_dns or self.website.is_database:
             status_code = "—"
             response_time = (
                 f"{r.response_time_ms} ms" if r.response_time_ms is not None else "—"
@@ -259,6 +287,7 @@ class SiteEvent(Notification):
                 else None
             ),
             "dns": r.dns.as_dict() if r.dns else None,
+            "database": r.database.as_dict() if r.database else None,
         }
 
 
@@ -297,11 +326,11 @@ class OutageEvent(SiteEvent):
     def facts(self) -> list[tuple[str, str]]:
         """Ordered diagnostic rows."""
         r = self.result
-        ping, dns = self.website.is_ping, self.website.is_dns
+        ping, dns, database = self.website.is_ping, self.website.is_dns, self.website.is_database
         rows = self._identity_facts()
         rows.append(("Status", "UP" if r.is_up else "DOWN"))
         rows.append(("Checked at", _utc(r.checked_at)))
-        if not (ping or dns):
+        if not (ping or dns or database):
             rows.extend(self._response_facts()[:1])  # the HTTP status line
             if not r.is_up:
                 rows.append(("Expected status", str(self.website.expected_status)))
@@ -313,6 +342,12 @@ class OutageEvent(SiteEvent):
             rows.extend(self._ping_facts())
         elif dns:
             rows.extend(self._dns_facts())
+        elif database:
+            rows.extend(self._database_facts())
+            if r.response_time_ms is not None:
+                rows.append(("Response time", f"{r.response_time_ms} ms"))
+            if split := _time_split(r):
+                rows.append(("Timing", " · ".join(f"{label} {ms} ms" for label, ms in split)))
         else:
             if r.response_time_ms is not None:
                 rows.append(("Response time", f"{r.response_time_ms} ms"))
@@ -744,6 +779,9 @@ class SlowResponseEvent(SiteEvent):
         elif dns:
             rows.append(("Average answer time", f"{self.result.response_time_ms} ms"))
             rows.extend(self._dns_facts())
+        elif self.website.is_database:
+            rows.append(("Response time", f"{self.result.response_time_ms} ms"))
+            rows.extend(self._database_facts())
         else:
             rows.extend(self._response_facts()[::-1])  # response time first
         if slowest := self._slowest():
@@ -761,6 +799,8 @@ class SlowResponseEvent(SiteEvent):
             kicker, title = "High latency", f"{name} has high latency"
         elif dns:
             kicker, title = "Slow DNS", f"{name} is resolving slowly"
+        elif self.website.is_database:
+            kicker, title = "Slow database", f"{name} is answering slowly"
         else:
             kicker, title = "Slow response", f"{name} is responding slowly"
         return Message(

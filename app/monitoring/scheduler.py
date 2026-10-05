@@ -23,6 +23,10 @@ from app.core.config import settings
 from app.core.rate_limit import purge_closed_windows
 from app.db.session import AsyncSessionLocal, engine
 from app.invitations.service import InvitationService
+from app.monitoring.infra.aws.deployments import DeploymentWatcher
+from app.monitoring.infra.aws.history import InfraHistoryService
+from app.monitoring.infra.aws.monitor import InfraMonitor
+from app.monitoring.infra.aws.service import InfraService
 from app.monitoring.notifications.reports import ReportService
 from app.monitoring.service import MonitoringService
 from app.monitoring.websites.history import HistoryService
@@ -45,8 +49,11 @@ async def _run_guarded(what: str, job: Callable[[AsyncSession], Awaitable[object
 
 
 async def run_tick() -> int:
-    """Run one round of due checks, then the housekeeping that follows them:
-    rolling checks up by the hour, any monthly reports that are due, purging
+    """Run one round of due checks (websites, and with INFRA_AWS_ENABLED the
+    CodeDeploy deployments of the accounts that watch them, the
+    infrastructure checks and the sync of their resources from AWS), then the
+    housekeeping that follows them: rolling checks up by the hour, any monthly
+    reports that are due, purging
     checks, feed events and ended maintenance past their retention, and
     deleting expired refresh tokens, expired and old invitations, old account
     requests, and closed rate-limit windows.
@@ -55,6 +62,15 @@ async def run_tick() -> int:
     """
     async with AsyncSessionLocal() as session:
         outcomes = await MonitoringService(session).run_due_checks()
+    if settings.INFRA_AWS_ENABLED:
+        # First, so a deployment that just started silences its resources
+        # before their checks run.
+        await _run_guarded("Deployment watch", lambda s: DeploymentWatcher(s).run_due())
+        await _run_guarded("Infrastructure checks", lambda s: InfraMonitor(s).run_due_checks())
+        await _run_guarded("Infrastructure sync", lambda s: InfraMonitor(s).sync_due_vpcs())
+        await _run_guarded("Infrastructure rollup", lambda s: InfraHistoryService(s).rollup())
+        await _run_guarded("Infrastructure purge", lambda s: InfraHistoryService(s).purge())
+        await _run_guarded("Infrastructure feed purge", lambda s: InfraService(s).purge_old())
     await _run_guarded("Hourly rollup", lambda s: HistoryService(s).rollup())
     await _run_guarded("Monthly report run", lambda s: ReportService(s).send_due_reports())
     # After the rollup, which the purge relies on to have copied what it deletes.

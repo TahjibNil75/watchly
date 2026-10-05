@@ -250,4 +250,71 @@ export const api = {
     v1(`/monitoring/projects/${id}/report.csv`, { query: { month }, text: true }),
   sendReport: (id, month) =>
     v1(`/monitoring/projects/${id}/report`, { method: 'POST', body: month ? { month } : {} }),
+
+  // Website checks the egress policy refuses (admin/DevOps).
+  blockedWebsites: () => v1('/monitoring/websites/blocked'),
+
+  // Infrastructure: EC2 servers and load balancers, apart from websites. Every
+  // call answers 404 while the API has INFRA_AWS_ENABLED off; health() says which.
+  infraOverview: (query) => v1('/monitoring/infra/aws/overview', { query }),
+  infraSelf: () => v1('/monitoring/infra/aws/self'),
+  infraEvents: (query) => v1('/monitoring/infra/aws/resources/events', { query }),
+  listDeployments: (query) => v1('/monitoring/infra/aws/deployments', { query }),
+  infraDiagnose: (payload) => v1('/monitoring/infra/aws/diagnose', { method: 'POST', body: payload }),
+
+  listAwsAccounts: (projectId) => v1('/monitoring/infra/aws/accounts', { query: { project_id: projectId } }),
+  createAwsAccount: (payload) => v1('/monitoring/infra/aws/accounts', { method: 'POST', body: payload }),
+  updateAwsAccount: (id, payload) =>
+    v1(`/monitoring/infra/aws/accounts/${id}`, { method: 'PATCH', body: payload }),
+  deleteAwsAccount: (id) => v1(`/monitoring/infra/aws/accounts/${id}`, { method: 'DELETE' }),
+  testAwsAccount: (id) => v1(`/monitoring/infra/aws/accounts/${id}/test`, { method: 'POST' }),
+
+  listVpcs: () => v1('/monitoring/infra/aws/vpcs'),
+  availableVpcs: (accountId, region) =>
+    v1('/monitoring/infra/aws/vpcs/available', { query: { account_id: accountId, region } }),
+  getVpc: (id) => v1(`/monitoring/infra/aws/vpcs/${id}`),
+  createVpc: (payload) => v1('/monitoring/infra/aws/vpcs', { method: 'POST', body: payload }),
+  updateVpc: (id, payload) => v1(`/monitoring/infra/aws/vpcs/${id}`, { method: 'PATCH', body: payload }),
+  deleteVpc: (id, { withResources = false } = {}) =>
+    v1(`/monitoring/infra/aws/vpcs/${id}`, { method: 'DELETE', query: withResources ? { with_resources: true } : {} }),
+  testVpc: (id) => v1(`/monitoring/infra/aws/vpcs/${id}/test`, { method: 'POST' }),
+  vpcTopology: (id, refresh = false) =>
+    v1(`/monitoring/infra/aws/vpcs/${id}/topology`, { query: refresh ? { refresh: true } : undefined }),
+  discoverVpc: (id, refresh = false) =>
+    v1(`/monitoring/infra/aws/vpcs/${id}/discover`, { method: 'POST', body: { refresh } }),
+  importResources: (id, payload) =>
+    v1(`/monitoring/infra/aws/vpcs/${id}/import`, { method: 'POST', body: payload }),
+
+  listResources: (query) => v1('/monitoring/infra/aws/resources', { query: { limit: 100, ...query } }),
+  resourceSummary: (query) => v1('/monitoring/infra/aws/resources/summary', { query }),
+  getResource: (id) => v1(`/monitoring/infra/aws/resources/${id}`),
+  createResource: (payload) => v1('/monitoring/infra/aws/resources', { method: 'POST', body: payload }),
+  updateResource: (id, payload) =>
+    v1(`/monitoring/infra/aws/resources/${id}`, { method: 'PATCH', body: payload }),
+  deleteResource: (id) => v1(`/monitoring/infra/aws/resources/${id}`, { method: 'DELETE' }),
+  checkResource: (id) => v1(`/monitoring/infra/aws/resources/${id}/check`, { method: 'POST' }),
+  resourceResults: (id, query) => v1(`/monitoring/infra/aws/resources/${id}/results`, { query }),
+  // range: 24h | 7d | 30d | 90d
+  resourceStats: (id, range) => v1(`/monitoring/infra/aws/resources/${id}/stats`, { query: { range } }),
+  resourceStatsCsv: (id, range) =>
+    v1(`/monitoring/infra/aws/resources/${id}/stats`, { query: { range, format: 'csv' }, text: true }),
+  resourceTargets: (id) => v1(`/monitoring/infra/aws/resources/${id}/targets`),
+  addCheck: (id, payload) => v1(`/monitoring/infra/aws/resources/${id}/checks`, { method: 'POST', body: payload }),
+  updateCheck: (id, checkId, payload) =>
+    v1(`/monitoring/infra/aws/resources/${id}/checks/${checkId}`, { method: 'PATCH', body: payload }),
+  deleteCheck: (id, checkId) =>
+    v1(`/monitoring/infra/aws/resources/${id}/checks/${checkId}`, { method: 'DELETE' }),
+  addResourceRecipients: (id, recipientIds) =>
+    v1(`/monitoring/infra/aws/resources/${id}/recipients`, {
+      method: 'POST',
+      body: { recipient_ids: recipientIds },
+    }),
+  removeResourceRecipient: (id, userId) =>
+    v1(`/monitoring/infra/aws/resources/${id}/recipients/${userId}`, { method: 'DELETE' }),
+  startResourceMaintenance: (id, payload) =>
+    v1(`/monitoring/infra/aws/resources/${id}/maintenance`, { method: 'POST', body: payload }),
+  endResourceMaintenance: (id) =>
+    v1(`/monitoring/infra/aws/resources/${id}/maintenance/end`, { method: 'POST' }),
+  cancelResourceMaintenance: (id, windowId) =>
+    v1(`/monitoring/infra/aws/resources/${id}/maintenance/${windowId}`, { method: 'DELETE' }),
 }

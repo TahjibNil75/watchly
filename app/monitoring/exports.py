@@ -8,6 +8,7 @@ import io
 from fastapi import Response
 
 from app.monitoring.alerts.events import ReportEvent
+from app.monitoring.infra.aws.schemas import ResourceStats
 from app.monitoring.websites.schemas import WebsiteStats
 
 #: A cell starting with one of these is read as a formula by spreadsheets, and
@@ -36,7 +37,8 @@ def stats_csv(
 ) -> str:
     """One row per bucket, oldest first, including empty ones (blank figures).
     `packet_loss` adds a column for it, for a ping check; `steps` adds the
-    average time of each step of the request, for an HTTP check."""
+    average time of each step of the request, for an HTTP or database check
+    (whose first byte is the server's answer)."""
     header = [
         "bucket_start_utc",
         "checks",
@@ -108,6 +110,47 @@ def report_csv(event: ReportEvent) -> str:
             ]
             for site in event.sites
         ],
+    )
+
+
+def infra_stats_csv(stats: ResourceStats) -> str:
+    """One row per check per bucket, oldest first, with each check's own
+    metric (packet loss, healthy targets) where it has one."""
+    rows = []
+    for check in stats.checks:
+        for b in check.series:
+            rows.append(
+                [
+                    b.start.isoformat(),
+                    check.check_id,
+                    _safe(check.name),
+                    check.check_type.value,
+                    b.checks,
+                    b.up_checks,
+                    _cell(b.uptime_percent),
+                    _cell(b.avg_response_ms),
+                    _cell(b.max_response_ms),
+                    check.metric or "",
+                    _cell(b.metric_min),
+                    _cell(b.metric_max),
+                ]
+            )
+    return _render(
+        [
+            "bucket_start",
+            "check_id",
+            "check",
+            "check_type",
+            "checks",
+            "up_checks",
+            "uptime_percent",
+            "avg_response_ms",
+            "max_response_ms",
+            "metric",
+            "metric_min",
+            "metric_max",
+        ],
+        rows,
     )
 
 

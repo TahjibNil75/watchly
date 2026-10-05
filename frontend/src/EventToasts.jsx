@@ -6,7 +6,8 @@ import { dateTime, duration, timeAgo } from './format.js'
 import { SITE_EVENTS } from './useApi.js'
 
 // Toasts for what happens to the sites you can see: outages, recoveries, slow
-// spells, packet loss, DNS changes, expiring certificates. Polls the event feed and remembers, per user
+// spells, packet loss, DNS changes, expiring certificates; and, with
+// infrastructure on, to AWS servers and load balancers. Polls each event feed and remembers, per user
 // in this browser, the newest event already shown, so signing in catches up on
 // what happened while you were away and a reload replays nothing.
 
@@ -22,11 +23,9 @@ const DAY_MS = 86400000
 // The mascot's face for each tone: happy, fed up, tense.
 export const TONE_MOODS = { up: 'up', pending: 'slow', down: 'down' }
 
-const seenKey = (userId) => `watchly.lastEventId.${userId}`
-
-function readSeen(userId) {
+function readSeen(key) {
   try {
-    const raw = localStorage.getItem(seenKey(userId))
+    const raw = localStorage.getItem(key)
     const id = raw === null ? NaN : Number(raw)
     return Number.isInteger(id) && id >= 0 ? id : null
   } catch {
@@ -34,9 +33,9 @@ function readSeen(userId) {
   }
 }
 
-function writeSeen(userId, id) {
+function writeSeen(key, id) {
   try {
-    localStorage.setItem(seenKey(userId), String(id))
+    localStorage.setItem(key, String(id))
   } catch {
     // Storage unavailable (private mode); this tab still remembers.
   }
@@ -66,7 +65,9 @@ function describe(event) {
             ? `${name} has high latency`
             : event.website.check_type === 'dns'
               ? `${name} is resolving slowly`
-              : `${name} is responding slowly`,
+              : event.website.check_type === 'database'
+                ? `${name} is answering slowly`
+                : `${name} is responding slowly`,
         detail: `${event.response_time_ms} ms, over its ${event.threshold_ms} ms threshold`,
       }
     case 'packet_loss':
@@ -136,6 +137,77 @@ function toToast(event) {
   }
 }
 
+// The infrastructure feed: resources down, back, degraded; VPCs lost and found.
+function describeInfra(event) {
+  const name = event.resource?.name
+  switch (event.kind) {
+    case 'infra_down':
+      return { tone: 'down', sticky: true, title: `${name} is down`, detail: event.summary }
+    case 'infra_recovered':
+      return {
+        tone: 'up',
+        title: `${name} is back up`,
+        detail: event.downtime_seconds ? `Down for ${duration(event.downtime_seconds)}` : event.summary,
+      }
+    case 'infra_degraded':
+      return { tone: 'pending', title: `${name} is degraded`, detail: event.summary }
+    case 'asg_scaled_out':
+      return { tone: 'pending', title: `${name} scaled out`, detail: event.summary }
+    case 'asg_scaled_in':
+      return { tone: 'pending', title: `${name} scaled in`, detail: event.summary }
+    case 'vpc_unreachable':
+      return { tone: 'down', sticky: true, title: `${event.vpc.name} is unreachable`, detail: event.summary }
+    case 'vpc_recovered':
+      return { tone: 'up', title: `${event.vpc.name} answers again`, detail: event.summary }
+    case 'deploy_started':
+      return { tone: 'info', title: 'Deployment started', detail: event.summary }
+    case 'deploy_finished':
+      // The summary ends "… succeeded / failed / was stopped after 4m".
+      return {
+        tone: / succeeded /.test(event.summary) ? 'up' : / failed /.test(event.summary) ? 'down' : 'pending',
+        title: 'Deployment ended',
+        detail: event.summary,
+      }
+    default:
+      return null
+  }
+}
+
+// Where a toast leads: the resource, else the VPC, else (a deployment) the
+// project.
+function infraHref(event) {
+  if (event.resource) return `/infra/resources/${event.resource.id}`
+  if (event.vpc) return `/infra/vpcs/${event.vpc.id}`
+  return `/projects/${event.project_id}`
+}
+
+function infraToast(event) {
+  const text = describeInfra(event)
+  if (!text) return null
+  return {
+    ...text,
+    key: `infra-${event.id}`,
+    href: infraHref(event),
+    at: event.occurred_at,
+  }
+}
+
+// Each feed keeps its own cursor; the websites' key predates the others.
+const FEEDS = {
+  websites: {
+    fetch: (query) => api.websiteEvents(query),
+    seenKey: (userId) => `watchly.lastEventId.${userId}`,
+    toToast,
+    home: '/',
+  },
+  infra: {
+    fetch: (query) => api.infraEvents(query),
+    seenKey: (userId) => `watchly.lastInfraEventId.${userId}`,
+    toToast: infraToast,
+    home: '/infra',
+  },
+}
+
 function Toast({ toast, onDismiss }) {
   const { key, sticky, leaving } = toast
   // Hovering or focusing holds a toast; letting go restarts its time in full.
@@ -192,25 +264,25 @@ function Toast({ toast, onDismiss }) {
   )
 }
 
-export default function EventToasts({ userId }) {
+// `infra` adds the infrastructure feed, when the API has it switched on.
+export default function EventToasts({ userId, infra = false }) {
   const [toasts, setToasts] = useState([])
 
   useEffect(() => {
-    let cursor = null
+    const feeds = infra ? [FEEDS.websites, FEEDS.infra] : [FEEDS.websites]
+    const cursors = new Map()
     let busy = false
     let stopped = false
 
-    async function poll() {
-      if (busy || document.hidden) return
-      busy = true
+    async function pollFeed(feed) {
+      const key = feed.seenKey(userId)
+      let cursor = cursors.get(feed) ?? null
       // Another tab may already have shown some.
-      const seen = readSeen(userId)
+      const seen = readSeen(key)
       if (seen !== null && (cursor === null || seen > cursor)) cursor = seen
       try {
         const catchingUp = cursor !== null
-        const page = await api.websiteEvents(
-          catchingUp ? { after_id: cursor, limit: SHOWN - 1 } : { limit: 1 },
-        )
+        const page = await feed.fetch(catchingUp ? { after_id: cursor, limit: SHOWN - 1 } : { limit: 1 })
         if (stopped) return
         const newest = page.items[0]?.id
         if (!catchingUp) {
@@ -218,24 +290,33 @@ export default function EventToasts({ userId }) {
           cursor = newest ?? 0
         } else if (newest !== undefined) {
           cursor = newest
-          const fresh = page.items.map(toToast).filter(Boolean).reverse()
+          const fresh = page.items.map(feed.toToast).filter(Boolean).reverse()
           const rest = page.total - page.items.length
           if (rest > 0) {
             fresh.unshift({
-              key: `more-${newest}`,
+              key: `more-${feed.home}-${newest}`,
               tone: 'info',
               title: `${plural(rest, 'more alert')} since you last looked`,
-              detail: 'The dashboard shows where every site stands now.',
-              href: '/',
+              detail: 'The dashboard shows where everything stands now.',
+              href: feed.home,
             })
           }
           setToasts((list) => [...list, ...fresh].slice(-SHOWN))
-          // Pages that poll site state refresh now, so they agree with the toast.
+          // Pages that poll state refresh now, so they agree with the toast.
           window.dispatchEvent(new Event(SITE_EVENTS))
         }
-        writeSeen(userId, cursor)
+        cursors.set(feed, cursor)
+        writeSeen(key, cursor)
       } catch {
         // The API is having a moment; the next poll tries again.
+      }
+    }
+
+    async function poll() {
+      if (busy || document.hidden) return
+      busy = true
+      try {
+        for (const feed of feeds) await pollFeed(feed)
       } finally {
         busy = false
       }
@@ -250,7 +331,7 @@ export default function EventToasts({ userId }) {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', poll)
     }
-  }, [userId])
+  }, [userId, infra])
 
   const dismiss = useCallback((key) => {
     setToasts((list) => list.map((t) => (t.key === key ? { ...t, leaving: true } : t)))

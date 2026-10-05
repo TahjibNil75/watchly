@@ -7,9 +7,14 @@ import AcceptInvite from './pages/AcceptInvite.jsx'
 import ChoosePassword from './pages/ChoosePassword.jsx'
 import ConfirmEmail from './pages/ConfirmEmail.jsx'
 import Dashboard from './pages/Dashboard.jsx'
+import Infrastructure from './pages/Infrastructure.jsx'
+import InfraResourceDetail from './pages/InfraResourceDetail.jsx'
+import InfraSettings from './pages/InfraSettings.jsx'
+import InfraVpc from './pages/InfraVpc.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
 import Landing from './pages/Landing.jsx'
 import Login from './pages/Login.jsx'
+import NewInfraResource from './pages/NewInfraResource.jsx'
 import NewWebsite from './pages/NewWebsite.jsx'
 import Notifications from './pages/Notifications.jsx'
 import Profile from './pages/Profile.jsx'
@@ -78,6 +83,11 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="websites/new" element={<NewWebsite />} />
         <Route path="websites/:id" element={<WebsiteDetail />} />
+        <Route path="infra" element={<Infrastructure />} />
+        <Route path="infra/new" element={<NewInfraResource />} />
+        <Route path="infra/settings" element={<InfraSettings />} />
+        <Route path="infra/resources/:id" element={<InfraResourceDetail />} />
+        <Route path="infra/vpcs/:id" element={<InfraVpc />} />
         <Route path="projects" element={<Projects />} />
         <Route path="projects/:id" element={<ProjectDetail />} />
         <Route path="notifications" element={<Notifications />} />

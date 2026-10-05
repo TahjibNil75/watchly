@@ -1,6 +1,7 @@
 # Website monitoring
 
-How a URL gets watched (or a host pinged, or a domain's DNS records looked up),
+How a URL gets watched (or a host pinged, a domain's DNS records looked up, or
+a database knocked on),
 how an outage turns into email, and every API in the project as it stands today.
 
 ---
@@ -46,6 +47,7 @@ Deleting a project deletes its websites, which deletes their check history.
 | `security_headers.py` | which security headers a response sends, and how well each is set |
 | `pinger.py`   | the ICMP probe — pings a host a few times and reports replies, round trips and packet loss |
 | `dns_probe.py` | the DNS probe — asks several resolvers for one record and judges whether they agree with each other and with the pinned values |
+| `db_probe.py` | the database probe — opens a session with a PostgreSQL, MySQL, Redis or MongoDB server as far as its first answer, without logging in |
 | `service.py`  | CRUD, filtering, maintenance windows, and "which sites are due for a check" |
 | `history.py`  | hourly rollups, the stats read from them, and purging old checks |
 | `routes.py`   | the HTTP endpoints below                                          |
@@ -218,6 +220,65 @@ monthly report work unchanged.
 `websites.url` is unique per `(url, check_type, dns_record_type)`, with the
 record type null for other checks and `NULLS NOT DISTINCT`, so a domain can be
 pinged and have each of its records watched at once.
+
+### Database checks
+
+A site with `check_type` `database` keeps an endpoint in `url`, always
+`host:port` (`[v6]:port` for IPv6; `database_endpoint()` in `schemas.py`, the
+port defaulting to the engine's), and the protocol in `db_engine`:
+`postgresql`, `mysql`, `redis` or `mongodb`. It needs **no user name or
+password**: `check_website` hands it to `db_probe.probe()`, which goes as far
+as the server's first real answer and never logs in. A connection URL is taken
+apart for its host and port, but one with credentials in it is refused, so
+they are never stored; the web form drops them before sending.
+
+| engine | what the probe does | up | down |
+| --- | --- | --- | --- |
+| PostgreSQL | asks for TLS (uses it when offered), starts a session as `watchly` | an authentication request (`asks for a SCRAM-SHA-256 password`), or a refusal by `pg_hba.conf` | SQLSTATE class 53, 57 or 58: too many clients, starting up, shutting down, in recovery |
+| MySQL, MariaDB | reads the greeting (version), then logs in as `watchly` with no password, over TLS when offered, and hangs up | a greeting, whatever the login brings | an error instead of the greeting (`1040` too many connections, shutting down, offline) |
+| Redis, Valkey | `PING` | `PONG`, `NOAUTH`, any other refusal of Watchly | `LOADING`, `BUSY`, `MASTERDOWN`, `TRYAGAIN`, max clients reached |
+| MongoDB, DocumentDB | `hello` (`isMaster` on servers too old for it) | primary, secondary, arbiter, mongos, standalone | a member that is neither (starting up, recovering, never initiated), or an error |
+
+Nothing answering, or something answering that is not the engine (wrong port,
+or a proxy with nothing behind it) is down too, which is what a TCP check
+cannot tell: a proxy takes connections while its database is gone.
+
+Why the MySQL probe logs in: MySQL and MariaDB count a client that hangs up
+mid-handshake against `max_connect_errors` (100 by default) and then block its
+address until `FLUSH HOSTS`. A failed login does not count. Tested on MariaDB
+11 with `max_connect_errors=3`: three greeting-only connections blocked the
+address, while repeated probes never did. A login refused for want of TLS
+(`require_secure_transport`) does count, hence TLS whenever the server offers
+it. The cost: MariaDB logs `Access denied for user 'watchly'` as a warning
+(`log_warnings=2`, its default) on each check; MySQL 8.4 logs nothing at its
+default verbosity. PostgreSQL logs nothing: it does not log a client that
+hangs up at the password prompt.
+
+Redis and MongoDB cannot switch to TLS mid-connection, so `db_tls` asks for
+it from the start (ElastiCache with in-transit encryption, DocumentDB,
+Atlas). Certificates are never verified; nothing secret is sent.
+`timeout_seconds` (default 5) applies to each step: connecting, TLS, the
+answer.
+
+| error_type      | meaning                                                   |
+| --------------- | --------------------------------------------------------- |
+| `connect_timeout` | nothing answered: a firewall or security group drops the packets, or the host is down |
+| `connect_refused` | the host is up, but nothing listens on the port         |
+| `tls_error`     | the TLS handshake failed or never finished                |
+| `read_timeout`  | connected, but the answer did not come                    |
+| `connection_closed` | the server hung up before answering: not the engine, a proxy with nothing behind it, or (Redis, MongoDB) a server that needs TLS |
+| `protocol_error` | something answered, but not as the engine does          |
+| `db_unavailable` | the server says it cannot take connections now          |
+| `db_too_many_connections` | the server says it has no connection to spare  |
+
+Each `website_checks` row keeps what the server said in the `database` JSONB
+column (`DbResult.as_dict()`), the address connected to in `ip_address`, and
+the steps in `dns_ms`, `connect_ms`, `tls_ms` and `first_byte_ms` (the
+request to the server's answer), so rollups, the time breakdown, the slow
+alert and the monthly report work unchanged. The egress policy applies as for
+HTTP and ping checks: a database at a private address is refused under
+`WEBSITE_PRIVATE_TARGETS=block`, and is watched from an infrastructure
+project instead. No domain registration is looked up for an endpoint.
 
 ---
 

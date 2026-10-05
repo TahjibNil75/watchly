@@ -37,6 +37,7 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **HTTP(S) monitoring**: poll any URL on its own interval, with retries before declaring it down; expect a status code, require (or forbid) text in the page, and send your own headers, such as a token for a page behind a login
 - **Ping monitoring**: ICMP checks for hosts, including packet-loss alerts
 - **DNS monitoring**: query several public resolvers at once and alert when records change or drift from what you expect
+- **Database monitoring**: give a PostgreSQL, MySQL/MariaDB, Redis/Valkey or MongoDB endpoint, `host:port`, and nothing else; Watchly goes as far as the server's first answer without logging in, so it tells a database that is up from one that is starting up, out of connections, or hidden behind a proxy with nothing behind it
 - **Early warnings**: SSL certificates and domain registrations about to expire, changed nameservers, slow responses and packet loss, not just "down"
 - **Security headers**: each website's HSTS, CSP, X-Frame-Options, X-Content-Type-Options and Referrer-Policy, graded A to F; Permissions-Policy and the Cross-Origin policies are listed alongside
 - **CDN detection**: whether a site is served through Cloudflare, CloudFront, Fastly, Akamai, Vercel, Netlify and others, with the evidence (headers, DNS aliases) and whether a cache answered

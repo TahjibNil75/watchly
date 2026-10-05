@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from './auth.jsx'
 import BrandMark from './BrandMark.jsx'
 import EventToasts from './EventToasts.jsx'
+import { useInfraEnabled } from './infra.js'
 import { canEditNotificationDefaults, canManageUsers } from './roles.js'
 
 // 24x24 stroke icons, drawn inline so the sidebar needs no icon package.
@@ -11,6 +12,13 @@ const ICONS = {
     <>
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01" />
+    </>
+  ),
+  infra: (
+    <>
+      <rect x="3.5" y="4" width="17" height="6.5" rx="1.5" />
+      <rect x="3.5" y="13.5" width="17" height="6.5" rx="1.5" />
+      <path d="M7.5 7.25h.01M7.5 16.75h.01M11 7.25h5.5M11 16.75h5.5" />
     </>
   ),
   projects: (
@@ -76,6 +84,7 @@ function Brand({ onClick }) {
 
 export default function Layout() {
   const { user, logout } = useAuth()
+  const infra = useInfraEnabled()
   // Only meaningful on narrow screens, where the sidebar is a drawer.
   const [open, setOpen] = useState(false)
   const close = () => setOpen(false)
@@ -89,6 +98,7 @@ export default function Layout() {
 
   const links = [
     { to: '/', label: 'Websites', icon: 'websites', end: true },
+    infra && { to: '/infra', label: 'Infrastructure', icon: 'infra' },
     { to: '/projects', label: 'Projects', icon: 'projects' },
     canEditNotificationDefaults(user) && {
       to: '/notifications',
@@ -145,7 +155,7 @@ export default function Layout() {
         </div>
       </main>
 
-      <EventToasts userId={user.id} />
+      <EventToasts userId={user.id} infra={Boolean(infra)} />
     </div>
   )
 }

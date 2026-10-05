@@ -30,6 +30,8 @@ from icmplib import AsyncSocket, ICMPRequest, ICMPv4Socket, ICMPv6Socket
 from icmplib.exceptions import ICMPError, ICMPSocketError, SocketPermissionError, TimeExceeded
 from icmplib.utils import unique_identifier
 
+from app.monitoring import egress
+
 #: Seconds between one check's echo requests. Gentle enough that a router
 #: rate-limiting ICMP does not look like one dropping packets.
 PACKET_INTERVAL = 0.5
@@ -170,9 +172,15 @@ def _permission_hint(privileged: bool) -> str:
 
 
 async def ping(
-    host: str, *, count: int, timeout: float, privileged: bool = False
+    host: str,
+    *,
+    count: int,
+    timeout: float,
+    privileged: bool = False,
+    scope: egress.Scope | None = None,
 ) -> PingResult:
-    """Ping `host`, an IP address or a name, `count` times.
+    """Ping `host`, an IP address or a name, `count` times, if the egress
+    policy lets `scope` reach its address.
 
     Raises `IcmpUnavailableError` only when this server cannot send pings at
     all; every problem with the host itself comes back in the result.
@@ -191,6 +199,14 @@ async def ping(
         except OSError as exc:  # socket.gaierror: the name did not resolve
             return PingResult(error=f"DNS lookup failed: {exc}", error_type="dns_error")
         dns_ms = round((time.perf_counter() - started) * 1000)
+
+    reason = egress.refusal(address, scope or egress.website_scope())
+    if reason is not None:
+        return PingResult(
+            dns_ms=dns_ms,
+            error=f"Refused by the egress policy: {reason}",
+            error_type="blocked_address",
+        )
 
     socket_class = ICMPv6Socket if ":" in address else ICMPv4Socket
     try:

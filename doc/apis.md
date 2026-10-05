@@ -93,8 +93,8 @@ together, see [`hld.md`](hld.md).
 | 21c | `PATCH` | `/account-requests/{request_id}/approve` | Approve a request: email the address an invitation to join as a `Viewer`. |
 | 21d | `PATCH` | `/account-requests/{request_id}/reject` | Reject a request and email the address to say so. |
 | 21e | `PATCH` | `/account-requests/{request_id}/unblock` | Undo a rejection, so that address may ask again. |
-| 22 | `GET` | `/monitoring/projects` | List projects the caller is allowed to see. |
-| 23 | `POST` | `/monitoring/projects` | Create a project and name the members responsible for it. |
+| 22 | `GET` | `/monitoring/projects` | List projects the caller is allowed to see; `monitors` filters websites or infrastructure projects. |
+| 23 | `POST` | `/monitoring/projects` | Create a websites or infrastructure project (with its AWS accounts) and name the members responsible for it. |
 | 24 | `GET` | `/monitoring/projects/{project_id}` | Return one project with its members. |
 | 25 | `PATCH` | `/monitoring/projects/{project_id}` | Update a project's name, description, active flag or extra alert emails. |
 | 26 | `DELETE` | `/monitoring/projects/{project_id}` | Delete a project and stop monitoring every site under it. |
@@ -429,7 +429,7 @@ created it).
 
 ### `GET /api/v1/monitoring/projects`
 List projects visible to the caller.
-Query: `limit` (1–100), `offset`, `is_active`, `owner_id`
+Query: `limit` (1–100), `offset`, `is_active`, `owner_id`, `monitors` (`websites` or `infrastructure`). Each project carries its `monitors`.
 `200`
 
 ### `POST /api/v1/monitoring/projects`
@@ -439,9 +439,30 @@ Create a project. **At least one alert channel is required** — email
 `telegram_chat_id`), WhatsApp (`whatsapp_access_token` **with**
 `whatsapp_phone_number_id` and `whatsapp_recipients`), or any mix. The caller
 becomes its owner.
-`201` · `403` not admin/DevOps/PM · `409` name taken · `422` no alert channel,
-half-configured Slack, Telegram or WhatsApp, a phone number without its
-country code, or unknown member id
+
+`monitors` decides what the project watches, for good: `websites` (the
+default) or `infrastructure` (AWS; needs `INFRA_AWS_ENABLED`). An
+infrastructure project takes at least one AWS account in `aws_accounts`, each
+as for [`POST /monitoring/infra/aws/accounts`](infraapi.md#post-accounts)
+without `project_id`; each is tried with AWS first, and the project is only
+created if all of them work. More accounts are added later from the project
+page. Websites can only be added to a `websites` project, and AWS resources to
+an `infrastructure` one.
+
+```json
+{
+  "name": "Shop",
+  "monitors": "infrastructure",
+  "member_ids": [3],
+  "aws_accounts": [
+    {"name": "Production", "auth_type": "access_key", "access_key_id": "AKIA…", "secret_access_key": "…", "default_region": "ap-southeast-1"}
+  ]
+}
+```
+`201` · `403` not admin/DevOps/PM · `409` name taken, or one AWS account given
+twice · `422` no alert channel, half-configured Slack, Telegram or WhatsApp, a
+phone number without its country code, unknown member id, an infrastructure
+project with no AWS account, or AWS refused an account's credentials
 
 ### `GET /api/v1/monitoring/projects/{project_id}`
 Return one project with its member list.
@@ -462,7 +483,8 @@ A change that would leave the project with no channel at all is refused.
 alert channel
 
 ### `DELETE /api/v1/monitoring/projects/{project_id}`
-Delete the project, every site under it, and all their check history.
+Delete the project, every site under it, and all their check history; for an
+infrastructure project, its AWS accounts, VPCs and resources too.
 `204` · `403` · `404`
 
 ### `POST /api/v1/monitoring/projects/{project_id}/members`
@@ -493,7 +515,7 @@ project.
 ### `GET /api/v1/monitoring/websites`
 List monitored sites with their current status, last check and outage state.
 Query: `limit` (1–100), `offset`, `status` (`unknown`/`up`/`down`),
-`is_enabled`, `project_id`, `check_type` (`http`, `ping` or `dns`), `q` (name or URL
+`is_enabled`, `project_id`, `check_type` (`http`, `ping`, `dns` or `database`), `q` (name or URL
 contains, case-insensitive), `in_maintenance` (`true`: only sites in a
 maintenance window now; `false`: only the rest), `sort` (`id` default, `name`,
 or `status`: down sites first, then by name; a site down during its
@@ -525,13 +547,24 @@ have), `limit` (1–100, default 20)
 `200`
 
 ### `POST /api/v1/monitoring/websites`
-Start monitoring a URL, pinging a host, or watching a DNS record. Requires
+Start monitoring a URL, pinging a host, watching a DNS record, or checking a
+database endpoint. Requires
 `project_id`; the project's members are alerted unless
 `inherit_project_recipients` is false.
 Body: `project_id`, `name`, `url`, and optionally `check_type` (`http`, the
 default; `ping`: then `url` is a host name or IP address such as
-`203.0.113.10` or `server.example.com`, not a URL; or `dns`: then `url` is a
-domain name such as `example.com` or `_dmarc.example.com`; fixed once created),
+`203.0.113.10` or `server.example.com`, not a URL; `dns`: then `url` is a
+domain name such as `example.com` or `_dmarc.example.com`; or `database`: then
+`url` is a database endpoint, `host:port`, such as
+`orders.c9akciq32.ap-southeast-1.rds.amazonaws.com:5432`; fixed once created),
+`db_engine` (database checks: `postgresql`, `mysql` — MariaDB too — `redis` —
+Valkey too — or `mongodb` — DocumentDB too; required, unless `url` is a
+connection URL such as `postgresql://db.example.com:5432/app`, whose scheme
+names it; the port defaults to the engine's; a URL with a user or password in
+it is refused, since a check never logs in), `db_tls` (Redis and MongoDB:
+use TLS from the start, as ElastiCache with in-transit encryption, DocumentDB
+and Atlas need; `rediss://` sets it; PostgreSQL and MySQL use TLS whenever the
+server offers it, so it stays false for them),
 `ping_count` (1–20, default 5: echo requests per ping check),
 `packet_loss_threshold_percent` (1–99, `null` for the server default: a ping
 check that loses at least this share while the host answers counts as lossy),
@@ -544,7 +577,9 @@ the records and sends `dns_changed` when they change),
 `testing`, `uat`, `staging` or `production` — the web form requires it, the API
 does not, so existing scripts keep working), `method`, `expected_status`,
 `timeout_seconds` (for a ping, the wait for replies; default 2 instead of
-10; for a DNS check, the wait for each resolver; default 5),
+10; for a DNS check, the wait for each resolver; default 5; for a database
+check, the wait for each step — connecting, TLS, the server's answer;
+default 5),
 `check_interval_seconds` (≥30), `max_down_alerts`,
 `retries_on_failure` (0–3, default 1: a failed check is repeated a few seconds
 later, and only the last result is recorded and alerted on),
@@ -563,13 +598,15 @@ the project's business number; needs WhatsApp on the project)
 monitored with this check type (for DNS, this record of the domain) · `422`
 invalid field, unknown recipient id, the site would have no alert channel, its
 Slack, Telegram or WhatsApp settings send nowhere, a `url` that does not suit
-the `check_type`, an expected value that does not suit the record type, or
-content rules on a HEAD/OPTIONS request, a ping or a DNS check
+the `check_type`, an expected value that does not suit the record type, a
+database check without `db_engine`, or content rules on a HEAD/OPTIONS request
+or a check other than HTTP
 
 ### `GET /api/v1/monitoring/websites/{website_id}`
 Return one site with its live state: `status`, `last_checked_at`, `down_since`,
 `consecutive_failures`, `down_alerts_sent`; for a DNS check, `dns_record_type`,
-`dns_expected_values` and `dns_records` (what the resolvers last agreed on) —
+`dns_expected_values` and `dns_records` (what the resolvers last agreed on);
+for a database check, `db_engine` and `db_tls` —
 and its alerting setup:
 `recipients`, `alert_emails`, `inherit_project_recipients`, `alert_channels`,
 `slack_channel_id`, `telegram_chat_id`, `whatsapp_recipients`, and
@@ -591,7 +628,9 @@ list; `[]` goes back to the project's), `retries_on_failure`, the content rules
 channel is refused. `check_type` cannot change, and a new `url` must suit it.
 A DNS check's `dns_expected_values` replaces the whole list (`[]` unpins); a new
 `dns_record_type` or domain forgets the records learned so far, and a new
-record type clears the pinned values unless new ones are sent.
+record type clears the pinned values unless new ones are sent. A database
+check's `db_engine` and `db_tls` may change; a new `url` without a port takes
+the engine's.
 `200` · `403` · `404` · `409` URL already monitored · `422` would leave no
 alert channel, Slack, Telegram or WhatsApp settings that send nowhere, a `url`
 that does not suit the check type, or expected values that do not suit the
@@ -629,7 +668,21 @@ disagreed or fewer than half answered), `consistent`, and each resolver's
 `answers` — `resolver`, `address`, `records`, `ttl`, `time_ms`, and `error` /
 `error_type` (`nxdomain`, `no_records`, `servfail`, `refused`, `timeout`,
 `network_error`, `dns_error`); its `response_time_ms` is the resolvers' average
-answer time.
+answer time. A database check has `database`: the `engine` and `port`, the
+`product` when it is not the engine itself (`MariaDB`), the `version` the
+server announced (MySQL and MariaDB do), `state` (what the server said, in
+words: `asks for a SCRAM-SHA-256 password`, `answers without a password`,
+`primary of rs0`), `tls` and `tls_version`, MongoDB's `role` and
+`replica_set`, and the server's own `code` and `message` (`57P03` / `the
+database system is starting up`, `1040` / `Too many connections`, `NOAUTH`);
+its `ip_address` is the address connected to, and `first_byte_ms` the time
+from the request to the server's answer. A failed one has `error_type`
+`dns_error`, `blocked_address`, `connect_timeout`, `connect_refused`,
+`no_route`, `connect_error`, `tls_error`, `read_timeout`, `connection_closed`,
+`protocol_error` (something answered, but not as the engine does: wrong port
+or engine), `db_unavailable` (the server says it cannot take connections:
+starting up, shutting down, in recovery, loading its dataset, a MongoDB member
+neither primary nor secondary) or `db_too_many_connections`.
 Query: `limit` (1–500)
 `200` · `404`
 
@@ -644,7 +697,8 @@ as in the monthly report; the percentile is accurate to within about 25%.
 For a ping check the response time is the average round trip, and
 `packet_loss_percent` (whole range and per bucket; null for HTTP checks) the
 share of pings lost — also a CSV column for ping checks. For a DNS check it is
-the resolvers' average answer time.
+the resolvers' average answer time; for a database check, the time to the
+server's answer, whose CSV has the step columns an HTTP check's has.
 `format=csv` downloads the series as a file instead (one row per bucket, blank
 figures for an empty one).
 `200` · `404` · `422` unknown range or format

@@ -5,6 +5,14 @@ import { useSignupOpen } from '../auth.jsx'
 import BrandMark, { useBrandMood } from '../BrandMark.jsx'
 import ChannelLogo from '../ChannelLogo.jsx'
 import { CHANNELS } from '../channels.js'
+import {
+  AWS_ICONS,
+  AwsReadouts,
+  AwsRelay,
+  DeployQuiet,
+  OneAlertNotForty,
+  VpcMap,
+} from '../LandingAws.jsx'
 import { NightReadouts, NightTraces } from '../NightMonitor.jsx'
 import { useMediaQuery } from '../useMediaQuery.js'
 
@@ -12,6 +20,8 @@ import { useMediaQuery } from '../useMediaQuery.js'
 // the way in. Deep links still go to the sign-in form and back. It wears the
 // sign-in page's dark night-shift look, and takes the mascot's moods as you
 // scroll (see useMoodJourney below). Its cards follow the mouse, in index.css.
+// The hero switches between websites and AWS infrastructure; the AWS chapter's
+// visuals are in LandingAws.jsx.
 
 // 24x24 stroke icons, drawn inline like the sidebar's.
 const ICONS = {
@@ -47,6 +57,7 @@ const ICONS = {
     </>
   ),
   chart: <path d="M3 3v18h18M7 15l4-4 3 3 5-6" />,
+  ...AWS_ICONS,
 }
 
 function Icon({ name }) {
@@ -101,6 +112,50 @@ const CHECKS = [
   },
 ]
 
+// What Watchly watches in AWS, as infra.js's KINDS and CHECKS_BY_KIND have it.
+const AWS_KINDS = [
+  {
+    icon: 'server',
+    title: 'EC2 servers',
+    lead: 'In a public subnet or a private one, checked from inside the VPC.',
+    points: [
+      'Ping, a TCP port, or an HTTP health path',
+      'At its private IP, or its public one over the internet',
+      'Flagged the moment AWS no longer has it',
+    ],
+  },
+  {
+    icon: 'asg',
+    title: 'Auto Scaling groups',
+    lead: 'Every instance the group has in service, whichever ones those are now.',
+    points: [
+      'Health checks run on each instance in service',
+      'Scaling in and out never looks like an outage',
+      'A warning when it falls short of desired capacity',
+    ],
+  },
+  {
+    icon: 'lb',
+    title: 'Load balancers',
+    lead: 'Application and Network Load Balancers, internal or internet-facing.',
+    points: [
+      'HTTP through its listener, or a TCP port',
+      "AWS's own verdict on every target behind it",
+      'Unhealthy targets warn before users notice',
+    ],
+  },
+  {
+    icon: 'db',
+    title: 'RDS databases',
+    lead: 'Aurora included, and Watchly never logs in.',
+    points: [
+      'Its port, from inside the VPC',
+      'What RDS says: available, stopped, storage full',
+      'CloudWatch CPU, storage, memory, connections and replica lag',
+    ],
+  },
+]
+
 const ALERTS = [
   {
     icon: 'channels',
@@ -110,7 +165,7 @@ const ALERTS = [
   {
     icon: 'bell',
     title: 'Down, still down, back up',
-    text: 'One alert the moment a site fails, a few reminders while it stays down, then one when it recovers, with how long it was out.',
+    text: 'One alert the moment a site or an AWS resource fails, a few reminders while it stays down, then one when it recovers, with how long it was out.',
   },
   {
     icon: 'thread',
@@ -125,7 +180,7 @@ const ALERTS = [
   {
     icon: 'warning',
     title: 'Warnings before outages',
-    text: 'Slow responses, packet loss, expiring certificates and changed DNS records each have an alert of their own.',
+    text: 'Slow responses, packet loss, expiring certificates and changed DNS records each have an alert of their own, and so do unhealthy targets, a group short of capacity and a database running hot.',
   },
   {
     icon: 'edit',
@@ -139,7 +194,7 @@ const TEAM = [
     icon: 'users',
     title: 'Built for teams',
     points: [
-      'Projects group sites with the people responsible for them',
+      'Projects group sites, or AWS resources, with the people responsible for them',
       'Roles for admins, DevOps, project managers, developers and viewers',
       'Invite people by email; alert a client about their site alone',
     ],
@@ -153,20 +208,47 @@ const TEAM = [
       'A monthly uptime report for each project, by email, Slack, Telegram and WhatsApp',
     ],
   },
+  {
+    icon: 'shield',
+    title: 'Read-only in AWS',
+    points: [
+      'Every call it makes to AWS describes, lists or gets: nothing it can change',
+      'Databases watched without a password',
+      'Several AWS accounts, each through a role it assumes',
+      'Probes never reach instance metadata, or Watchly itself',
+    ],
+  },
 ]
 
 const STEPS = [
   {
     title: 'Create a project',
-    text: 'Name it, add the people responsible, and choose email, Slack, Telegram, WhatsApp or any mix.',
+    text: 'For websites or for AWS infrastructure. Add the people responsible, and choose email, Slack, Telegram, WhatsApp or any mix.',
   },
   {
     title: 'Add what to watch',
-    text: 'A URL, a host to ping or a DNS record, and how often to check it.',
+    text: 'A URL, a host to ping or a DNS record. Or, for AWS, a server, Auto Scaling group, load balancer or database, picked from what Watchly finds in your VPC.',
   },
   {
     title: 'Hear about it first',
     text: 'Watchly checks around the clock and alerts the project the moment something is wrong, and again when it is fixed.',
+  },
+]
+
+// What the hero pitches: the websites Watchly always watched, or the AWS
+// infrastructure it watches from inside a VPC. A switch above the headline.
+const SCOPES = [
+  {
+    id: 'web',
+    label: 'Websites',
+    title: 'Know the moment a site goes down.',
+    lead: "Watchly checks your websites, servers and DNS records on their own schedule, alerts the right people by email, Slack, Telegram, WhatsApp or webhook, and tells them when it's back.",
+  },
+  {
+    id: 'aws',
+    label: 'AWS infrastructure',
+    title: 'Know the moment a server goes down.',
+    lead: "From inside your VPC, Watchly watches EC2 servers, Auto Scaling groups, load balancers and RDS databases, public or private, read-only, across every AWS account you add. Alerts go out the same way, and deploys page no one.",
   },
 ]
 
@@ -250,6 +332,34 @@ function useMoodJourney() {
   return { chapter, main, floor }
 }
 
+// The mascot's AWS line for a chapter's, said in turn with it. Chapters not
+// here keep the one line.
+const AWS_SAY = {
+  'Hm. That took 2.4 s…': 'Target 2 of 3 is slow…',
+  'Outage! Telling everyone.': 'orders-asg: 0 of 4 in service!',
+  'Back up. Every check kept.': 'Back in service. 4 of 4.',
+  'Tinkering. Alerts muted.': 'Deploying. Alerts held.',
+}
+const SAY_TURN_MS = 3500
+
+// What the mascot says in a chapter: its line, then its AWS line, and again.
+// Each turn is keyed by its line, so it pops in again.
+function BuddySay({ say }) {
+  const [aws, setAws] = useState(false)
+  const other = AWS_SAY[say]
+  useEffect(() => {
+    if (!other) return undefined
+    const timer = setInterval(() => setAws((a) => !a), SAY_TURN_MS)
+    return () => clearInterval(timer)
+  }, [other])
+  const line = aws && other ? other : say
+  return (
+    <span className="landing-say" key={line}>
+      {line}
+    </span>
+  )
+}
+
 // A chapter of the page: the mood it sets, what the mascot says there, and the
 // giant word behind it. Bands are chapters that are also a stripe.
 function Chapter({ mood, say, word, band, children }) {
@@ -318,6 +428,25 @@ function Relay({ down }) {
   )
 }
 
+function ScopeSwitch({ scope, onChange }) {
+  return (
+    <div className="landing-scope" role="group" aria-label="What Watchly watches">
+      {SCOPES.map((s) => (
+        <button
+          key={s.id}
+          type="button"
+          className="landing-scope-option"
+          aria-pressed={scope === s.id}
+          onClick={() => onChange(s.id)}
+        >
+          {scope === s.id && <span className="live-pill-dot" />}
+          {s.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function Landing() {
   // The whole page plays through the mascot's moods, as the sign-in page does:
   // its glow, and the hero's trace and readouts, change with them. In the hero
@@ -326,12 +455,15 @@ export default function Landing() {
   const { chapter, main, floor } = useMoodJourney()
   const inHero = !chapter.say
   const mood = inHero ? clockMood : chapter.mood
+  const [scopeId, setScope] = useState('web')
+  const scope = SCOPES.find((s) => s.id === scopeId)
   return (
     <div className={`landing is-${mood}`}>
       <div className="landing-floor" ref={floor} aria-hidden="true" />
       <header className="landing-nav">
         <nav className="landing-nav-links" aria-label="Page sections">
           <a href="#checks">What it checks</a>
+          <a href="#aws">AWS</a>
           <a href="#alerts">Alerts</a>
           <a href="#how">How it works</a>
           <a href={QUICK_START_URL} target="_blank" rel="noopener noreferrer">
@@ -343,40 +475,43 @@ export default function Landing() {
       <main ref={main}>
         <div className="landing-hero-wrap" data-mood="up" {...POINTER}>
           <NightTraces />
-          <NightReadouts mood={mood} />
+          {scope.id === 'aws' ? <AwsReadouts mood={mood} /> : <NightReadouts mood={mood} />}
           <section className="landing-section landing-hero">
             <div className="landing-hero-text">
               <span className="brand brand-hero">
                 <BrandMark mood={mood} />
                 <span className="brand-word">Watchly</span>
               </span>
-              <span className="live-pill">
-                <span className="live-pill-dot" />
-                Uptime, ping and DNS monitoring
-              </span>
-              <h1>Know the moment a site goes down.</h1>
-              <p className="landing-lead muted">
-                Watchly checks your websites, servers and DNS records on their own schedule,
-                alerts the right people by email, Slack, Telegram, WhatsApp or webhook, and tells
-                them when it&apos;s back.
+              <ScopeSwitch scope={scopeId} onChange={setScope} />
+              {/* Keyed, so switching plays their rise again. */}
+              <h1 key={`title-${scope.id}`}>{scope.title}</h1>
+              <p key={`lead-${scope.id}`} className="landing-lead muted">
+                {scope.lead}
               </p>
               <Actions />
               <p className="muted small landing-note">
                 New accounts start with view access; an admin adds you to the projects you look
                 after.
               </p>
-              <Relay down={mood === 'down'} />
+              {scope.id === 'aws' ? (
+                <AwsRelay down={mood === 'down'} />
+              ) : (
+                <Relay down={mood === 'down'} />
+              )}
             </div>
           </section>
         </div>
 
-        <Chapter mood="slow" say="Hm. That took 2.4 s…" word="SLOW">
+        <Chapter band mood="slow" say="Hm. That took 2.4 s…" word="SLOW">
           <section className="landing-section" id="checks">
             <div className="landing-head">
-              <h2>Three ways to watch</h2>
+              <h2>Websites, servers and DNS</h2>
               <p className="muted">
                 Each check runs on its own interval, and each can be paused, edited or run by hand
                 at any time.
+              </p>
+              <p className="landing-aws-link">
+                <a href="#aws">On AWS? See what Watchly watches inside your VPC ↓</a>
               </p>
             </div>
             <div className="landing-grid">
@@ -392,6 +527,30 @@ export default function Landing() {
           </section>
         </Chapter>
 
+        <Chapter mood="up" say="All healthy, to the last instance." word="VPC">
+          <section className="landing-section" id="aws">
+            <div className="landing-head">
+              <h2>Inside your AWS, too</h2>
+              <p className="muted">
+                Run Watchly on an EC2 instance in your VPC and it checks what the internet
+                can&apos;t reach. Resources come from AWS, found in the VPC or added by id, and stay
+                in sync with it.
+              </p>
+            </div>
+            <div className="landing-grid landing-grid-4">
+              {AWS_KINDS.map((k) => (
+                <article key={k.title} className="landing-card" {...POINTER}>
+                  <Icon name={k.icon} />
+                  <h3>{k.title}</h3>
+                  <p className="muted">{k.lead}</p>
+                  <Points items={k.points} />
+                </article>
+              ))}
+            </div>
+            <VpcMap />
+          </section>
+        </Chapter>
+
         <Chapter band mood="down" say="Outage! Telling everyone." word="DOWN">
           <section className="landing-section" id="alerts">
             <div className="landing-head">
@@ -402,6 +561,7 @@ export default function Landing() {
               </p>
             </div>
             <AlertPreviews />
+            <OneAlertNotForty />
             <div className="landing-grid landing-features">
               {ALERTS.map((a) => (
                 <div key={a.title} className="landing-feature">
@@ -418,7 +578,7 @@ export default function Landing() {
 
         <Chapter mood="up" say="Back up. Every check kept." word="UP">
           <section className="landing-section">
-            <div className="landing-grid landing-grid-2">
+            <div className="landing-grid">
               {TEAM.map((t) => (
                 <article key={t.title} className="landing-card" {...POINTER}>
                   <Icon name={t.icon} />
@@ -459,6 +619,7 @@ export default function Landing() {
                 Install, first project, first site, inviting your team.
               </span>
             </p>
+            <DeployQuiet />
           </section>
         </Chapter>
 
@@ -466,7 +627,9 @@ export default function Landing() {
           <section className="landing-section landing-closing">
             <div className="landing-head">
               <h2>Hear about it first.</h2>
-              <p className="muted">The moment it fails, and again the moment it is fixed.</p>
+              <p className="muted">
+                The moment a site or server fails, and again the moment it is fixed.
+              </p>
             </div>
             <Actions />
           </section>
@@ -475,11 +638,7 @@ export default function Landing() {
 
       <div className={`landing-buddy${inHero ? ' is-hidden' : ''}`} aria-hidden="true">
         {!inHero && <i className="landing-ripple" key={chapter.say} />}
-        {!inHero && (
-          <span className="landing-say" key={`say-${chapter.say}`}>
-            {chapter.say}
-          </span>
-        )}
+        {!inHero && <BuddySay key={`say-${chapter.say}`} say={chapter.say} />}
         <BrandMark mood={mood} />
       </div>
 
@@ -488,7 +647,7 @@ export default function Landing() {
           <BrandMark />
           <span className="brand-word">Watchly</span>
         </span>
-        <span className="muted small">Uptime, ping and DNS monitoring.</span>
+        <span className="muted small">Uptime, ping, DNS and AWS infrastructure monitoring.</span>
       </footer>
     </div>
   )

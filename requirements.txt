@@ -14,3 +14,5 @@ aiosmtplib>=3.0.2
 cryptography>=44.0.0
 icmplib>=3.0.4
 dnspython>=2.7.0
+# Infrastructure monitoring (app/monitoring/infra/aws)
+boto3>=1.35.0

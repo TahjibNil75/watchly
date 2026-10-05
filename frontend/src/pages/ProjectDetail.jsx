@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
+import { AwsAccountsCard } from '../AwsAccounts.jsx'
+import DeploymentsSection from '../Deployments.jsx'
 import {
   ConfirmDialog,
   ErrorBanner,
@@ -13,6 +15,7 @@ import {
 } from '../components.jsx'
 import { saveFile } from '../download.js'
 import { dateTime, parseEmails, previousMonthUtc } from '../format.js'
+import { ResourceTable } from '../Infra.jsx'
 import NotificationSettings from '../NotificationSettings.jsx'
 import ProjectForm from '../ProjectForm.jsx'
 import { canManageProject } from '../roles.js'
@@ -31,7 +34,17 @@ export default function ProjectDetail() {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const project = useApi(() => api.getProject(id), [id])
-  const sites = useApi(() => api.listWebsites({ project_id: id }), [id], { pollMs: 30000 })
+  const infra = project.data?.monitors === 'infrastructure'
+  const sites = useApi(
+    () => (project.data && !infra ? api.listWebsites({ project_id: id }) : null),
+    [id, project.data, infra],
+    { pollMs: 30000 },
+  )
+  const resources = useApi(
+    () => (infra ? api.listResources({ project_id: id, sort: 'name', limit: 200 }) : null),
+    [id, infra],
+    { pollMs: 30000 },
+  )
   const canManage = canManageProject(user, project.data)
   const users = useApi(() => (canManage ? api.listUsers({ is_active: true }) : null), [canManage])
 
@@ -128,6 +141,7 @@ export default function ProjectDetail() {
         title={
           <>
             {p.name}{' '}
+            {infra && <span className="chip">infrastructure</span>}
             {!p.is_active && <span className="badge badge-paused">inactive</span>}
           </>
         }
@@ -135,9 +149,15 @@ export default function ProjectDetail() {
       >
         {canManage && (
           <>
-            <Link to={`/websites/new?project=${p.id}`} className="btn btn-primary">
-              Add website
-            </Link>
+            {infra ? (
+              <Link to={`/infra/new?project=${p.id}`} className="btn btn-primary">
+                Add resources
+              </Link>
+            ) : (
+              <Link to={`/websites/new?project=${p.id}`} className="btn btn-primary">
+                Add website
+              </Link>
+            )}
             <button type="button" className="btn btn-warn" onClick={() => setEditing(!editing)}>
               {editing ? 'Close editor' : 'Edit'}
             </button>
@@ -158,12 +178,15 @@ export default function ProjectDetail() {
         <ConfirmDialog
           title={`Delete project ${p.name}?`}
           busy={busy}
+          error={actionError}
           onConfirm={remove}
           onCancel={() => setConfirmingDelete(false)}
         >
           Deletes this project.
           {(sites.data?.total ?? 0) > 0 &&
-            ` This also stops monitoring its ${sites.data.total} website(s) and deletes their history.`}{' '}
+            ` This also stops monitoring its ${sites.data.total} website(s) and deletes their history.`}
+          {infra &&
+            ` This also deletes its AWS accounts and stops monitoring its ${resources.data?.total ?? 0} resource(s), deleting their history.`}{' '}
           This can&apos;t be undone.
         </ConfirmDialog>
       )}
@@ -194,33 +217,62 @@ export default function ProjectDetail() {
         </section>
       )}
 
-      <section className="section">
-        <h2>Websites</h2>
-        <ErrorBanner error={sites.error} />
-        {sites.loading ? (
-          <Loading />
-        ) : (
-          <WebsiteTable
-            sites={sites.data?.items ?? []}
-            emptyLabel={
-              canManage ? (
-                <>
-                  No websites in this project yet.{' '}
-                  <Link to={`/websites/new?project=${p.id}`}>Add the first one</Link>.
-                </>
-              ) : (
-                'No websites in this project yet.'
-              )
-            }
-          />
-        )}
-      </section>
+      {infra ? (
+        <>
+          <section className="section">
+            <h2>Resources</h2>
+            <ErrorBanner error={resources.error} />
+            {resources.loading ? (
+              <Loading />
+            ) : (
+              <ResourceTable
+                resources={resources.data?.items ?? []}
+                emptyLabel={
+                  canManage ? (
+                    <>
+                      No resources in this project yet.{' '}
+                      <Link to={`/infra/new?project=${p.id}`}>Add the first ones</Link> from its AWS accounts.
+                    </>
+                  ) : (
+                    'No resources in this project yet.'
+                  )
+                }
+              />
+            )}
+          </section>
+          <DeploymentsSection projectId={p.id} canManage={canManage} />
+          {canManage && <AwsAccountsCard projectId={p.id} />}
+        </>
+      ) : (
+        <section className="section">
+          <h2>Websites</h2>
+          <ErrorBanner error={sites.error} />
+          {sites.loading ? (
+            <Loading />
+          ) : (
+            <WebsiteTable
+              sites={sites.data?.items ?? []}
+              emptyLabel={
+                canManage ? (
+                  <>
+                    No websites in this project yet.{' '}
+                    <Link to={`/websites/new?project=${p.id}`}>Add the first one</Link>.
+                  </>
+                ) : (
+                  'No websites in this project yet.'
+                )
+              }
+            />
+          )}
+        </section>
+      )}
 
       <div className="grid-2">
         <section className="card">
           <h2>Members</h2>
           <p className="muted small">
-            Members can see this project and all its websites, and are emailed about every site.
+            Members can see this project and all its {infra ? 'resources' : 'websites'}, and are emailed about every{' '}
+            {infra ? 'one' : 'site'}.
             Only admins and DevOps see projects they aren&apos;t in.
           </p>
           <PersonList
@@ -350,18 +402,25 @@ export default function ProjectDetail() {
               Anything left alone follows the global settings.
             </p>
           </div>
-          <div className="section-actions">
-            <button type="button" className="btn btn-sm" onClick={downloadReport} disabled={busy}>
-              Download last month&apos;s report (CSV)
-            </button>
-            {canManage && (
-              <button type="button" className="btn btn-sm" onClick={sendReport} disabled={busy}>
-                Send last month&apos;s report now
+          {!infra && (
+            <div className="section-actions">
+              <button type="button" className="btn btn-sm" onClick={downloadReport} disabled={busy}>
+                Download last month&apos;s report (CSV)
               </button>
-            )}
-          </div>
+              {canManage && (
+                <button type="button" className="btn btn-sm" onClick={sendReport} disabled={busy}>
+                  Send last month&apos;s report now
+                </button>
+              )}
+            </div>
+          )}
         </div>
-        <NotificationSettings projectId={p.id} canEdit={canManage} channels={p.alert_channels} />
+        <NotificationSettings
+          projectId={p.id}
+          canEdit={canManage}
+          channels={p.alert_channels}
+          monitors={p.monitors}
+        />
       </section>
     </>
   )

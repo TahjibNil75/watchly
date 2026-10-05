@@ -10,6 +10,9 @@ from pydantic import (
     model_validator,
 )
 
+from app.monitoring.infra.aws.credentials import AccountInput
+from app.monitoring.projects.models import ProjectMonitors
+
 
 class ProjectMemberRead(BaseModel):
     """A person responsible for a project — and therefore an alert recipient."""
@@ -302,6 +305,10 @@ class ProjectBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     is_active: bool = True
+    monitors: ProjectMonitors = Field(
+        default=ProjectMonitors.WEBSITES,
+        description="`websites` or `infrastructure` (AWS). Fixed once the project exists.",
+    )
     extra_emails: list[EmailStr] = Field(
         default_factory=list,
         description=(
@@ -335,9 +342,29 @@ class ProjectCreate(ProjectBase, SlackSettings, TelegramSettings, WhatsAppSettin
         default_factory=list,
         description="Users responsible for this project; they receive its alerts.",
     )
+    aws_accounts: list[AccountInput] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "With `monitors: infrastructure`, at least one: the AWS accounts its "
+            "resources are read from. Each is tried with AWS before the project is created."
+        ),
+    )
 
     _name_length = field_validator("name")(check_name_length)
     _description_length = field_validator("description")(check_description_length)
+
+    @model_validator(mode="after")
+    def accounts_suit_what_it_monitors(self) -> "ProjectCreate":
+        if self.monitors is ProjectMonitors.INFRASTRUCTURE:
+            if not self.aws_accounts:
+                raise ValueError("An infrastructure project needs at least one AWS account.")
+            names = [account.name.strip().lower() for account in self.aws_accounts]
+            if len(set(names)) != len(names):
+                raise ValueError("Give each AWS account a name of its own.")
+        elif self.aws_accounts:
+            raise ValueError("AWS accounts belong to infrastructure projects: set monitors to infrastructure.")
+        return self
 
     @model_validator(mode="after")
     def at_least_one_alert_channel(self) -> "ProjectCreate":

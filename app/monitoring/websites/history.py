@@ -23,8 +23,8 @@ from app.monitoring.websites.models import RESPONSE_BUCKETS_MS, WebsiteCheckHour
 from app.monitoring.websites.schemas import StatsBucket, StatsRange, WebsiteStats
 from app.monitoring.websites.service import WebsiteService
 
-#: The steps of an HTTP check that are timed, as `website_checks` columns
-#: without the `_ms`.
+#: The steps of an HTTP or database check that are timed, as
+#: `website_checks` columns without the `_ms`.
 STEPS = ("dns", "connect", "tls", "first_byte")
 
 HOUR = timedelta(hours=1)

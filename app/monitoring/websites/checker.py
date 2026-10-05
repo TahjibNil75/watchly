@@ -1,6 +1,7 @@
 """Performs a single probe of a website: an HTTP request, for a ping check a
-round of ICMP echo requests (see `pinger.py`), or for a DNS check a record
-looked up at several resolvers (see `dns_probe.py`).
+round of ICMP echo requests (see `pinger.py`), for a DNS check a record
+looked up at several resolvers (see `dns_probe.py`), or for a database check
+a session opened as far as the server's first answer (see `db_probe.py`).
 
 Every failure mode — DNS, TLS, connect, timeout, unexpected status, a silent
 host, a record that is missing or wrong — comes back as a :class:`CheckResult`. This module never raises for a
@@ -11,6 +12,7 @@ about the host.
 
 import asyncio
 import contextlib
+import errno
 import logging
 import socket
 import ssl
@@ -27,8 +29,11 @@ from cryptography import x509
 from cryptography.x509.oid import NameOID
 
 from app.core.config import settings
+from app.monitoring import egress
 from app.monitoring.websites.cdn import CdnInfo
 from app.monitoring.websites.cdn import detect as detect_cdn
+from app.monitoring.websites.db_probe import DbResult, split_endpoint
+from app.monitoring.websites.db_probe import probe as probe_database
 from app.monitoring.websites.dns_probe import DnsResult, configured_resolvers, lookup
 from app.monitoring.websites.models import CheckType, DnsRecordType, Website
 from app.monitoring.websites.pinger import PingStats, ping
@@ -153,10 +158,14 @@ class _TimedBackend(httpcore.AsyncNetworkBackend):
     way to tell a slow resolver from a slow server. Resolving here times the
     two apart; the connect then goes to the resolved addresses the way anyio
     would have gone to them, Happy Eyeballs included.
+
+    It is also where the egress policy applies: only the resolved addresses
+    `scope` allows are connected to, on every hop of a redirect chain.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, scope: egress.Scope) -> None:
         self._anyio = httpcore.AnyIOBackend()
+        self._scope = scope
 
     async def connect_tcp(
         self,
@@ -175,8 +184,10 @@ class _TimedBackend(httpcore.AsyncNetworkBackend):
                 infos = await anyio.getaddrinfo(host, port, type=socket.SOCK_STREAM)
                 resolved = time.perf_counter()
                 stopwatch.add("dns_ms", resolved - started)
+                # Raises BlockedAddressError, an OSError, when none may be used.
+                addresses = egress.vet(_connect_order(infos), self._scope)
                 stream = await self._connect_first(
-                    _connect_order(infos), port, local_address, socket_options
+                    addresses, port, local_address, socket_options
                 )
                 stopwatch.add("connect_ms", time.perf_counter() - resolved)
                 if stopwatch.address is None:
@@ -238,13 +249,15 @@ class _TimedBackend(httpcore.AsyncNetworkBackend):
         await self._anyio.sleep(seconds)
 
 
-def new_client() -> httpx.AsyncClient:
+def new_client(scope: egress.Scope | None = None, *, verify: bool = True) -> httpx.AsyncClient:
     """An HTTP client for probes, one that can time a check's DNS lookup and
-    TCP connect. Share one across many checks so connections are reused."""
-    transport = httpx.AsyncHTTPTransport()
+    TCP connect, and that connects only where `scope` allows: by default
+    where a website check may. Share one across many checks so connections
+    are reused."""
+    transport = httpx.AsyncHTTPTransport(verify=verify)
     # httpx has no setting for the network backend. Its connection pool reads
     # this attribute each time it opens a connection.
-    transport._pool._network_backend = _TimedBackend()
+    transport._pool._network_backend = _TimedBackend(scope or egress.website_scope())
     return httpx.AsyncClient(transport=transport, follow_redirects=True)
 
 
@@ -319,6 +332,8 @@ class CheckResult:
     ping: PingStats | None = None
     #: Set on every DNS check: what each resolver answered.
     dns: DnsResult | None = None
+    #: Set on every database check: what the server said.
+    database: DbResult | None = None
 
     @property
     def summary(self) -> str:
@@ -327,6 +342,8 @@ class CheckResult:
             return self.ping.summary
         if self.is_up and self.dns is not None:
             return self.dns.summary
+        if self.database is not None:
+            return self.database.summary
         if self.is_up:
             return f"HTTP {self.status_code} in {self.response_time_ms} ms"
         if self.status_code is not None:
@@ -343,9 +360,20 @@ def _caused_by(exc: BaseException | None, kind: type[BaseException]) -> bool:
     return False
 
 
+def _errno_in(exc: BaseException | None, numbers: set[int]) -> bool:
+    """Whether an OSError with one of these errnos is behind `exc`."""
+    while exc is not None:
+        if isinstance(exc, OSError) and exc.errno in numbers:
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
 def _classify(exc: Exception) -> tuple[str, str]:
     """Turn an httpx exception into (error_type, human explanation)."""
     match exc:
+        case httpx.ConnectError() if _caused_by(exc, egress.BlockedAddressError):
+            return "blocked_address", f"Refused by the egress policy: {exc}"
         case httpx.ConnectTimeout():
             return "connect_timeout", "Timed out establishing a TCP connection."
         case httpx.ReadTimeout():
@@ -390,7 +418,11 @@ def certificate_check_due(website: Website, now: datetime | None = None) -> bool
 
 def domain_host(website: Website) -> str | None:
     """The host whose domain registration to look up: an HTTP check's host, a
-    ping check's host name, a DNS check's domain. None for an IP address."""
+    ping check's host name, a DNS check's domain. None for an IP address, and
+    for a database check, whose endpoint is often a cloud provider's name
+    (`….rds.amazonaws.com`) and whose site, if any, is watched already."""
+    if website.check_type is CheckType.DATABASE:
+        return None
     if website.check_type is CheckType.HTTP:
         return lookup_host(urlsplit(website.url).hostname)
     return lookup_host(website.url)
@@ -544,11 +576,15 @@ async def probe_certificate(url: str, timeout: float) -> CertInfo:
     # Offering HTTP/2 only learns whether the server speaks it; the checks
     # themselves stay on HTTP/1.1.
     context.set_alpn_protocols(["h2", "http/1.1"])
+    port = parts.port or 443
     try:
+        # Resolved here so the egress policy judges the address connected to.
+        infos = await asyncio.wait_for(
+            anyio.getaddrinfo(host, port, type=socket.SOCK_STREAM), timeout
+        )
+        address = egress.vet(_connect_order(infos), egress.website_scope())[0]
         _, writer = await asyncio.wait_for(
-            asyncio.open_connection(
-                host, parts.port or 443, ssl=context, server_hostname=host
-            ),
+            asyncio.open_connection(address, port, ssl=context, server_hostname=host),
             timeout,
         )
         try:
@@ -588,9 +624,9 @@ async def check_website(
     one-off blip neither counts as a failed check nor raises an alert.
 
     A caller running many checks should pass one shared `new_client()`, so
-    connections are reused; ping and DNS checks do not use it. When the site's
-    certificate is due for a read, the same call also fills `result.cert`, and
-    when its domain is due for a lookup, `result.domain`.
+    connections are reused; ping, DNS and database checks do not use it. When
+    the site's certificate is due for a read, the same call also fills
+    `result.cert`, and when its domain is due for a lookup, `result.domain`.
     """
     probe = _PROBES[website.check_type]
     result = await probe(website, client)
@@ -641,6 +677,7 @@ async def _ping_probe(
         count=website.ping_count,
         timeout=website.timeout_seconds,
         privileged=settings.PING_PRIVILEGED,
+        scope=egress.website_scope(),
     )
     stats = outcome.stats
     if not outcome.is_up:
@@ -682,6 +719,40 @@ async def _dns_probe(
     )
 
 
+async def _database_probe(
+    website: Website, client: httpx.AsyncClient | None = None
+) -> CheckResult:
+    """Open a session with the database at `website.url` as far as its first
+    answer, without logging in. See `db_probe` for when that counts as up."""
+    checked_at = datetime.now(UTC)
+    host, port = split_endpoint(website.url)
+    outcome = await probe_database(
+        host,
+        port,
+        website.db_engine,
+        timeout=website.timeout_seconds,
+        tls=website.db_tls,
+        scope=egress.website_scope(),
+    )
+    if not outcome.is_up:
+        logger.info("Database check failed for %s: %s", website.url, outcome.error)
+    return CheckResult(
+        is_up=outcome.is_up,
+        checked_at=checked_at,
+        response_time_ms=outcome.response_time_ms,
+        error=outcome.error,
+        error_type=outcome.error_type,
+        ip_address=outcome.address,
+        timings=Timings(
+            dns_ms=outcome.dns_ms,
+            connect_ms=outcome.connect_ms,
+            tls_ms=outcome.tls_ms,
+            first_byte_ms=outcome.answer_ms,
+        ),
+        database=outcome,
+    )
+
+
 def _response_address(response: httpx.Response, stopwatch: _Stopwatch) -> str | None:
     """The IP address the site's own host answered on: the first hop's, so a
     redirect to another host does not stand in for it. Read off the response's
@@ -690,6 +761,69 @@ def _response_address(response: httpx.Response, stopwatch: _Stopwatch) -> str | 
     first = response.history[0] if response.history else response
     stream = first.extensions.get("network_stream")
     return (_peer_address(stream) if stream is not None else None) or stopwatch.address
+
+
+@dataclass(slots=True)
+class TimedResponse:
+    """One request made by `timed_request`: the response, or why there was none."""
+
+    response: httpx.Response | None
+    elapsed_ms: int
+    timings: Timings
+    #: The address the host answered on.
+    address: str | None = None
+    error_type: str | None = None
+    error: str | None = None
+
+
+async def timed_request(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: float,
+) -> TimedResponse:
+    """A request on a `new_client()`, timed step by step like a website
+    check's. Never raises: a failure comes back classified, as for a site."""
+    request_headers = httpx.Headers({"User-Agent": USER_AGENT})
+    request_headers.update(headers or {})
+    stopwatch = _Stopwatch()
+    token = _stopwatch.set(stopwatch)
+    started = time.perf_counter()
+    try:
+        response = await client.request(
+            method,
+            url,
+            timeout=timeout,
+            headers=request_headers,
+            extensions={"trace": stopwatch.trace},
+        )
+    except Exception as exc:  # noqa: BLE001 - every failure is a result
+        error_type, message = _classify(exc)
+        if error_type == "connect_error" and _caused_by(exc, ConnectionRefusedError):
+            # The host answered: where to look differs from a timeout.
+            error_type = "connect_refused"
+            message = "Connection refused: the host answered, but nothing listens on that port."
+        elif error_type == "connect_error" and _errno_in(exc, {errno.EHOSTUNREACH, errno.ENETUNREACH}):
+            error_type = "no_route"
+            message = f"No route to the host: {exc}"
+        return TimedResponse(
+            response=None,
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+            timings=stopwatch.timings(),
+            address=stopwatch.address,
+            error_type=error_type,
+            error=message,
+        )
+    finally:
+        _stopwatch.reset(token)
+    return TimedResponse(
+        response=response,
+        elapsed_ms=int((time.perf_counter() - started) * 1000),
+        timings=stopwatch.timings(),
+        address=_response_address(response, stopwatch),
+    )
 
 
 async def _http_probe(
@@ -796,4 +930,5 @@ _PROBES = {
     CheckType.HTTP: _http_probe,
     CheckType.PING: _ping_probe,
     CheckType.DNS: _dns_probe,
+    CheckType.DATABASE: _database_probe,
 }

@@ -39,6 +39,28 @@ class NotificationKind(str, enum.Enum):
     DNS_CHANGED = "dns_changed"
     #: Once a month, per project: how every site did.
     MONTHLY_REPORT = "monthly_report"
+    #: Infrastructure: the first of an AWS resource's checks went down.
+    INFRA_DOWN = "infra_down"
+    #: Infrastructure: a follow-up while the resource stays down.
+    INFRA_STILL_DOWN = "infra_still_down"
+    #: Infrastructure: every check of the resource is up again.
+    INFRA_RECOVERED = "infra_recovered"
+    #: Infrastructure: up, but a problem opened (unhealthy targets or
+    #: instances, a group short of capacity, slowness, packet loss).
+    INFRA_DEGRADED = "infra_degraded"
+    #: Infrastructure: most checks in a VPC failed to connect at once.
+    VPC_UNREACHABLE = "vpc_unreachable"
+    #: Infrastructure: that VPC answers again.
+    VPC_RECOVERED = "vpc_recovered"
+    #: Infrastructure: instances joined an Auto Scaling group (opt-in).
+    ASG_SCALED_OUT = "asg_scaled_out"
+    #: Infrastructure: instances left an Auto Scaling group (opt-in).
+    ASG_SCALED_IN = "asg_scaled_in"
+    #: Infrastructure: a CodeDeploy deployment started; its resources' down
+    #: alerts pause until it ends (opt-in per AWS account).
+    DEPLOY_STARTED = "deploy_started"
+    #: Infrastructure: that deployment succeeded, failed or was stopped.
+    DEPLOY_FINISHED = "deploy_finished"
 
 
 class Tone(str, enum.Enum):
@@ -196,10 +218,18 @@ class WebsiteSnapshot:
         return self.check_type is CheckType.DNS
 
     @property
+    def is_database(self) -> bool:
+        return self.check_type is CheckType.DATABASE
+
+    @property
     def noun(self) -> str:
-        """What alerts call it: a site, for a ping check a host, and for a DNS
-        check the record."""
-        return {CheckType.PING: "host", CheckType.DNS: "record"}.get(self.check_type, "site")
+        """What alerts call it: a site, for a ping check a host, for a DNS
+        check the record, and for a database check the database."""
+        return {
+            CheckType.PING: "host",
+            CheckType.DNS: "record",
+            CheckType.DATABASE: "database",
+        }.get(self.check_type, "site")
 
     @classmethod
     def of(cls, website: Website) -> "WebsiteSnapshot":
