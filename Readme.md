@@ -13,7 +13,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[Features](#features) · [Alert channels](#alert-channels) · [Quick start](#quick-start) · [Email alerts](#set-up-email-alerts-smtp) · [Configuration](#configuration) · [Docs](#documentation)
+[Features](#features) · [AWS infrastructure](#aws-infrastructure-monitoring) · [Alert channels](#alert-channels) · [Quick start](#quick-start) · [Email alerts](#set-up-email-alerts-smtp) · [Configuration](#configuration) · [Docs](#documentation)
 
 <br>
 
@@ -25,10 +25,12 @@
 
 ## About
 
-Watchly watches your websites, servers and DNS records around the clock and
-tells the right people the moment something breaks. Organize what you monitor
-into projects, invite your team with the right roles, and get alerts by email,
-Slack, Telegram, WhatsApp or webhook, plus a monthly uptime report you can trust.
+Watchly watches your websites, servers, databases and DNS records, and the AWS
+infrastructure they run on, around the clock and tells the right people the
+moment something breaks. Organize what you monitor into projects (a project
+watches either websites or AWS infrastructure), invite your team with the right
+roles, and get alerts by email, Slack, Telegram, WhatsApp or webhook, plus a
+monthly uptime report you can trust.
 
 It runs on your own infrastructure with a single `docker compose up`.
 
@@ -38,6 +40,7 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **Ping monitoring**: ICMP checks for hosts, including packet-loss alerts
 - **DNS monitoring**: query several public resolvers at once and alert when records change or drift from what you expect
 - **Database monitoring**: give a PostgreSQL, MySQL/MariaDB, Redis/Valkey or MongoDB endpoint, `host:port`, and nothing else; Watchly goes as far as the server's first answer without logging in, so it tells a database that is up from one that is starting up, out of connections, or hidden behind a proxy with nothing behind it
+- **AWS infrastructure monitoring**: EC2 servers, Auto Scaling groups, Application and Network Load Balancers and RDS databases, found in your VPCs and kept in sync with AWS; see [AWS infrastructure monitoring](#aws-infrastructure-monitoring)
 - **Early warnings**: SSL certificates and domain registrations about to expire, changed nameservers, slow responses and packet loss, not just "down"
 - **Security headers**: each website's HSTS, CSP, X-Frame-Options, X-Content-Type-Options and Referrer-Policy, graded A to F; Permissions-Policy and the Cross-Origin policies are listed alongside
 - **CDN detection**: whether a site is served through Cloudflare, CloudFront, Fastly, Akamai, Vercel, Netlify and others, with the evidence (headers, DNS aliases) and whether a cache answered
@@ -50,6 +53,112 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **Monthly uptime reports**: uptime, downtime and incidents per project, delivered automatically
 - **Team management**: invite by email, account requests to approve or reject, role-based access (Admin, DevOps, Project Manager, Developer, Viewer), suspension, and invite-only mode
 - **Account security**: JWT sessions with refresh tokens, login lockout and password reset by email
+
+## AWS infrastructure monitoring
+
+Run Watchly on an EC2 instance inside your VPC and it can watch what your
+websites run on, not only the URLs in front of them. It is off until you set
+`INFRA_AWS_ENABLED=true`.
+
+<p align="center">
+  <img src="doc/images/infra-architecture.svg" alt="Watchly on an EC2 instance inside a VPC probes load balancers, Auto Scaling groups, EC2 servers and RDS databases, reads their state from the AWS APIs and alerts your team" width="900">
+</p>
+
+| Resource | What Watchly checks |
+| -------- | ------------------- |
+| **EC2 server**, in a public or private subnet | `ping`, a TCP port and an HTTP path, at its private IP or, for a public server, its public IP |
+| **Load balancer**, ALB or NLB, internal or internet-facing | its listener or `/health`, and the load balancer's own verdict on every target, with AWS's reason code |
+| **Auto Scaling group** | the same probes on every instance in service, read from AWS at each run so instances replaced by scaling never raise false alarms, plus the group's health and capacity against its desired count |
+| **RDS database**, Aurora included | its port from inside the VPC, its status in RDS, and CloudWatch CPU, free storage, memory, connections and replica lag against thresholds. Watchly never logs in, so it needs no database credentials |
+
+- **Found, not typed**: pick a VPC and Watchly lists its resources and suggests
+  checks for each; addresses and states stay in sync with AWS, and a resource
+  AWS no longer has is flagged instead of reported as down.
+- **One alert per resource**: a server that loses power fails its ping, its port
+  and its health check at once. That is one outage, listing every failing check.
+- **One alert per VPC**: if Watchly loses its route into a VPC, you get a single
+  "VPC unreachable" alert instead of one per resource.
+- **A network map** of each VPC: subnets, load balancers to target groups to
+  instances, and the paths Watchly probes, coloured by health.
+- **Why is this down?**: a step-by-step dry run (resolve, policy, connect, TLS,
+  response) that tells a timeout from a refused connection and, for admins,
+  names the security group missing the rule.
+- **Several AWS accounts** per project, using Watchly's own instance role, an IAM
+  user's access key (stored encrypted) or a role to assume, so one project can
+  span production and staging.
+- **Deployments**: with CodeDeploy read access, Watchly announces an account's
+  deployments and puts the resources they deploy to in maintenance while they run.
+- **Maintenance windows, recipients and notification settings** work as they do
+  for websites.
+
+Everything is read-only: Watchly's IAM role can describe resources and read
+CloudWatch metrics, and cannot change anything.
+
+### Set it up
+
+1. **Run Watchly on an EC2 instance in the VPC** (a public subnet with an
+   Elastic IP is typical), with the IAM role below attached and
+   [IMDSv2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html)
+   required. Allow inbound `443` only from known addresses, and never expose `8000` or `5432`.
+2. **Turn it on** in `.env`, then `docker compose up -d`:
+
+   ```dotenv
+   INFRA_AWS_ENABLED=true
+   AWS_REGION=ap-southeast-1   # default region; blank reads it from the instance
+   ```
+
+3. **Create an infrastructure project**: *Projects → New project →
+   Infrastructure*, with at least one AWS account (the instance role, an access
+   key, or a role to assume).
+4. **Add resources**: *Infrastructure → Add*, pick the VPC, tick the discovered
+   resources and accept or edit the suggested checks. *Test connection* shows
+   what a check would see before you save.
+5. **Open the targets' security groups to Watchly's**: the listener ports for
+   load balancers, the service port (or `22`) for servers, the database port for
+   databases, and ICMP echo for ping checks.
+
+The role needs only these read-only permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "Discover",
+    "Effect": "Allow",
+    "Action": [
+      "ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeRouteTables",
+      "ec2:DescribeInstances", "ec2:DescribeInstanceStatus",
+      "ec2:DescribeNetworkInterfaces", "ec2:DescribeSecurityGroups",
+      "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeListeners",
+      "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTargetHealth",
+      "elasticloadbalancing:DescribeTags",
+      "autoscaling:DescribeAutoScalingGroups", "autoscaling:DescribeScalingActivities",
+      "rds:DescribeDBInstances", "cloudwatch:GetMetricData"
+    ],
+    "Resource": "*"
+  }]
+}
+```
+
+`cloudwatch:GetMetricData` is the only call AWS bills for: a database metrics
+check reads about five metrics a run, roughly US$0.45 a month per database at
+one check every five minutes. To follow deployments, also allow
+`codedeploy:ListDeployments`, `codedeploy:BatchGetDeployments` and
+`codedeploy:GetDeploymentGroup`. After adding an account, **Test** in the app
+tries every permission and says which are missing.
+
+> [!IMPORTANT]
+> **Watchly can now reach your private network, so it guards what it will
+> connect to.** Website checks may only reach public addresses
+> (`WEBSITE_PRIVATE_TARGETS=block`, the default), instance metadata, loopback and
+> Watchly's own addresses are refused for every check, and infrastructure probes
+> reach only the ranges of their resource's VPC. A website check that points at a
+> private address, such as a LAN host, fails with `blocked_address` after
+> upgrading; set `WEBSITE_PRIVATE_TARGETS=allow` only for a LAN install, never on EC2.
+
+The full design, with every endpoint, check type and alert, is in
+[`doc/infraapi.md`](doc/infraapi.md); the code layout is in
+[`app/monitoring/infra/aws/README.md`](app/monitoring/infra/aws/README.md).
 
 ## Alert channels
 
@@ -88,9 +197,11 @@ channel. A webhook, if you set one, receives every alert from every project.
 </table>
 
 Down and recovery alerts, reminders while a site stays down, warnings (SSL
-and domain expiry, nameserver changes, slow responses, packet loss, DNS changes) and the monthly report all
-use these channels, and each kind can be switched off per channel under
-**Notifications**. Set Slack, Telegram and WhatsApp up on each project in the
+and domain expiry, nameserver changes, slow responses, packet loss, DNS changes),
+the [AWS infrastructure](#aws-infrastructure-monitoring) alerts (a resource down,
+still down, degraded or recovered, and a VPC unreachable or reachable again) and
+the monthly report all use these channels, and each kind can be switched off per
+channel under **Notifications**. Set Slack, Telegram and WhatsApp up on each project in the
 web app; their `.env` settings are only a fallback for projects without their
 own.
 
@@ -256,6 +367,10 @@ option. The most important ones:
 | `DOMAIN_EXPIRY_ALERT_DAYS` | `14,7` | Days before domain registration expiry to warn |
 | `ALERT_LOGO_URL` | the logo on GitHub | Public HTTPS logo Slack and Telegram show on alerts; blank turns it off (email always embeds it) |
 | `DNS_RESOLVERS` | Cloudflare, Google, Quad9, OpenDNS | Resolvers queried by DNS checks |
+| `INFRA_AWS_ENABLED` | `false` | Turns on [AWS infrastructure monitoring](#aws-infrastructure-monitoring) |
+| `AWS_REGION` | the instance's own region | Default region for AWS accounts without one of their own |
+| `AWS_SYNC_INTERVAL_SECONDS` | `300` | How often AWS resources' addresses and states are read again |
+| `WEBSITE_PRIVATE_TARGETS` | `block` | `allow` lets website checks reach private addresses; for LAN installs only, never on EC2 |
 | `MONTHLY_REPORTS_ENABLED` | `true` | Send the monthly uptime report |
 | `LOG_LEVEL` / `LOG_DIR` | `INFO` / `logs` | Log verbosity, and the folder for the per-module log files (see [Logs](#logs)) |
 
@@ -334,6 +449,7 @@ See [`doc/local-setup.md`](doc/local-setup.md) for a full walkthrough and troubl
 | [`doc/reference.md`](doc/reference.md) | Technical reference: auth, roles, monitoring, alerting, scheduler, migrations |
 | [`doc/hld.md`](doc/hld.md) | High-level design: architecture, data model, key flows |
 | [`doc/apis.md`](doc/apis.md) | Every API endpoint with a short description |
+| [`doc/infraapi.md`](doc/infraapi.md) | AWS infrastructure monitoring: concepts, IAM setup, accounts, checks, alerts and its API |
 | [`frontend/README.md`](frontend/README.md) | The web UI |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each release |
 
