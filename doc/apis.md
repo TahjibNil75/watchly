@@ -837,7 +837,7 @@ Does not stop the scheduled report.
 ## Health
 
 ### `GET /health`
-Public liveness check. Returns `{"status": "ok", "version": "1.0.0", "monitoring": "on"|"off"}`,
+Public liveness check. Returns `{"status": "ok", "version": "1.1.0", "monitoring": "on"|"off"}`,
 `version` being the running release.
 `200`
 

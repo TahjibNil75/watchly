@@ -38,10 +38,31 @@ PROBLEM_LABELS = {
     "replication_broken": "Replication broken",
     "high_cpu": "High CPU",
     "low_storage": "Low free storage",
+    "storage_filling": "Storage filling up",
     "low_memory": "Low freeable memory",
     "many_connections": "Many connections",
+    "connections_near_limit": "Connections near the limit",
+    "iops_saturated": "IOPS near the limit",
+    "low_burst_balance": "EBS burst balance low",
+    "low_cpu_credits": "CPU credits running out",
+    "low_disk_space": "Low disk space",
     "replica_lag": "Replica lag",
 }
+
+#: How each AWS account capacity problem reads in an alert.
+CAPACITY_LABELS = {
+    "eip_unattached": "Elastic IPs attached to nothing",
+    "eip_quota": "Elastic IP quota nearly used",
+}
+
+
+def _mid_sentence(label: str) -> str:
+    """A label for the middle of a title: "High CPU" -> "high CPU", but
+    "IOPS near the limit" and "Elastic IPs…" keep their capitals."""
+    first = label.split(" ", 1)[0]
+    if first.isupper() or label.startswith("Elastic"):
+        return label
+    return label[:1].lower() + label[1:]
 
 
 def _utc(value: datetime) -> str:
@@ -303,7 +324,7 @@ class InfraDegradedEvent(InfraEvent):
             kind=self.kind,
             tone=Tone.WARNING,
             kicker="Degraded",
-            title=f"{self.resource.name}: {self.problem_label.lower()}",
+            title=f"{self.resource.name}: {_mid_sentence(self.problem_label)}",
             subject=subject,
             body=body,
             slack_body=slack_body,
@@ -739,7 +760,108 @@ class DeployEvent(Notification):
         }
 
 
+@dataclass(kw_only=True)
+class CapacityEvent(Notification):
+    """An AWS account that watches its capacity holds Elastic IPs attached to
+    nothing (`eip_unattached`), or is close to its Elastic IP quota
+    (`eip_quota`), in one region: one message to the account's project."""
+
+    kind: NotificationKind = NotificationKind.ACCOUNT_CAPACITY
+    project_id: int
+    project_name: str
+    account_name: str
+    aws_account_id: str | None
+    region: str
+    problem: str
+    problem_detail: str
+    occurred_at: datetime
+    #: The unattached addresses, each as a line, for `eip_unattached`.
+    addresses: tuple[str, ...] = ()
+    #: INFRA_PROBLEM_ALERT_COOLDOWN_SECONDS, for the quota's note.
+    cooldown_seconds: int = 21_600
+    recipients: tuple[str, ...] = ()
+    slack: SlackTarget | None = None
+    telegram: TelegramTarget | None = None
+    whatsapp: WhatsAppTarget | None = None
+
+    @property
+    def problem_label(self) -> str:
+        return CAPACITY_LABELS.get(self.problem, self.problem.replace("_", " ").capitalize())
+
+    @property
+    def account_text(self) -> str:
+        return f"{self.account_name} ({self.aws_account_id})" if self.aws_account_id else self.account_name
+
+    def describe(self) -> str:
+        return f"{self.kind.value} ({self.problem}) for {self.account_name} in {self.region}"
+
+    def context(self) -> dict[str, str]:
+        return {
+            "project": self.project_name,
+            "account": self.account_name,
+            "aws_account_id": self.aws_account_id or "—",
+            "region": self.region,
+            "problem": self.problem_label,
+            "problem_detail": self.problem_detail,
+            "dashboard_url": dashboard_url(f"/projects/{self.project_id}"),
+        }
+
+    def _note(self) -> str:
+        if self.problem == "eip_unattached":
+            return (
+                "AWS bills every public IPv4 address by the hour, so an Elastic IP attached to "
+                "nothing is paid for and unused: release it (EC2 → Elastic IPs) if nothing needs "
+                "it. Watchly says so again only when another one is left unattached."
+            )
+        return (
+            "Past the quota, allocating an Elastic IP fails, and so does launching anything that "
+            "needs one. Ask for more in Service Quotas (EC2-VPC Elastic IPs) before it runs out; "
+            "an increase can take a while. Watchly says so again if it clears and comes back, "
+            f"at most every {format_duration(self.cooldown_seconds)}."
+        )
+
+    def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
+        facts = [
+            ("Project", self.project_name),
+            ("AWS account", self.account_text),
+            ("Region", self.region),
+            ("Problem", self.problem_label),
+            ("Detail", self.problem_detail),
+            ("At", _utc(self.occurred_at)),
+        ]
+        for line in self.addresses[:10]:
+            facts.append(("Unattached", line))
+        if len(self.addresses) > 10:
+            facts.append(("And", f"{len(self.addresses) - 10} more"))
+        return Message(
+            kind=self.kind,
+            tone=Tone.WARNING,
+            kicker="Capacity",
+            title=f"{self.account_name} in {self.region}: {_mid_sentence(self.problem_label)}",
+            subject=subject,
+            body=body,
+            slack_body=slack_body,
+            facts=facts,
+            note=self._note(),
+            link=_link("Open in Watchly", f"/projects/{self.project_id}"),
+        )
+
+    def payload(self, subject: str) -> dict:
+        return {
+            "event": self.kind.value,
+            "subject": subject,
+            "project": {"id": self.project_id, "name": self.project_name},
+            "account": {"name": self.account_name, "aws_account_id": self.aws_account_id},
+            "region": self.region,
+            "occurred_at": self.occurred_at.isoformat(),
+            "problem": {"kind": self.problem, "detail": self.problem_detail},
+            "addresses": list(self.addresses),
+        }
+
+
 __all__ = [
+    "CAPACITY_LABELS",
+    "CapacityEvent",
     "CheckLine",
     "DeployEvent",
     "DeployedResource",

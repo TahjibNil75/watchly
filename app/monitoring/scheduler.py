@@ -23,6 +23,7 @@ from app.core.config import settings
 from app.core.rate_limit import purge_closed_windows
 from app.db.session import AsyncSessionLocal, engine
 from app.invitations.service import InvitationService
+from app.monitoring.infra.aws.capacity import CapacityWatcher
 from app.monitoring.infra.aws.deployments import DeploymentWatcher
 from app.monitoring.infra.aws.history import InfraHistoryService
 from app.monitoring.infra.aws.monitor import InfraMonitor
@@ -51,7 +52,8 @@ async def _run_guarded(what: str, job: Callable[[AsyncSession], Awaitable[object
 async def run_tick() -> int:
     """Run one round of due checks (websites, and with INFRA_AWS_ENABLED the
     CodeDeploy deployments of the accounts that watch them, the
-    infrastructure checks and the sync of their resources from AWS), then the
+    infrastructure checks, the sync of their resources from AWS, and the
+    Elastic IPs of the accounts that watch their capacity), then the
     housekeeping that follows them: rolling checks up by the hour, any monthly
     reports that are due, purging
     checks, feed events and ended maintenance past their retention, and
@@ -68,6 +70,7 @@ async def run_tick() -> int:
         await _run_guarded("Deployment watch", lambda s: DeploymentWatcher(s).run_due())
         await _run_guarded("Infrastructure checks", lambda s: InfraMonitor(s).run_due_checks())
         await _run_guarded("Infrastructure sync", lambda s: InfraMonitor(s).sync_due_vpcs())
+        await _run_guarded("Capacity watch", lambda s: CapacityWatcher(s).run_due())
         await _run_guarded("Infrastructure rollup", lambda s: InfraHistoryService(s).rollup())
         await _run_guarded("Infrastructure purge", lambda s: InfraHistoryService(s).purge())
         await _run_guarded("Infrastructure feed purge", lambda s: InfraService(s).purge_old())

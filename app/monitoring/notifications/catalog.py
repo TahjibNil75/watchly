@@ -177,6 +177,17 @@ _DEPLOY_FINISHED = {
     "error": "CodeDeploy's error message when it failed, or “—”",
 }
 
+_CAPACITY = {
+    "project": "Project name",
+    "account": "The AWS account, as named in Watchly",
+    "aws_account_id": "Its 12-digit id, or “—”",
+    "region": "The AWS region, e.g. “ap-southeast-1”",
+    "problem": "“Elastic IPs attached to nothing” or “Elastic IP quota nearly used”",
+    "problem_detail": "The figures, e.g. “2 Elastic IPs attached to nothing: 203.0.113.10 (old-bastion), "
+    "203.0.113.11; about US$7 a month” or “4 of 5 Elastic IPs used, 80% (alert at 80%)”",
+    "dashboard_url": "Link to the project in Watchly (empty if ALERT_DASHBOARD_URL is unset)",
+}
+
 _INFRA_AUDIENCE = (
     "The project's members and extra emails, the resource's extra recipients, and the "
     "project's Slack channel, Telegram chat and WhatsApp numbers."
@@ -451,6 +462,17 @@ CATALOG: dict[NotificationKind, KindInfo] = {
                 "after {{duration}}."
             ),
             placeholders=_DEPLOY_FINISHED,
+        ),
+        KindInfo(
+            kind=NotificationKind.ACCOUNT_CAPACITY,
+            label="AWS account capacity",
+            description="An AWS account that watches its capacity holds Elastic IPs attached to "
+            "nothing, which AWS bills by the hour, or has nearly used its Elastic IP quota in a "
+            "region.",
+            audience="Same as “Deployment started”.",
+            default_subject="[CAPACITY] {{project}} / {{account}} in {{region}}: {{problem}}",
+            default_body="{{account}} in {{region}}: {{problem_detail}}.",
+            placeholders=_CAPACITY,
         ),
     )
 }

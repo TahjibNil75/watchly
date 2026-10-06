@@ -123,6 +123,67 @@ export function AccountFields({ value: form, onChange, account = null }) {
         balancers and Auto Scaling groups it deploys to send no down alerts until it ends. Needs
         codedeploy:ListDeployments, BatchGetDeployments and GetDeploymentGroup.
       </p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={Boolean(form.watch_capacity)}
+          onChange={(e) => onChange({ ...form, watch_capacity: e.target.checked })}
+        />
+        <span>Watch Elastic IPs and quota</span>
+      </label>
+      <p className="muted small">
+        Hourly, in each region it has VPCs in: an alert for Elastic IPs attached to nothing (AWS bills each about
+        US$3.65 a month) and for the Elastic IP quota nearly used. Needs ec2:DescribeAddresses and
+        servicequotas:GetServiceQuota.
+      </p>
+    </>
+  )
+}
+
+// "2 unattached · 4 of 5 Elastic IPs", over every region looked at.
+function capacityLine(a) {
+  const regions = a.capacity ?? []
+  const unattached = regions.reduce((n, r) => n + r.unattached.length, 0)
+  const fullest = regions
+    .filter((r) => r.elastic_ip_quota)
+    .reduce((best, r) => (best && best.elastic_ips / best.elastic_ip_quota >= r.elastic_ips / r.elastic_ip_quota ? best : r), null)
+  const parts = []
+  if (unattached) parts.push(`${unattached} unattached`)
+  if (fullest) parts.push(`${fullest.elastic_ips} of ${fullest.elastic_ip_quota}${fullest.quota_source === 'assumed' ? '?' : ''} EIPs`)
+  return parts.join(' · ')
+}
+
+// What each region holds, for the badge's tooltip.
+function capacityTitle(a) {
+  return (a.capacity ?? [])
+    .map((r) => {
+      const quota = r.elastic_ip_quota ? ` of ${r.elastic_ip_quota}${r.quota_source === 'assumed' ? ' (assumed)' : ''}` : ''
+      const loose = r.unattached.length ? `; unattached: ${r.unattached.map((u) => u.public_ip).join(', ')}` : ''
+      return `${r.region}: ${r.elastic_ips}${quota} Elastic IPs${loose}`
+    })
+    .join('\n')
+}
+
+function CapacityCell({ account: a }) {
+  if (!a.watch_capacity) return <span className="muted">not watched</span>
+  if (a.capacity_error)
+    return (
+      <span className="badge badge-down" title={a.capacity_error}>
+        failing
+      </span>
+    )
+  if (!a.capacity_checked_at) return <span className="badge badge-unknown">watched, not looked yet</span>
+  const line = capacityLine(a)
+  const unattached = (a.capacity ?? []).some((r) => r.unattached.length)
+  return (
+    <>
+      <span
+        className={`badge ${unattached ? 'badge-degraded' : 'badge-healthy'}`}
+        title={`Looked ${timeAgo(a.capacity_checked_at)}\n${capacityTitle(a)}`}
+      >
+        watched
+      </span>
+      {line && <div className="muted small nowrap">{line}</div>}
     </>
   )
 }
@@ -134,6 +195,7 @@ function AccountForm({ account, busy, onSave, onCancel }) {
           ...Object.fromEntries(Object.keys(BLANK_ACCOUNT).map((k) => [k, account[k] ?? ''])),
           secret_access_key: '',
           watch_deployments: account.watch_deployments,
+          watch_capacity: account.watch_capacity,
         }
       : BLANK_ACCOUNT,
   )
@@ -248,6 +310,7 @@ export function AwsAccountsCard({ projectId }) {
                 <th>Region</th>
                 <th>VPCs</th>
                 <th>Deployments</th>
+                <th>Capacity</th>
                 <th>Status</th>
                 <th />
               </tr>
@@ -284,6 +347,9 @@ export function AwsAccountsCard({ projectId }) {
                     ) : (
                       <span className="badge badge-unknown">watched, not asked yet</span>
                     )}
+                  </td>
+                  <td>
+                    <CapacityCell account={a} />
                   </td>
                   <td>
                     {a.last_error ? (

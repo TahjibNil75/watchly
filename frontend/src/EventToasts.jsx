@@ -159,6 +159,8 @@ function describeInfra(event) {
       return { tone: 'down', sticky: true, title: `${event.vpc.name} is unreachable`, detail: event.summary }
     case 'vpc_recovered':
       return { tone: 'up', title: `${event.vpc.name} answers again`, detail: event.summary }
+    case 'account_capacity':
+      return { tone: 'pending', title: 'AWS account capacity', detail: event.summary }
     case 'deploy_started':
       return { tone: 'info', title: 'Deployment started', detail: event.summary }
     case 'deploy_finished':
@@ -173,8 +175,8 @@ function describeInfra(event) {
   }
 }
 
-// Where a toast leads: the resource, else the VPC, else (a deployment) the
-// project.
+// Where a toast leads: the resource, else the VPC, else (a deployment, an
+// account's capacity) the project.
 function infraHref(event) {
   if (event.resource) return `/infra/resources/${event.resource.id}`
   if (event.vpc) return `/infra/vpcs/${event.vpc.id}`

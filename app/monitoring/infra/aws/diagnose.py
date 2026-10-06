@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.monitoring import egress
 from app.monitoring.infra.aws import client, hints, probes
+from app.monitoring.infra.aws.capacity import EIP_QUOTA_CODE
 from app.monitoring.infra.aws.client import AwsError
 from app.monitoring.infra.aws.models import (
     AwsAccount,
@@ -233,7 +234,7 @@ async def _try(call) -> tuple[bool | None, str | None, object]:
         return False, exc.code if exc.access_denied else str(exc), None
 
 
-def _first(response, key: str, field: str) -> str | None:
+def _first(response, key: str, field: str):
     items = (response or {}).get(key) or []
     return items[0].get(field) if items else None
 
@@ -250,11 +251,11 @@ def _can_ping() -> bool:
 
 
 async def _caller_and_permissions(
-    region: client.Region, *, deployments: bool = False
+    region: client.Region, *, deployments: bool = False, capacity: bool = False
 ) -> tuple[CallerRead | None, str | None, list[PermissionRead]]:
     """Who the credentials are, and which of the Describe* calls Watchly
     makes they may make, in one region; with `deployments`, the CodeDeploy
-    reads too."""
+    reads too, and with `capacity`, the Elastic IP and Service Quotas ones."""
     caller, caller_error = None, None
     ok, error, response = await _try(client.call("sts", "get_caller_identity", region))
     if ok:
@@ -293,10 +294,42 @@ async def _caller_and_permissions(
             StartTime=datetime.now(UTC) - timedelta(minutes=5),
             EndTime=datetime.now(UTC),
         ),
+        # What ec2_metrics and db_metrics measure against: volumes' types and
+        # IOPS, an RDS class's memory, the agent's disks.
+        "ec2:DescribeVolumes": client.call("ec2", "describe_volumes", region, MaxResults=5),
+        "ec2:DescribeInstanceTypes": client.call(
+            "ec2", "describe_instance_types", region, InstanceTypes=["t3.micro"]
+        ),
+        "cloudwatch:ListMetrics": client.call(
+            "cloudwatch", "list_metrics", region, Namespace="CWAgent", MetricName="disk_used_percent"
+        ),
     }
+    if capacity:
+        tests["ec2:DescribeAddresses"] = client.call("ec2", "describe_addresses", region)
+        tests["servicequotas:GetServiceQuota"] = client.call(
+            "service-quotas", "get_service_quota", region, ServiceCode="ec2", QuotaCode=EIP_QUOTA_CODE
+        )
     outcomes = dict(zip(tests, await asyncio.gather(*(_try(call) for call in tests.values()))))
     for action, (ok, error, _) in outcomes.items():
+        if action == "servicequotas:GetServiceQuota" and error and "NoSuchResource" in error:
+            # Allowed: the account has no quota of its own, so AWS's default applies.
+            ok, error = True, None
         permissions.append(PermissionRead(action=action, ok=ok, detail=error))
+
+    groups = _first(outcomes["rds:DescribeDBInstances"][2], "DBInstances", "DBParameterGroups") or []
+    group_name = groups[0].get("DBParameterGroupName") if groups else None
+    if group_name is None:
+        permissions.append(PermissionRead(action="rds:DescribeDBParameters", ok=None, detail="nothing to try it on"))
+    else:
+        ok, error = True, None
+        try:
+            await client.call("rds", "describe_db_parameters", region, DBParameterGroupName=group_name, MaxRecords=20)
+        except AwsError as exc:
+            # AWS authorizes before it looks: anything but a refusal (the
+            # group gone since) means the call is allowed.
+            if exc.access_denied:
+                ok, error = False, exc.code
+        permissions.append(PermissionRead(action="rds:DescribeDBParameters", ok=ok, detail=error))
 
     lb_arn = _first(outcomes["elasticloadbalancing:DescribeLoadBalancers"][2], "LoadBalancers", "LoadBalancerArn")
     tg_arn = _first(outcomes["elasticloadbalancing:DescribeTargetGroups"][2], "TargetGroups", "TargetGroupArn")
@@ -353,7 +386,9 @@ async def test_account(account: AwsAccount, region: str | None = None) -> Accoun
         caller, caller_error, permissions = None, "No AWS region: set the account's default region or AWS_REGION.", []
     else:
         caller, caller_error, permissions = await _caller_and_permissions(
-            client.Region(credentials, name), deployments=account.watch_deployments
+            client.Region(credentials, name),
+            deployments=account.watch_deployments,
+            capacity=account.watch_capacity,
         )
     if caller is not None:
         account.aws_account_id = caller.account or account.aws_account_id
@@ -406,6 +441,7 @@ async def self_report() -> SelfRead:
         "group_health": True,
         "db_status": True,
         "db_metrics": True,
+        "ec2_metrics": True,
     }
 
     return SelfRead(

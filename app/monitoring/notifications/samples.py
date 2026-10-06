@@ -21,6 +21,7 @@ from app.monitoring.alerts.events import (
     SslExpiryEvent,
 )
 from app.monitoring.infra.aws.events import (
+    CapacityEvent,
     CheckLine,
     DeployedResource,
     DeployEvent,
@@ -376,6 +377,22 @@ def _infra_sample(kind: NotificationKind, now: datetime, recipients: tuple[str, 
                 ),
                 status="Succeeded" if finished else None,
                 finished_at=now if finished else None,
+                recipients=recipients,
+            )
+        case NotificationKind.ACCOUNT_CAPACITY:
+            return CapacityEvent(
+                project_id=1,
+                project_name=_PROJECT,
+                account_name="Production",
+                aws_account_id="123456789012",
+                region="ap-southeast-1",
+                problem="eip_unattached",
+                problem_detail=(
+                    "2 Elastic IPs attached to nothing: 203.0.113.10 (old-bastion), 203.0.113.11; "
+                    "about US$7 a month"
+                ),
+                occurred_at=now,
+                addresses=("203.0.113.10 (old-bastion, eipalloc-0a1b2c3d)", "203.0.113.11 (eipalloc-0e4f5a6b)"),
                 recipients=recipients,
             )
     raise ValueError(f"No sample for {kind}")

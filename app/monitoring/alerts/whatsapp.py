@@ -59,6 +59,9 @@ _EMOJI = {
     NotificationKind.VPC_RECOVERED: "🔗",
     NotificationKind.ASG_SCALED_OUT: "📈",
     NotificationKind.ASG_SCALED_IN: "📉",
+    NotificationKind.DEPLOY_STARTED: "🚀",
+    NotificationKind.DEPLOY_FINISHED: "🏁",
+    NotificationKind.ACCOUNT_CAPACITY: "📏",
 }
 
 _TONE_DOT = {

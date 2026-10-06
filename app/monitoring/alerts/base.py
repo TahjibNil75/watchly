@@ -61,6 +61,9 @@ class NotificationKind(str, enum.Enum):
     DEPLOY_STARTED = "deploy_started"
     #: Infrastructure: that deployment succeeded, failed or was stopped.
     DEPLOY_FINISHED = "deploy_finished"
+    #: Infrastructure: an AWS account holds Elastic IPs attached to nothing,
+    #: or is close to its Elastic IP quota (opt-in per AWS account).
+    ACCOUNT_CAPACITY = "account_capacity"
 
 
 class Tone(str, enum.Enum):

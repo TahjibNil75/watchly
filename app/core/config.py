@@ -334,6 +334,12 @@ class Settings(BaseSettings):
     #: After a deployment ends, its resources stay silent this long more, for
     #: the new code to start and its health checks to pass.
     DEPLOY_SETTLE_SECONDS: int = Field(default=60, ge=0, le=900)
+    #: How often an account that watches its capacity has its Elastic IPs
+    #: and Elastic IP quota looked at.
+    CAPACITY_WATCH_INTERVAL_SECONDS: int = Field(default=3600, ge=300)
+    #: An account's Elastic IPs in a region at this share of its quota or
+    #: more is the `eip_quota` problem.
+    CAPACITY_QUOTA_PERCENT: int = Field(default=80, ge=1, le=100)
     #: Diagnose runs and VPC tests, per user. NoDecode: see ALERT_DEFAULT_EMAILS.
     RATE_LIMIT_INFRA_DIAGNOSE: Annotated[RateLimit, NoDecode] = RateLimit(30, 60)
 

@@ -22,6 +22,7 @@ from app.db.models.user import User
 from app.db.session import get_db
 from app.monitoring.exports import csv_response, infra_stats_csv
 from app.monitoring.infra.aws import client, diagnose as diagnose_module
+from app.monitoring.infra.aws.capacity import capacity_regions
 from app.monitoring.infra.aws.client import AwsError
 from app.monitoring.infra.aws.history import InfraHistoryService
 from app.monitoring.infra.aws.models import (
@@ -177,6 +178,10 @@ def account_read(account, vpc_count: int) -> AccountRead:
         watch_deployments=account.watch_deployments,
         deployments_checked_at=account.deployments_checked_at,
         deployments_error=account.deployments_error,
+        watch_capacity=account.watch_capacity,
+        capacity_checked_at=account.capacity_checked_at,
+        capacity_error=account.capacity_error,
+        capacity=capacity_regions(account),
         vpc_count=vpc_count,
         created_by_id=account.created_by_id,
         created_at=account.created_at,

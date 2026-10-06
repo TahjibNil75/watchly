@@ -130,7 +130,8 @@ class DbStatusSettings(_Settings):
 class DbMetricsSettings(_Settings):
     """Thresholds on the database's CloudWatch metrics, each a problem while
     it is crossed; null turns one off. Read with `GetMetricData`, which AWS
-    bills per metric read: about 5 per run."""
+    bills per metric read: 5 to 10 per run, and one more an hour for the
+    storage forecast."""
 
     cpu_percent_max: float | None = Field(
         default=90, gt=0, le=100, description="CPU above this share is the `high_cpu` problem."
@@ -140,8 +141,19 @@ class DbMetricsSettings(_Settings):
         gt=0,
         lt=100,
         description=(
-            "Free storage below this share of the allocated storage is `low_storage`. "
-            "Not for Aurora, whose storage grows by itself."
+            "Free storage below this share of what it may use is `low_storage`: its allocated "
+            "storage, or with storage autoscaling its maximum. Not for Aurora, whose storage "
+            "grows by itself."
+        ),
+    )
+    storage_full_days_min: int | None = Field(
+        default=14,
+        ge=1,
+        le=365,
+        description=(
+            "Free storage running out within this many days, at the rate it shrank over the last "
+            "7 days (since storage was last added), is `storage_filling`. Counts storage "
+            "autoscaling in. Not for Aurora."
         ),
     )
     freeable_memory_mb_min: int | None = Field(
@@ -150,10 +162,90 @@ class DbMetricsSettings(_Settings):
     connections_max: int | None = Field(
         default=None, ge=1, description="More open connections than this is `many_connections`."
     )
+    connections_percent_max: float | None = Field(
+        default=80,
+        gt=0,
+        le=100,
+        description=(
+            "Open connections above this share of max_connections is `connections_near_limit`. "
+            "max_connections is read from its parameter group (a formula there is an estimate), "
+            "or given below."
+        ),
+    )
+    max_connections: int | None = Field(
+        default=None,
+        ge=1,
+        description="Its max_connections, when the parameter group cannot tell it or tells it wrong.",
+    )
+    iops_percent_max: float | None = Field(
+        default=90,
+        gt=0,
+        le=100,
+        description="Read and write IOPS above this share of its provisioned IOPS (io1, io2, gp3) is `iops_saturated`.",
+    )
+    burst_balance_percent_min: float | None = Field(
+        default=20,
+        gt=0,
+        lt=100,
+        description="A gp2 database's burst balance below this is `low_burst_balance`.",
+    )
+    cpu_credits_percent_min: float | None = Field(
+        default=10,
+        gt=0,
+        lt=100,
+        description=(
+            "A burstable (db.t*) class's CPU credits below this share of what it can bank, or "
+            "spending surplus credits, is `low_cpu_credits`."
+        ),
+    )
     replica_lag_seconds_max: int | None = Field(
         default=60,
         ge=1,
         description="A read replica's lag above this is `replica_lag`; ignored on a database that is no replica.",
+    )
+
+
+class Ec2MetricsSettings(_Settings):
+    """Thresholds on the server's CloudWatch metrics, each a problem while it
+    is crossed; null turns one off. Read with `GetMetricData`, which AWS bills
+    per metric read: 1 to 3 for the instance, 2 for its EBS burst, 1 or 2 per
+    volume and 1 per disk, a run."""
+
+    cpu_percent_max: float | None = Field(
+        default=90, gt=0, le=100, description="CPU above this share is the `high_cpu` problem."
+    )
+    cpu_credits_percent_min: float | None = Field(
+        default=10,
+        gt=0,
+        lt=100,
+        description=(
+            "A burstable (T) instance's CPU credits below this share of what it can bank, or "
+            "spending surplus credits in unlimited mode, is `low_cpu_credits`."
+        ),
+    )
+    burst_balance_percent_min: float | None = Field(
+        default=20,
+        gt=0,
+        lt=100,
+        description=(
+            "A gp2, st1 or sc1 volume's burst balance, or the instance's own EBS burst balance, "
+            "below this is `low_burst_balance`."
+        ),
+    )
+    iops_percent_max: float | None = Field(
+        default=90,
+        gt=0,
+        le=100,
+        description="An io1, io2 or gp3 volume's IOPS above this share of its provisioned IOPS is `iops_saturated`.",
+    )
+    disk_used_percent_max: float | None = Field(
+        default=90,
+        gt=0,
+        le=100,
+        description=(
+            "A filesystem fuller than this is `low_disk_space`. Needs the CloudWatch agent on the "
+            "instance, publishing disk_used_percent with its InstanceId."
+        ),
     )
 
 
@@ -183,6 +275,7 @@ SETTINGS_MODELS: dict[InfraCheckType, type[_Settings]] = {
     InfraCheckType.GROUP_HEALTH: GroupHealthSettings,
     InfraCheckType.DB_STATUS: DbStatusSettings,
     InfraCheckType.DB_METRICS: DbMetricsSettings,
+    InfraCheckType.EC2_METRICS: Ec2MetricsSettings,
 }
 
 
@@ -241,6 +334,27 @@ class AccountUpdate(AccountFields):
     auth_type: AccountAuth | None = None
 
 
+class UnattachedAddress(BaseModel):
+    public_ip: str
+    allocation_id: str | None
+    name: str | None = Field(description="Its Name tag.")
+
+
+class CapacityRegion(BaseModel):
+    """One region of an account, as the last capacity look found it."""
+
+    region: str
+    elastic_ips: int = Field(description="Elastic IPs it holds there.")
+    elastic_ip_quota: int | None = Field(description="How many it may hold there, from Service Quotas.")
+    quota_source: str | None = Field(
+        description=(
+            "`applied` (its own), `default` (AWS's default for every account) or `assumed` "
+            "(5, when neither could be read)."
+        )
+    )
+    unattached: list[UnattachedAddress] = Field(description="Its Elastic IPs attached to nothing, which AWS bills.")
+
+
 class AccountRead(BaseModel):
     id: int
     project: ProjectBrief
@@ -259,6 +373,12 @@ class AccountRead(BaseModel):
     watch_deployments: bool = Field(description="Whether its CodeDeploy deployments are announced and silence their resources.")
     deployments_checked_at: datetime | None = Field(description="When CodeDeploy was last asked.")
     deployments_error: str | None = Field(description="Why CodeDeploy could not be asked, per region.")
+    watch_capacity: bool = Field(
+        description="Whether its Elastic IPs left attached to nothing, and its Elastic IP quota, are watched."
+    )
+    capacity_checked_at: datetime | None = Field(description="When its capacity was last looked at.")
+    capacity_error: str | None = Field(description="Why it could not be looked at, per region.")
+    capacity: list[CapacityRegion] = Field(description="What the last look found, per region.")
     vpc_count: int
     created_by_id: int | None
     created_at: datetime
@@ -390,7 +510,9 @@ class ProblemRead(BaseModel):
         description=(
             "`slow_response`, `packet_loss`, `targets_unhealthy`, `instances_failing`, "
             "`instances_unhealthy`, `capacity_short`, `db_busy`, `replication_broken`, "
-            "`high_cpu`, `low_storage`, `low_memory`, `many_connections` or `replica_lag`."
+            "`high_cpu`, `low_storage`, `storage_filling`, `low_memory`, `many_connections`, "
+            "`connections_near_limit`, `iops_saturated`, `low_burst_balance`, `low_cpu_credits`, "
+            "`low_disk_space` or `replica_lag`."
         )
     )
     check_id: int
@@ -697,15 +819,17 @@ class EventRead(BaseModel):
     kind: str = Field(
         description=(
             "`infra_down`, `infra_recovered`, `infra_degraded`, `vpc_unreachable`, "
-            "`vpc_recovered`, `asg_scaled_out`, `asg_scaled_in`, `deploy_started` or "
-            "`deploy_finished`."
+            "`vpc_recovered`, `asg_scaled_out`, `asg_scaled_in`, `deploy_started`, "
+            "`deploy_finished` or `account_capacity`."
         )
     )
     occurred_at: datetime
     summary: str
     downtime_seconds: int | None
     project_id: int
-    vpc: VpcBrief | None = Field(description="Null for a deployment, which is about a whole AWS account.")
+    vpc: VpcBrief | None = Field(
+        description="Null for a deployment or an account's capacity, which are about a whole AWS account."
+    )
     resource: EventResource | None
 
 

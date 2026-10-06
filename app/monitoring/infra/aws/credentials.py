@@ -62,6 +62,14 @@ class AccountFields(BaseModel):
             "GetDeploymentGroup. Off when not given."
         ),
     )
+    watch_capacity: bool | None = Field(
+        default=None,
+        description=(
+            "Alert on its Elastic IPs left attached to nothing, which AWS bills by the hour, and "
+            "on its Elastic IP quota nearly used, in each region it has VPCs in. Needs "
+            "ec2:DescribeAddresses and servicequotas:GetServiceQuota. Off when not given."
+        ),
+    )
 
     @field_validator("access_key_id", "secret_access_key", "role_arn", "external_id", "default_region", mode="before")
     @classmethod
