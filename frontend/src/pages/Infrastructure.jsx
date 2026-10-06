@@ -6,9 +6,8 @@ import { Empty, ErrorBanner, Loading, PageHeader } from '../components.jsx'
 import { ENVIRONMENTS } from '../environments.js'
 import { KindIcon, ResourceTable } from '../Infra.jsx'
 import { InfraMap } from '../NetworkMap.jsx'
-import { KINDS, STATES, groupServices, kindInfo, loadAllResources, useInfraEnabled } from '../infra.js'
+import { KINDS, STATES, kindInfo, loadAllResources, useInfraEnabled } from '../infra.js'
 import { canCreateProjects, canViewAllProjects } from '../roles.js'
-import ServiceCards from '../ServiceCards.jsx'
 import { useApi } from '../useApi.js'
 
 const PAGE_SIZE = 50
@@ -17,7 +16,6 @@ const MAP_TOPOLOGIES = 8
 const VIEW_KEY = 'watchly.infraView'
 const VIEWS = [
   ['map', 'Map'],
-  ['services', 'Services'],
   ['table', 'Table'],
 ]
 
@@ -121,9 +119,9 @@ export default function Infrastructure() {
   const summary = useApi(() => (enabled ? api.resourceSummary(scope) : null), [enabled, kind, vpcId, q, environment], {
     pollMs: 30000,
   })
-  // The map and the cards need every resource of the VPC to draw it whole, so
-  // the search and the filters pick resources client-side there.
-  const whole = view !== 'table'
+  // The map needs every resource of the VPC to draw it whole, so the search
+  // and the filters pick resources client-side there.
+  const whole = view === 'map'
   const everything = useApi(
     () => (enabled && whole ? loadAllResources({ vpc_id: vpcId, environment }) : null),
     [enabled, whole, vpcId, environment],
@@ -182,11 +180,6 @@ export default function Infrastructure() {
   const nothingYet = ov && ov.counts.total === 0 && !vpcId
   const needle = q.toLowerCase()
   const has = (text) => text?.toLowerCase().includes(needle)
-  const services = groupServices(everything.data ?? []).filter(
-    (s) =>
-      (!needle || has(s.name) || s.resources.some((r) => [r.name, r.aws_id, r.address].some(has))) &&
-      s.resources.some((r) => (filter === 'all' || r.state === filter) && (!kind || r.kind === kind)),
-  )
   const filtered = needle || filter !== 'all' || kind
   const matches = (r) =>
     (!needle || [r.name, r.aws_id, r.address].some(has)) && (filter === 'all' || r.state === filter) && (!kind || r.kind === kind)
@@ -204,8 +197,6 @@ export default function Infrastructure() {
     ) : (
       'Nothing is watched yet in your projects.'
     )
-  ) : view === 'services' ? (
-    'No service matches this search and filter.'
   ) : (
     'No resources match this search and filter.'
   )
@@ -346,12 +337,6 @@ export default function Infrastructure() {
           />
         ) : (
           <Empty>{emptyLabel}</Empty>
-        )
-      ) : view === 'services' ? (
-        !everything.data ? (
-          <Loading />
-        ) : (
-          <ServiceCards services={services} showVpc={!vpcId && ov?.vpcs.length > 1} emptyLabel={emptyLabel} />
         )
       ) : resources.loading ? (
         <Loading />

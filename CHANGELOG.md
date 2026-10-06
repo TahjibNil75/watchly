@@ -10,6 +10,12 @@ major version.
 
 ## [Unreleased]
 
+### Changed
+
+- Log files keep only the last `LOG_RETENTION_HOURS` (default 6); older lines
+  are deleted. This replaces size rotation, so `LOG_MAX_BYTES` and
+  `LOG_BACKUP_COUNT` no longer do anything.
+
 ## [1.1.0] - 2026-10-07
 
 Infrastructure monitoring for AWS, database checks, and more for each website.

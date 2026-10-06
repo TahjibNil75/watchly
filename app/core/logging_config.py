@@ -19,7 +19,8 @@ keeps working) and to the file of the part of the app it came from, in LOG_DIR:
     server.log                uvicorn's own messages
     errors.log                every ERROR and above from anywhere, with tracebacks
 
-Files rotate at LOG_MAX_BYTES and keep LOG_BACKUP_COUNT old ones. Rotation is
+Only the last LOG_RETENTION_HOURS of each file are kept: lines older than that
+are dropped, at startup and then every few minutes while the API runs. This is
 not safe across processes, which is fine: the API runs one worker, because the
 monitoring scheduler lives inside it.
 
@@ -32,6 +33,7 @@ also sent back to the client as `X-Request-ID`, so a failure the user reports
 can be found by id in every file at once.
 """
 
+import calendar
 import logging
 import os
 import sys
@@ -39,7 +41,6 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from fastapi import Request, Response
@@ -108,15 +109,85 @@ def _log_name_for(logger_name: str) -> str | None:
     return MODULE_LOGS[best] if best else None
 
 
+#: How often a file handler checks its file for lines past the retention window.
+_PRUNE_INTERVAL_SECONDS = 600
+_TIMESTAMP_LENGTH = len("2026-10-04 09:15:02")
+
+
+def _line_time(line: str) -> float | None:
+    """Epoch seconds of a log line, or None for a continuation (traceback) line."""
+    try:
+        return calendar.timegm(time.strptime(line[:_TIMESTAMP_LENGTH], _DATE_FORMAT))
+    except ValueError:
+        return None
+
+
+def prune_log_file(path: Path, max_age_seconds: float) -> None:
+    """Rewrite `path` without the records older than `max_age_seconds`.
+
+    A record that spans several lines (a traceback) stays or goes as a whole,
+    following the timestamp of its first line.
+    """
+    cutoff = time.time() - max_age_seconds
+    try:
+        with open(path, encoding="utf-8", errors="replace") as source:
+            lines = source.readlines()
+    except OSError:
+        return
+
+    keep = False
+    kept: list[str] = []
+    for line in lines:
+        written = _line_time(line)
+        if written is not None:
+            keep = written >= cutoff
+        if keep:
+            kept.append(line)
+    if len(kept) == len(lines):
+        return
+
+    temporary = path.with_name(path.name + ".tmp")
+    try:
+        temporary.write_text("".join(kept), encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+
+
+class _RetentionFileHandler(logging.FileHandler):
+    """A log file that only keeps the last LOG_RETENTION_HOURS."""
+
+    def __init__(self, path: Path, max_age_seconds: float) -> None:
+        super().__init__(path, encoding="utf-8", delay=True)
+        self._max_age_seconds = max_age_seconds
+        self._next_prune = time.monotonic() + _PRUNE_INTERVAL_SECONDS
+
+    def emit(self, record: logging.LogRecord) -> None:
+        # `emit` runs under the handler's lock, so nothing writes while the
+        # file is swapped. The stream is reopened by the write that follows.
+        if time.monotonic() >= self._next_prune:
+            self._next_prune = time.monotonic() + _PRUNE_INTERVAL_SECONDS
+            if self.stream is not None:
+                self.stream.close()
+                self.stream = None
+            prune_log_file(Path(self.baseFilename), self._max_age_seconds)
+        super().emit(record)
+
+
+def _remove_stale_files(directory: Path, max_age_seconds: float) -> None:
+    """Prune every log file left by an earlier run, and delete the rotated ones
+    (`server.log.1`, ...) that an older version of Watchly produced."""
+    for path in directory.glob("*.log.*"):
+        path.unlink(missing_ok=True)
+    for path in directory.glob("*.log"):
+        prune_log_file(path, max_age_seconds)
+
+
 def _file_handler(
     directory: Path, name: str, level: int, formatter: logging.Formatter
-) -> RotatingFileHandler:
-    handler = RotatingFileHandler(
-        directory / f"{name}.log",
-        maxBytes=settings.LOG_MAX_BYTES,
-        backupCount=settings.LOG_BACKUP_COUNT,
-        encoding="utf-8",
-        delay=True,
+) -> logging.FileHandler:
+    handler = _RetentionFileHandler(
+        directory / f"{name}.log", settings.LOG_RETENTION_HOURS * 3600
     )
     handler.setLevel(level)
     handler.setFormatter(formatter)
@@ -162,6 +233,8 @@ def setup_logging() -> None:
             str(directory),
         )
         return
+
+    _remove_stale_files(directory, settings.LOG_RETENTION_HOURS * 3600)
 
     for name in dict.fromkeys(MODULE_LOGS.values()):
         handler = _file_handler(directory, name, level, formatter)

@@ -403,8 +403,9 @@ on the host (or in `LOG_DIR` when running the API directly):
 
 Each line has a UTC time, level and the request id, which is also returned to
 the client as the `X-Request-ID` header, so one failing request can be followed
-across files with `grep <id> logs/*.log`. Files rotate at `LOG_MAX_BYTES`
-(10 MB), keeping `LOG_BACKUP_COUNT` (5) old ones. Passwords, tokens and query
+across files with `grep <id> logs/*.log`. Only the last
+`LOG_RETENTION_HOURS` (6) of each file are kept; older lines are deleted at
+startup and every few minutes after. Passwords, tokens and query
 strings are never logged. Set `LOG_LEVEL=DEBUG` for more detail.
 
 ## Useful commands
