@@ -23,6 +23,7 @@ from app.db.models.user import User
 from app.monitoring import egress
 from app.monitoring.infra.aws import client, discovery, topology
 from app.monitoring.infra.aws.client import AwsError
+from app.monitoring.infra.aws.capacity import forget_capacity
 from app.monitoring.infra.aws.deployments import stop_watching
 from app.monitoring.infra.aws.models import (
     CHECKS_BY_KIND,
@@ -157,6 +158,8 @@ def default_check_name(check_type: InfraCheckType, settings_: dict, kind: Resour
             return "database status"
         case InfraCheckType.DB_METRICS:
             return "database metrics"
+        case InfraCheckType.EC2_METRICS:
+            return "server metrics"
     return check_type.value
 
 
@@ -184,6 +187,7 @@ def new_account_row(payload: AccountInput, actor: User) -> AwsAccount:
         default_region=payload.default_region,
         environment=payload.environment,
         watch_deployments=bool(payload.watch_deployments),
+        watch_capacity=bool(payload.watch_capacity),
         created_by_id=actor.id,
     )
 
@@ -349,6 +353,11 @@ class InfraService:
             if not changes["watch_deployments"]:
                 await stop_watching(self.session, account)
             account.watch_deployments = changes["watch_deployments"]
+        if changes.get("watch_capacity") is not None and changes["watch_capacity"] != account.watch_capacity:
+            # Off forgets what it found, so turning it back on starts afresh
+            # rather than alerting on problems remembered from before.
+            forget_capacity(account)
+            account.watch_capacity = changes["watch_capacity"]
 
         if CREDENTIAL_FIELDS & changes.keys():
             auth = changes.get("auth_type") or account.auth_type

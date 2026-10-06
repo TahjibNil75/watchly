@@ -42,6 +42,18 @@
 > resource from it; admins no longer register VPCs and grant them to projects
 > (`PUT /vpcs/{id}/projects` and `aws_vpc_projects` are gone).
 >
+> **Revised 2026-10-07: capacity alerts.** What runs out before a resource goes
+> down. A server's `ec2_metrics` (CPU, a burstable instance's CPU credits, its
+> EBS volumes' burst balance and provisioned IOPS, its disks through the
+> CloudWatch agent); `db_metrics` gains a storage forecast ("full in about 9
+> days"), connections against `max_connections`, provisioned IOPS, gp2 burst
+> balance and CPU credits, and counts storage autoscaling in. An AWS account
+> may watch its capacity (`watch_capacity`): Elastic IPs attached to nothing,
+> and its Elastic IP quota, as `account_capacity` alerts ([Capacity](#capacity)).
+> The IAM policy gains `ec2:DescribeVolumes`, `ec2:DescribeInstanceTypes`,
+> `rds:DescribeDBParameters` and `cloudwatch:ListMetrics`, and a Capacity
+> statement.
+>
 > Companion docs: [`apis.md`](apis.md) for today's endpoints, [`hld.md`](hld.md)
 > for how the pieces fit, and the package's
 > [`README`](../app/monitoring/infra/aws/README.md) for its file layout.
@@ -289,7 +301,8 @@ interval, timeout, retries and settings.
 | `ping`, `tcp`, `http` on a group | Auto Scaling group | the same probe, on every instance in service (at most 50 per run, 10 at once) | at least `min_healthy_instances` instances pass (by default, at least one) | any instance fails (`instances_failing`), or an instance's own problem (slow, lossy) |
 | `group_health` | Auto Scaling group | reads `DescribeAutoScalingGroups`: each instance's lifecycle state and the group's health status for it (EC2 status checks, or the load balancer's with the `ELB` health check type) | at least `min_healthy_instances` are `InService` and `Healthy` (capped at the desired capacity) | an instance in service is unhealthy (`instances_unhealthy`); fewer healthy plus launching instances than desired (`capacity_short`, with the reason the latest scaling activity failed) |
 | `db_status` | database | reads `DescribeDBInstances` | `available`, or busy with something it serves through (`backing-up`, `modifying`, `maintenance`, `upgrading`, …) | it is busy (`db_busy`); a read replica's replication is in error or stopped (`replication_broken`) |
-| `db_metrics` | database | reads its latest CloudWatch datapoints over 15 minutes with one `GetMetricData`: `CPUUtilization`, `FreeStorageSpace` (not on Aurora), `FreeableMemory`, `DatabaseConnections`, and `ReplicaLag` (`AuroraReplicaLag` on Aurora) for a replica | CloudWatch answers; no datapoint (a stopped or brand-new database) still passes | CPU over `cpu_percent_max` (`high_cpu`, default 90); free storage under `free_storage_percent_min` of the allocated storage (`low_storage`, default 10); freeable memory under `freeable_memory_mb_min` (`low_memory`, off); connections over `connections_max` (`many_connections`, off); replica lag over `replica_lag_seconds_max` (`replica_lag`, default 60) |
+| `db_metrics` | database | reads its latest CloudWatch datapoints over 15 minutes with one `GetMetricData`: `CPUUtilization`, `FreeStorageSpace` (not on Aurora), `FreeableMemory`, `DatabaseConnections`, `ReplicaLag` (`AuroraReplicaLag` on Aurora) for a replica, `ReadIOPS` and `WriteIOPS` for io1, io2 and gp3 storage, `BurstBalance` for gp2, and `CPUCreditBalance` and `CPUSurplusCreditBalance` for a `db.t*` class; and, hourly, 7 days of `FreeStorageSpace` for the forecast | CloudWatch answers; no datapoint (a stopped or brand-new database) still passes | CPU over `cpu_percent_max` (`high_cpu`, default 90); free storage under `free_storage_percent_min` of what it may use, the allocated storage or with storage autoscaling its maximum (`low_storage`, default 10); running out within `storage_full_days_min` days at the rate it shrank since storage was last added (`storage_filling`, default 14); freeable memory under `freeable_memory_mb_min` (`low_memory`, off); connections over `connections_max` (`many_connections`, off) or over `connections_percent_max` of `max_connections` (`connections_near_limit`, default 80); IOPS over `iops_percent_max` of provisioned (`iops_saturated`, default 90); gp2 burst balance under `burst_balance_percent_min` (`low_burst_balance`, default 20); CPU credits under `cpu_credits_percent_min` of the most it can bank, or spending surplus credits (`low_cpu_credits`, default 10); replica lag over `replica_lag_seconds_max` (`replica_lag`, default 60) |
+| `ec2_metrics` | server | reads its latest CloudWatch datapoints over 30 minutes, in 5-minute buckets, with one `GetMetricData`: `CPUUtilization`; `CPUCreditBalance` and `CPUSurplusCreditBalance` on a burstable (T) instance; `EBSIOBalance%` and `EBSByteBalance%` on sizes up to 2xlarge; `BurstBalance` of each gp2, st1 and sc1 volume; `VolumeReadOps` and `VolumeWriteOps` of each io1, io2 and gp3 volume; and the CloudWatch agent's `disk_used_percent` for each filesystem it reports, found with `ListMetrics` | CloudWatch answers; no datapoint (a stopped or brand-new instance) still passes | CPU over `cpu_percent_max` (`high_cpu`, default 90); CPU credits under `cpu_credits_percent_min` of the most it can bank, or spending surplus credits in unlimited mode (`low_cpu_credits`, default 10); a volume's, or the instance's own, EBS burst balance under `burst_balance_percent_min` (`low_burst_balance`, default 20); a volume's IOPS over `iops_percent_max` of provisioned (`iops_saturated`, default 90); a filesystem over `disk_used_percent_max` used (`low_disk_space`, default 90) |
 | `ec2_status` *(phase 2)* | server | reads `DescribeInstanceStatus` | `running`, and both status checks `ok` | a scheduled event (reboot, retirement) is pending |
 
 **Private or public path.** A server's `ping`, `tcp` and `http` go to its
@@ -308,8 +321,36 @@ VPC (its security group must allow `sg-watchly` on that port), which tells
 way". `db_status` and `db_metrics` ask RDS and CloudWatch, so they work even
 when the network path does not. What none of them can tell is whether a query
 succeeds: a full connection pool, locks or a broken schema show up only as
-`many_connections` or `high_cpu`, or not at all. A database is always checked
-inside the VPC; `use_public_ip` is refused for it.
+`connections_near_limit`, `many_connections` or `high_cpu`, or not at all. A
+database is always checked inside the VPC; `use_public_ip` is refused for it.
+
+**Limits Watchly measures against.** `connections_near_limit` needs the
+database's `max_connections`. Sync reads it from its DB parameter group
+(`rds:DescribeDBParameters`, reused for an hour): a number is used as it is; a
+formula such as `LEAST({DBInstanceClassMemory/9531392},5000)` is worked out
+for its class, whose memory comes from `ec2:DescribeInstanceTypes`, and is an
+estimate, a little high, since RDS keeps some of the class's memory for itself.
+A formula Watchly cannot work out (Aurora MySQL's uses `log`) leaves it
+unknown; the check's own `max_connections` setting overrides either way. A T
+instance's or `db.t*` class's CPU credits are measured against the most it can
+bank, 24 hours of what it earns, from AWS's table. IOPS are measured only where
+they are a hard cap (io1, io2, gp3); gp2, st1 and sc1 volumes burst above their
+baseline, so their burst balance is what says they are running out.
+
+**The storage forecast.** `storage_filling` fits a straight line, by least
+squares, to 7 days of hourly free storage, starting again after the last rise
+of more than 2% of the allocated storage (at least 1 GB) within an hour:
+storage added, or a large cleanup. Under 12 hours of history, or free storage
+not shrinking, makes no forecast. With storage autoscaling on, what is left is
+free storage plus the room to grow to its maximum, so a database autoscaling
+will grow in time is not reported as filling up, and neither as `low_storage`.
+
+**A server's disks.** EC2 cannot see inside an instance, so `low_disk_space`
+needs the CloudWatch agent publishing `disk_used_percent` to `CWAgent` with
+the `InstanceId` dimension, as its default configuration does. Watchly lists
+those metrics with `cloudwatch:ListMetrics` (reused for an hour), skipping
+`tmpfs`, `devtmpfs`, `overlay` and `squashfs`. Without the agent, the snapshot
+says so and the rest of the check works as usual.
 
 **An Auto Scaling group's health API.** A group behind a load balancer has a
 target group whose health check calls each instance's health endpoint, such as
@@ -385,7 +426,7 @@ VPC is unreachable:
 - when the VPC answers again, `vpc_recovered` goes out, and any resource still
   down then sends its own `infra_down`.
 
-`target_health`, `group_health`, `db_status`, `db_metrics` and `ec2_status` read the AWS API rather than
+`target_health`, `group_health`, `db_status`, `db_metrics`, `ec2_metrics` and `ec2_status` read the AWS API rather than
 connecting into the VPC, and a check over the internet (an internet-facing load balancer, a
 server's public IP) does not go through the VPC's routes, so none of them
 count towards the share.
@@ -399,7 +440,7 @@ monitored:
 
 | Discovered | Suggested checks |
 | ---------- | ---------------- |
-| EC2 instance | `ping`, and a `tcp` check for each port its security groups open to `sg-watchly`, all to its private IP. For a public instance, the add form can send them to its public IP instead. |
+| EC2 instance | `ping`, and a `tcp` check for each port its security groups open to `sg-watchly`, all to its private IP. For a public instance, the add form can send them to its public IP instead. `ec2_metrics` with the default thresholds. |
 | ALB | `http` on its listener, with the path its target group's health check uses; one `target_health` per target group |
 | NLB | `tcp` on its first TCP or TLS listener; one `target_health` per target group |
 | Auto Scaling group | `group_health`; an `http` (or `tcp`) check of each instance, from each of its target groups' health checks (path, port, expected status); a `ping` of each instance when it has no target group; one `target_health` per target group |
@@ -410,8 +451,12 @@ be added by its AWS id.
 
 The same calls run every `AWS_SYNC_INTERVAL_SECONDS` to keep each resource's
 address and state current. They are batched per VPC: one `DescribeInstances`,
-one `DescribeLoadBalancers`, one `DescribeAutoScalingGroups` and one
-`DescribeDBInstances` per VPC per sync, whatever the number of resources.
+one `DescribeVolumes` (each server's volumes' type, size and IOPS), one
+`DescribeLoadBalancers`, one `DescribeAutoScalingGroups` and one
+`DescribeDBInstances` per VPC per sync, whatever the number of resources, and
+a database's parameter group at most once an hour. A refused `DescribeVolumes`
+is listed with discovery's skipped calls; the volumes then keep only their id,
+and `ec2_metrics` reads every one's burst balance and none's IOPS.
 
 ### Diagnose
 
@@ -479,11 +524,36 @@ addresses.
         "autoscaling:DescribeAutoScalingGroups",
         "autoscaling:DescribeScalingActivities",
         "rds:DescribeDBInstances",
-        "cloudwatch:GetMetricData"
+        "cloudwatch:GetMetricData",
+        "ec2:DescribeVolumes",
+        "ec2:DescribeInstanceTypes",
+        "rds:DescribeDBParameters",
+        "cloudwatch:ListMetrics"
       ],
       "Resource": "*"
     }
   ]
+}
+```
+
+The last four are what `ec2_metrics` and `db_metrics` measure against: a
+volume's type and IOPS, an RDS class's memory and its parameter group's
+`max_connections`, and the CloudWatch agent's disks. Without them those
+thresholds are skipped, and the rest of each check works.
+
+To have an account's Elastic IPs and Elastic IP quota watched
+(`watch_capacity`, see [Capacity](#capacity)), add:
+
+```json
+{
+  "Sid": "Capacity",
+  "Effect": "Allow",
+  "Action": [
+    "ec2:DescribeAddresses",
+    "servicequotas:GetServiceQuota",
+    "servicequotas:GetAWSDefaultServiceQuota"
+  ],
+  "Resource": "*"
 }
 ```
 
@@ -504,10 +574,15 @@ and free:
 }
 ```
 
-Nothing here can change anything. All the `Describe*` calls are free.
-`cloudwatch:GetMetricData` is billed per metric read: a `db_metrics` check
-reads about 5 a run, so every 5 minutes is about 1,500 a day, roughly US$0.45
-a month per database.
+Nothing here can change anything. All the `Describe*` calls, and the Service
+Quotas reads, are free. `cloudwatch:GetMetricData` is billed per metric read,
+US$0.01 per 1,000: a `db_metrics` check reads 5 to 10 a run, and one more an
+hour for the forecast, so every 5 minutes is roughly US$0.45 to US$0.90 a month
+per database. An `ec2_metrics` check reads 1 (CPU), 2 more on a burstable
+instance, 2 for the instance's EBS burst, 1 per gp2/st1/sc1 volume or 2 per
+io1/io2/gp3 volume, and 1 per disk: a t3 with one gp3 volume and two disks is
+9, roughly US$0.80 a month every 5 minutes. A longer interval costs less.
+`cloudwatch:ListMetrics` is reused for an hour per server.
 `ec2:DescribeRouteTables` only tells the VPC map which subnets are public (a
 route to an internet gateway); without it the map guesses from each subnet's
 "auto-assign public IP" setting.
@@ -668,7 +743,8 @@ Watchly's own credentials), `access_key_id` and `secret_access_key` (with
 `access_key`), and optionally `role_arn`, `external_id`, `default_region`,
 `environment` (`development`, `testing`, `uat`, `staging` or `production`: what
 its resources get when they are added without one), `watch_deployments`
-(default `false`: see [Deployments](#deployments)) and `description`.
+(default `false`: see [Deployments](#deployments)), `watch_capacity` (default
+`false`: see [Capacity](#capacity)) and `description`.
 
 ```json
 {
@@ -691,6 +767,21 @@ Only what is sent changes. A new `access_key_id` comes with its
 saved and must reach the same AWS account while it holds VPCs (`409`).
 Turning `watch_deployments` off ends what it was following at once, quietly:
 those deployments read `Unwatched`, and their resources are checked again.
+Turning `watch_capacity` off or on forgets what the last look found and its
+open problems, so it starts afresh.
+
+An account reads back, besides what was sent: `watch_capacity`,
+`capacity_checked_at`, `capacity_error` (per region) and `capacity`, what the
+last look found in each region:
+
+```json
+"capacity": [
+  {
+    "region": "ap-southeast-1", "elastic_ips": 4, "elastic_ip_quota": 5, "quota_source": "applied",
+    "unattached": [{"public_ip": "203.0.113.10", "allocation_id": "eipalloc-0a1b2c3d", "name": "old-bastion"}]
+  }
+]
+```
 
 ### `DELETE /accounts/{account_id}`
 `204` · `409` it still holds VPCs, or it is the project's last account.
@@ -698,7 +789,10 @@ those deployments read `Unwatched`, and their resources are checked again.
 ### `POST /accounts/{account_id}/test`
 Query: `region` (default the account's own). Rate-limited like diagnose. An
 account that watches deployments is also tried for the three `codedeploy:`
-reads, the last two on its latest deployment.
+reads, the last two on its latest deployment, and one that watches its
+capacity for `ec2:DescribeAddresses` and `servicequotas:GetServiceQuota`.
+`rds:DescribeDBParameters` is tried on the first database's parameter group,
+when there is a database.
 
 ```json
 {
@@ -1154,7 +1248,7 @@ hourly rollups, like websites' stats, with one series per check:
 `healthy_targets` (target health, with `metric_min` as well),
 `healthy_instances` (an Auto Scaling group's `group_health`, and its checks
 that run on each instance, with `metric_min` as well), `cpu_percent` (a
-database's `db_metrics`), or null.
+database's `db_metrics`, a server's `ec2_metrics`), or null.
 `200` · `404`
 
 ### `GET /resources/{resource_id}/targets`
@@ -1208,6 +1302,25 @@ hand (**End now**) is not renewed. Deployments CodeDeploy runs on its own for
 an instance an Auto Scaling group launches (`creator` `autoscaling`) are left
 alone; automatic rollbacks are deployments of their own, and are announced.
 A deployment that starts and ends between two looks is not seen.
+
+### Capacity
+
+An account with `watch_capacity` is looked at every
+`CAPACITY_WATCH_INTERVAL_SECONDS` (3600), in each region it has VPCs in and its
+default region (`app/monitoring/infra/aws/capacity.py`), with one
+`DescribeAddresses` and the region's Elastic IP quota from Service Quotas
+(`L-0263D0A3`, "EC2-VPC Elastic IPs": the account's own, else AWS's default,
+else 5, said to be assumed):
+
+| Found | Watchly |
+| ----- | ------- |
+| Elastic IPs associated with nothing, on two looks in a row (one moved between instances is not) | `account_capacity` (`eip_unattached`) to the project, listing them with what they cost: AWS bills every public IPv4 address, about US$3.65 a month. Again only when another one is left unattached. |
+| the region's Elastic IPs at `CAPACITY_QUOTA_PERCENT` (80) of its quota or more | `account_capacity` (`eip_quota`) as it opens; if it clears and comes back, again at most every `INFRA_PROBLEM_ALERT_COOLDOWN_SECONDS` |
+
+What each look found and the open problems are kept on the account
+(`aws_accounts.capacity`), so the AWS accounts page shows them and a restart
+forgets nothing. A region AWS will not answer for keeps what was last found
+there, and `capacity_error` says why.
 
 ### `GET /deployments`
 Query: `project_id`, `active` (`true` running, `false` ended), `limit` (20),
@@ -1279,9 +1392,16 @@ Body: `check_type`, and optionally `name`, `settings`,
 // db_status (databases): nothing to set
 {}
 
-// db_metrics (databases; null turns a threshold off)
-{"cpu_percent_max": 90, "free_storage_percent_min": 10, "freeable_memory_mb_min": null,
- "connections_max": null, "replica_lag_seconds_max": 60}
+// db_metrics (databases; null turns a threshold off; max_connections null reads
+// it from the parameter group)
+{"cpu_percent_max": 90, "free_storage_percent_min": 10, "storage_full_days_min": 14,
+ "freeable_memory_mb_min": null, "connections_max": null, "connections_percent_max": 80,
+ "max_connections": null, "iops_percent_max": 90, "burst_balance_percent_min": 20,
+ "cpu_credits_percent_min": 10, "replica_lag_seconds_max": 60}
+
+// ec2_metrics (servers; null turns a threshold off)
+{"cpu_percent_max": 90, "cpu_credits_percent_min": 10, "burst_balance_percent_min": 20,
+ "iops_percent_max": 90, "disk_used_percent_max": 90}
 ```
 On an Auto Scaling group, `ping`, `tcp` and `http` also take
 `min_healthy_instances` (null by default: down only when no instance passes),
@@ -1341,7 +1461,7 @@ A dry run of a check, step by step. The body is either an existing check,
 Steps by type: `ping`: resolve, policy, echo. `tcp`: resolve, policy, connect,
 tls, banner. `http`: resolve, policy, connect, tls, response. `target_health`:
 aws_api, targets. `group_health`: aws_api, instances. `db_status`: aws_api,
-status. `db_metrics`: aws_api, metrics. An Auto Scaling group's
+status. `db_metrics` and `ec2_metrics`: aws_api, metrics. An Auto Scaling group's
 `ping`, `tcp` and `http`: aws_api, then one step per instance (named by its
 id, with its address and result; skipped while it launches or warms up). For a check over the internet, the policy step says the
 address is public rather than inside the VPC.
@@ -1455,6 +1575,7 @@ templates go in `catalog.py`.
 | `vpc_recovered` | that VPC answers again | `{{vpc_name}}`, `{{downtime}}` |
 | `deploy_started` | opt-in per account: a CodeDeploy deployment starts ([Deployments](#deployments)) | `{{environment}}`, `{{application}}`, `{{deployment_group}}`, `{{deployment_id}}`, `{{account}}`, `{{region}}`, `{{revision}}`, `{{initiated_by}}`, `{{resources}}`, `{{resource_count}}` |
 | `deploy_finished` | that deployment succeeds, fails or is stopped | the same, and `{{status}}`, `{{duration}}`, `{{error}}` |
+| `account_capacity` | opt-in per account: Elastic IPs attached to nothing, or the Elastic IP quota nearly used ([Capacity](#capacity)) | `{{account}}`, `{{aws_account_id}}`, `{{region}}`, `{{problem}}`, `{{problem_detail}}` |
 
 The project placeholders and the dashboard link work as today. Recipients are
 the project's, plus the resource's extra recipients, exactly as for a website.
@@ -1473,7 +1594,11 @@ phase 2.
 ```
 aws_accounts             id, project_id FK CASCADE, name, UK (project_id, name), description, auth_type (default, access_key), access_key_id,
                          secret_access_key (encrypted), role_arn, external_id, default_region, environment,
-                         aws_account_id, verified_at, last_error, created_by_id, timestamps
+                         aws_account_id, verified_at, last_error, watch_deployments,
+                         deployments_checked_at, deployments_error, watch_capacity,
+                         capacity_checked_at, capacity_error,
+                         capacity jsonb   -- per region what was found, and open problems
+                         created_by_id, timestamps
 aws_vpcs                 id, account_id FK CASCADE, name, UK (account_id, name), description,
                          region, aws_vpc_id, UK (account_id, region, aws_vpc_id),
                          cidrs cidr[], is_watchly_vpc, unreachable_since, synced_at,
@@ -1499,14 +1624,17 @@ aws_events               id, vpc_id FK, resource_id FK null, kind, created_at, d
 aws_maintenance_windows  id, resource_id FK CASCADE, starts_at, ends_at, reason, created_by_id
 enums                    aws_resource_kind (server, load_balancer, auto_scaling_group, database),
                          aws_check_type (ping, tcp, http, target_health, group_health,
-                                         db_status, db_metrics)
+                                         db_status, db_metrics, ec2_metrics)
 ```
 Column names follow the `websites` table wherever the meaning is the same.
 Migrations `0038_aws_vpcs`, `0039_aws_resources_checks`,
 `0040_aws_scaling_notifications`, `0041_aws_accounts` (VPCs registered before
 it move to an account named "Watchly's own credentials") and
 `0042_project_monitors` (`projects.monitors`; each account goes to the project
-that used it, copied for each further project, with the VPCs it used). The
+that used it, copied for each further project, with the VPCs it used), then
+`0043`–`0046` (account environments, databases, deployments) and
+`0047_capacity_alerts` (`ec2_metrics`; the new `db_metrics` thresholds on every
+existing check at their defaults; an account's capacity). The
 cascades only act when a whole project is deleted: the API refuses to remove
 an account or VPC that is still in use.
 Phase 0 needs none.
@@ -1526,6 +1654,8 @@ Phase 0 needs none.
 | `INFRA_PROBLEM_ALERT_COOLDOWN_SECONDS` | `21600` | As `SLOW_ALERT_COOLDOWN_SECONDS`. |
 | `VPC_UNREACHABLE_PERCENT` | `60` | Share of a VPC's checks failing to connect in one tick. |
 | `VPC_UNREACHABLE_MIN_CHECKS` | `3` | Fewer checks than this never mark a VPC unreachable. |
+| `CAPACITY_WATCH_INTERVAL_SECONDS` | `3600` | How often an account that watches its capacity has its Elastic IPs and quota looked at (min 300). |
+| `CAPACITY_QUOTA_PERCENT` | `80` | The share of a region's Elastic IP quota in use that is `eip_quota`. |
 | `RATE_LIMIT_INFRA_DIAGNOSE` | `30/minute` | Per user, for diagnose and VPC tests. |
 
 `CHECK_RETENTION_DAYS` and `DEFAULT_MAX_DOWN_ALERTS` apply to infrastructure as
@@ -1630,9 +1760,12 @@ The sidebar gains **Infrastructure**, next to Websites, shown when
 7. **Is the public dashboard acceptable?** Watchly on a public IP now has a
    route into the VPC. At minimum restrict 443 to known ranges. Better: put it
    behind a VPN or an ALB with WAF and, later, SSO.
-8. **CloudWatch metrics?** *Not in phases 1–2.* `GetMetricData` is billed per
-   metric. Everything here comes from the probes and the free `Describe*`
-   calls.
+8. **CloudWatch metrics?** *Yes, for `db_metrics` and `ec2_metrics` only.*
+   `GetMetricData` is billed per metric, so each check reads only what applies
+   to its resource (CPU credits on a burstable instance, IOPS on provisioned
+   volumes, the forecast's history once an hour), and its interval sets the
+   cost; see [§4](#4-aws-setup). Everything else comes from the probes and the
+   free `Describe*` calls.
 
 ---
 

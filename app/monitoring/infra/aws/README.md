@@ -8,10 +8,14 @@ Watches AWS resources in a registered VPC:
 
 | Resource | AWS | Checks |
 | -------- | --- | ------ |
-| Server | EC2 instance, in a public or a private subnet | `ping`, `tcp`, `http`: to its private IP, or with `use_public_ip` to its public IP |
+| Server | EC2 instance, in a public or a private subnet | `ping`, `tcp`, `http`: to its private IP, or with `use_public_ip` to its public IP; `ec2_metrics` (CloudWatch CPU, CPU credits, EBS burst balance and IOPS, and disks with the CloudWatch agent, against thresholds) |
 | Load balancer | Application or Network Load Balancer, internal or internet-facing | `http` (e.g. its `/health`), `tcp` (one of its listeners' ports), `target_health` (its own health check's verdict per target) |
 | Auto Scaling group | EC2 Auto Scaling group | `http`, `tcp`, `ping` on **every instance in service**, read from AWS at each run (e.g. the health API its target group calls); `group_health` (in service and healthy against desired capacity); `target_health` |
-| Database | RDS DB instance, Aurora's included | none logs in, so no database credentials: `tcp` to its endpoint's port from inside the VPC; `db_status` (`DescribeDBInstances`); `db_metrics` (CloudWatch CPU, free storage and memory, connections, replica lag, against thresholds) |
+| Database | RDS DB instance, Aurora's included | none logs in, so no database credentials: `tcp` to its endpoint's port from inside the VPC; `db_status` (`DescribeDBInstances`); `db_metrics` (CloudWatch CPU, free storage and its forecast, memory, connections against `max_connections`, IOPS, burst balance, CPU credits, replica lag, against thresholds) |
+
+An AWS account with `watch_capacity` also has its Elastic IPs looked at
+hourly (`capacity.py`): those attached to nothing, and the Elastic IP quota
+nearly used, as `account_capacity` alerts to its project.
 
 A project monitors either websites or infrastructure (`Project.monitors`). An
 infrastructure project owns one or more `AwsAccount`s, each holding how it is
@@ -64,9 +68,13 @@ infra/
     ├── events.py         Notification subclasses, sent through the existing Notifier
     ├── deployments.py    CodeDeploy deployments of accounts that watch them: announced, and the
     │                     resources they deploy to put in maintenance while they run
+    ├── capacity.py       Elastic IPs of accounts that watch their capacity: attached to nothing,
+    │                     and the Elastic IP quota nearly used
+    ├── limits.py         what AWS caps a resource at: CPU credits, provisioned IOPS,
+    │                     a database's max_connections
     ├── history.py        hourly rollup and purge of check results
     ├── client.py         the only module that imports boto3 (EC2, ELBv2, Auto Scaling, RDS,
-    │                     CloudWatch, CodeDeploy, STS, IMDS); one session per account (`Account`, `Region`); every call
+    │                     CloudWatch, CodeDeploy, Service Quotas, STS, IMDS); one session per account (`Account`, `Region`); every call
     │                     goes through anyio.to_thread
     ├── discovery.py      a VPC's instances, load balancers, Auto Scaling groups and RDS databases; suggested
     │                     checks; sync; a group's instances now (`read_group`)
@@ -81,5 +89,6 @@ infra/
         ├── group.py          an Auto Scaling group's ping / tcp / http, on each of its instances
         ├── group_health.py   the group's own view: healthy and in service vs desired capacity
         ├── db_status.py      a database's status and replication, from RDS
-        └── db_metrics.py     a database's CloudWatch metrics against thresholds
+        ├── db_metrics.py     a database's CloudWatch metrics against thresholds, and its storage forecast
+        └── ec2_metrics.py    a server's CloudWatch metrics against thresholds
 ```

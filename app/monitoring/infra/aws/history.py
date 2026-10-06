@@ -58,7 +58,7 @@ def metric_name(check: AwsCheck, kind: ResourceKind | None = None) -> str | None
             return "healthy_targets"
         case InfraCheckType.GROUP_HEALTH:
             return "healthy_instances"
-        case InfraCheckType.DB_METRICS:
+        case InfraCheckType.DB_METRICS | InfraCheckType.EC2_METRICS:
             return "cpu_percent"
     return None
 

@@ -1,7 +1,8 @@
 """One probe per check type. `run` picks it and repeats a failure, as a
 website check is repeated, before it counts. An Auto Scaling group's `ping`,
 `tcp` and `http` run on each of its instances (`group.py`). A database's
-`db_status` and `db_metrics` ask RDS and CloudWatch, without logging in."""
+`db_status` and `db_metrics` ask RDS and CloudWatch, without logging in, and
+a server's `ec2_metrics` asks CloudWatch."""
 
 import asyncio
 import functools
@@ -12,6 +13,7 @@ from app.monitoring.infra.aws.models import NETWORK_CHECKS, InfraCheckType, Reso
 from app.monitoring.infra.aws.probes import (
     db_metrics,
     db_status,
+    ec2_metrics,
     group,
     group_health,
     http,
@@ -31,6 +33,7 @@ PROBES: dict[InfraCheckType, Probe] = {
     InfraCheckType.GROUP_HEALTH: group_health.probe,
     InfraCheckType.DB_STATUS: db_status.probe,
     InfraCheckType.DB_METRICS: db_metrics.probe,
+    InfraCheckType.EC2_METRICS: ec2_metrics.probe,
 }
 
 #: Failures a retry cannot fix: the policy, a missing address, a group with

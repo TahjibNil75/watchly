@@ -40,7 +40,7 @@ body:
     attributes:
       label: Watchly version
       description: "`curl http://localhost:8000/health` shows it."
-      placeholder: "1.0.0"
+      placeholder: "1.1.0"
     validations:
       required: true
 

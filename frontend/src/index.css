@@ -5998,7 +5998,8 @@ textarea {
 /* Kinds and check types: outlined, like a website's check type. */
 .badge-kind-server,
 .badge-check-ping,
-.badge-check-tcp {
+.badge-check-tcp,
+.badge-check-ec2_metrics {
   --tone: var(--tag-teal);
 }
 .badge-kind-load_balancer,

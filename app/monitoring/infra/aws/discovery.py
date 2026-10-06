@@ -14,7 +14,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from app.monitoring.infra.aws import client
+from app.monitoring.infra.aws import client, limits
 from app.monitoring.infra.aws.client import AwsError
 from app.monitoring.infra.aws.models import InfraCheckType, ResourceKind
 from app.monitoring.infra.aws.schemas import Skipped, Suggestion, TargetGroupBrief
@@ -179,6 +179,12 @@ def _instance_info(instance: dict, region: client.Region, owner: str | None, sub
         "security_groups": groups,
         "auto_scaling_group": asg,
         "tags": tags,
+        # Their type, size and IOPS are added by `add_volume_details`.
+        "volumes": [
+            {"id": mapping["Ebs"]["VolumeId"], "device": mapping.get("DeviceName")}
+            for mapping in instance.get("BlockDeviceMappings") or []
+            if (mapping.get("Ebs") or {}).get("VolumeId")
+        ],
     }
     summary = f"{instance.get('InstanceType')} · {state}"
     summary += f" · public {public_ip}" if public_ip else " · private"
@@ -199,6 +205,32 @@ def _instance_info(instance: dict, region: client.Region, owner: str | None, sub
         subnet=detail["subnet"],
         auto_scaling_group=asg,
     )
+
+
+async def add_volume_details(region: client.Region, infos: list[AwsResourceInfo]) -> None:
+    """Each server's EBS volumes with their type, size, IOPS and throughput,
+    from one `DescribeVolumes` per BATCH volumes: what `ec2_metrics` needs
+    to tell a volume that bursts from one with IOPS to run out of. Raises
+    AwsError; the volumes then keep only their id and device."""
+    volumes = [v for info in infos if info.kind is ResourceKind.SERVER for v in info.aws_detail.get("volumes", [])]
+    ids = list(dict.fromkeys(v["id"] for v in volumes))
+    found: dict[str, dict] = {}
+    for start in range(0, len(ids), BATCH):
+        # A filter rather than VolumeIds, which fails whole for one volume
+        # deleted since the instances were listed.
+        rows = await client.paginate(
+            "ec2", "describe_volumes", region, "Volumes",
+            Filters=[{"Name": "volume-id", "Values": ids[start : start + BATCH]}],
+        )
+        for row in rows:
+            found[row["VolumeId"]] = {
+                "type": row.get("VolumeType"),
+                "size_gb": row.get("Size"),
+                "iops": row.get("Iops"),
+                "throughput": row.get("Throughput"),
+            }
+    for volume in volumes:
+        volume.update(found.get(volume["id"], {}))
 
 
 async def _vpc_instances(region: client.Region, aws_vpc_id: str) -> list[tuple[dict, str | None]]:
@@ -519,6 +551,16 @@ def _db_info(db: dict, subnets: dict) -> AwsResourceInfo:
         "storage_type": db.get("StorageType"),
         "allocated_storage_gb": db.get("AllocatedStorage"),
         "max_allocated_storage_gb": db.get("MaxAllocatedStorage"),
+        # Provisioned (io1, io2, gp3); RDS gives none for gp2.
+        "iops": db.get("Iops"),
+        "storage_throughput": db.get("StorageThroughput"),
+        "parameter_group": next(
+            (g.get("DBParameterGroupName") for g in db.get("DBParameterGroups") or [] if g.get("DBParameterGroupName")),
+            None,
+        ),
+        # Added by `add_connection_limit`.
+        "max_connections": None,
+        "max_connections_note": None,
         "cluster": db.get("DBClusterIdentifier"),
         "replica_of": db.get("ReadReplicaSourceDBInstanceIdentifier"),
         "replicas": db.get("ReadReplicaDBInstanceIdentifiers") or [],
@@ -559,10 +601,24 @@ def _db_in_vpc(db: dict, aws_vpc_id: str) -> bool:
     return (db.get("DBSubnetGroup") or {}).get("VpcId") == aws_vpc_id and db.get("DBInstanceStatus") not in DB_GONE
 
 
+async def add_connection_limit(region: client.Region, db: dict, info: AwsResourceInfo) -> None:
+    """The database's `max_connections`, for `db_metrics` to measure its
+    connections against, and where it came from or why it is not known."""
+    limit, note = await limits.max_connections(region, db)
+    info.aws_detail["max_connections"] = limit
+    info.aws_detail["max_connections_note"] = note
+
+
 async def list_databases(region: client.Region, aws_vpc_id: str, subnets: dict) -> list[AwsResourceInfo]:
     """The RDS DB instances in this VPC's subnets."""
     databases = await client.paginate("rds", "describe_db_instances", region, "DBInstances")
-    return [_db_info(db, subnets) for db in databases if _db_in_vpc(db, aws_vpc_id)]
+    infos = []
+    for db in databases:
+        if _db_in_vpc(db, aws_vpc_id):
+            info = _db_info(db, subnets)
+            await add_connection_limit(region, db, info)
+            infos.append(info)
+    return infos
 
 
 async def read_database(region: client.Region, ident: str) -> dict | None:
@@ -610,6 +666,11 @@ async def list_vpc(region: client.Region, aws_vpc_id: str, *, count_targets: boo
         listing.listed_kinds.add(ResourceKind.SERVER)
     except AwsError as exc:
         _skip(listing.skipped, exc)
+    if raw_instances:
+        try:
+            await add_volume_details(region, listing.items)
+        except AwsError as exc:
+            _skip(listing.skipped, exc)
     try:
         balancers, refused = await list_load_balancers(region, aws_vpc_id, count_targets=count_targets)
         listing.items.extend(balancers)
@@ -650,14 +711,21 @@ async def describe_one(
         for reservation in response.get("Reservations", []):
             for instance in reservation.get("Instances", []):
                 if instance.get("VpcId") == aws_vpc_id and (instance.get("State") or {}).get("Name") not in GONE:
-                    return _instance_info(instance, region, reservation.get("OwnerId"), subnets)
+                    info = _instance_info(instance, region, reservation.get("OwnerId"), subnets)
+                    try:
+                        await add_volume_details(region, [info])
+                    except AwsError as exc:
+                        logger.info("Volumes of %s not described: %s", aws_id, exc)
+                    return info
         return None
 
     if kind is ResourceKind.DATABASE:
         db = await read_database(region, aws_id)
         if db is None or not _db_in_vpc(db, aws_vpc_id):
             return None
-        return _db_info(db, await _subnets(region, aws_vpc_id))
+        info = _db_info(db, await _subnets(region, aws_vpc_id))
+        await add_connection_limit(region, db, info)
+        return info
 
     if kind is ResourceKind.AUTO_SCALING_GROUP:
         response = await client.call(
@@ -751,6 +819,8 @@ def suggest(
             )
         if not suggestions:
             suggestions.append(Suggestion(check_type=InfraCheckType.PING, name="ping", settings={}))
+        # Asks CloudWatch, so it works whatever the security groups allow.
+        suggestions.append(Suggestion(check_type=InfraCheckType.EC2_METRICS, name="server metrics", settings={}))
         return suggestions
 
     suggestions = []

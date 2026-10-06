@@ -66,10 +66,10 @@ websites run on, not only the URLs in front of them. It is off until you set
 
 | Resource | What Watchly checks |
 | -------- | ------------------- |
-| **EC2 server**, in a public or private subnet | `ping`, a TCP port and an HTTP path, at its private IP or, for a public server, its public IP |
+| **EC2 server**, in a public or private subnet | `ping`, a TCP port and an HTTP path, at its private IP or, for a public server, its public IP; and from CloudWatch, CPU, a burstable instance's CPU credits, its EBS volumes' burst balance and IOPS against what they are provisioned with, and, with the CloudWatch agent, disk space |
 | **Load balancer**, ALB or NLB, internal or internet-facing | its listener or `/health`, and the load balancer's own verdict on every target, with AWS's reason code |
 | **Auto Scaling group** | the same probes on every instance in service, read from AWS at each run so instances replaced by scaling never raise false alarms, plus the group's health and capacity against its desired count |
-| **RDS database**, Aurora included | its port from inside the VPC, its status in RDS, and CloudWatch CPU, free storage, memory, connections and replica lag against thresholds. Watchly never logs in, so it needs no database credentials |
+| **RDS database**, Aurora included | its port from inside the VPC, its status in RDS, and CloudWatch CPU, free storage and when it will run out ("full in about 9 days", storage autoscaling counted in), memory, connections against `max_connections`, IOPS, burst balance, CPU credits and replica lag against thresholds. Watchly never logs in, so it needs no database credentials |
 
 - **Found, not typed**: pick a VPC and Watchly lists its resources and suggests
   checks for each; addresses and states stay in sync with AWS, and a resource
@@ -88,6 +88,10 @@ websites run on, not only the URLs in front of them. It is off until you set
   span production and staging.
 - **Deployments**: with CodeDeploy read access, Watchly announces an account's
   deployments and puts the resources they deploy to in maintenance while they run.
+- **Capacity before it runs out**: CPU credits, EBS burst balance, IOPS, disks,
+  connections and storage are warned about while the resource is still up. An
+  account can also watch its Elastic IPs: those attached to nothing, which AWS
+  bills by the hour, and the Elastic IP quota nearly used.
 - **Maintenance windows, recipients and notification settings** work as they do
   for websites.
 
@@ -133,19 +137,23 @@ The role needs only these read-only permissions:
       "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTargetHealth",
       "elasticloadbalancing:DescribeTags",
       "autoscaling:DescribeAutoScalingGroups", "autoscaling:DescribeScalingActivities",
-      "rds:DescribeDBInstances", "cloudwatch:GetMetricData"
+      "rds:DescribeDBInstances", "cloudwatch:GetMetricData",
+      "ec2:DescribeVolumes", "ec2:DescribeInstanceTypes",
+      "rds:DescribeDBParameters", "cloudwatch:ListMetrics"
     ],
     "Resource": "*"
   }]
 }
 ```
 
-`cloudwatch:GetMetricData` is the only call AWS bills for: a database metrics
-check reads about five metrics a run, roughly US$0.45 a month per database at
-one check every five minutes. To follow deployments, also allow
+`cloudwatch:GetMetricData` is the only call AWS bills for: a server or database
+metrics check reads 5 to 10 metrics a run, roughly US$0.45 to US$0.90 a month
+per resource at one check every five minutes. To follow deployments, also allow
 `codedeploy:ListDeployments`, `codedeploy:BatchGetDeployments` and
-`codedeploy:GetDeploymentGroup`. After adding an account, **Test** in the app
-tries every permission and says which are missing.
+`codedeploy:GetDeploymentGroup`; to watch Elastic IPs, `ec2:DescribeAddresses`,
+`servicequotas:GetServiceQuota` and `servicequotas:GetAWSDefaultServiceQuota`.
+After adding an account, **Test** in the app tries every permission and says
+which are missing.
 
 > [!IMPORTANT]
 > **Watchly can now reach your private network, so it guards what it will

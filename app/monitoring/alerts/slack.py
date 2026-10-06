@@ -58,6 +58,9 @@ _EMOJI = {
     NotificationKind.VPC_RECOVERED: ":link:",
     NotificationKind.ASG_SCALED_OUT: ":arrow_up:",
     NotificationKind.ASG_SCALED_IN: ":arrow_down:",
+    NotificationKind.DEPLOY_STARTED: ":rocket:",
+    NotificationKind.DEPLOY_FINISHED: ":checkered_flag:",
+    NotificationKind.ACCOUNT_CAPACITY: ":straight_ruler:",
 }
 
 _TONE_DOT = {

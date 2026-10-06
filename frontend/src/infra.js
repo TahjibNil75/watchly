@@ -61,7 +61,11 @@ export const CHECK_TYPES = {
   db_status: { label: 'DB status', note: 'What RDS says of the database: available, stopped, storage full…' },
   db_metrics: {
     label: 'DB metrics',
-    note: 'CloudWatch CPU, free storage and memory, connections and replica lag, against thresholds',
+    note: 'CloudWatch CPU, storage and where it is heading, memory, connections, IOPS and replica lag, against thresholds',
+  },
+  ec2_metrics: {
+    label: 'Server metrics',
+    note: 'CloudWatch CPU, CPU credits, EBS burst balance and IOPS, and disk space with the CloudWatch agent',
   },
 }
 
@@ -69,7 +73,7 @@ export const CHECK_TYPES = {
 // Scaling group's ping, tcp and http run on every instance it has in service. A
 // database's checks never log in: its port, and what RDS and CloudWatch say.
 export const CHECKS_BY_KIND = {
-  server: ['ping', 'tcp', 'http'],
+  server: ['ping', 'tcp', 'http', 'ec2_metrics'],
   load_balancer: ['http', 'tcp', 'target_health'],
   auto_scaling_group: ['http', 'group_health', 'tcp', 'ping', 'target_health'],
   database: ['db_status', 'tcp', 'db_metrics'],
@@ -124,8 +128,14 @@ export const PROBLEMS = {
   replication_broken: 'Replication broken',
   high_cpu: 'High CPU',
   low_storage: 'Low free storage',
+  storage_filling: 'Storage filling up',
   low_memory: 'Low freeable memory',
   many_connections: 'Many connections',
+  connections_near_limit: 'Connections near the limit',
+  iops_saturated: 'IOPS near the limit',
+  low_burst_balance: 'EBS burst balance low',
+  low_cpu_credits: 'CPU credits running out',
+  low_disk_space: 'Low disk space',
   replica_lag: 'Replica lag',
 }
 
@@ -355,6 +365,18 @@ export function targetReason(reason) {
   return reason ? TARGET_REASONS[reason] ?? reason : null
 }
 
+// "9 days", "a day"; for a storage forecast.
+const daysText = (days) => (days < 1.5 ? 'a day' : `${Math.round(days)} days`)
+
+// "120 of 288 CPU credits", or "34 surplus credits" when it has run out.
+function creditsText(s) {
+  if (s.surplus_credits) return `${Math.round(s.surplus_credits)} surplus credits`
+  if (s.cpu_credits == null) return null
+  return s.cpu_credits_max
+    ? `${Math.round(s.cpu_credits)} of ${Math.round(s.cpu_credits_max)} CPU credits`
+    : `${Math.round(s.cpu_credits)} CPU credits`
+}
+
 // "2 of 3 targets healthy" and the like, from a check's latest figures.
 export function snapshotLine(check) {
   const s = check.snapshot ?? {}
@@ -382,9 +404,32 @@ export function snapshotLine(check) {
       const parts = [
         s.cpu_percent != null && `CPU ${Math.round(s.cpu_percent)}%`,
         s.free_storage_gb != null && `${s.free_storage_gb.toFixed(1)} GB free`,
+        s.storage_full_in_days != null && `full in ~${daysText(s.storage_full_in_days)}`,
         s.freeable_memory_mb != null && `${Math.round(s.freeable_memory_mb)} MB memory`,
-        s.connections != null && `${Math.round(s.connections)} connections`,
+        s.connections != null &&
+          (s.max_connections
+            ? `${Math.round(s.connections)} of ${s.max_connections_estimated ? '~' : ''}${s.max_connections} connections`
+            : `${Math.round(s.connections)} connections`),
+        s.iops != null && s.iops_limit && `IOPS ${Math.round((s.iops * 100) / s.iops_limit)}% of provisioned`,
+        s.burst_balance_percent != null && `burst ${Math.round(s.burst_balance_percent)}%`,
+        creditsText(s),
         s.replica_lag_seconds != null && `lag ${Math.round(s.replica_lag_seconds)} s`,
+      ].filter(Boolean)
+      return parts.length ? parts.join(' · ') : null
+    }
+    case 'ec2_metrics': {
+      const bursts = (s.volumes ?? []).map((v) => v.burst_balance_percent).filter((v) => v != null)
+      const busiest = (s.volumes ?? [])
+        .filter((v) => v.iops != null && v.iops_limit)
+        .map((v) => (v.iops * 100) / v.iops_limit)
+      const disks = (s.disks ?? []).filter((d) => d.used_percent != null)
+      const fullest = disks.reduce((a, d) => (a && a.used_percent >= d.used_percent ? a : d), null)
+      const parts = [
+        s.cpu_percent != null && `CPU ${Math.round(s.cpu_percent)}%`,
+        creditsText(s),
+        bursts.length > 0 && `burst ${Math.round(Math.min(...bursts))}%`,
+        busiest.length > 0 && `IOPS ${Math.round(Math.max(...busiest))}% of provisioned`,
+        fullest && `${fullest.path} ${Math.round(fullest.used_percent)}% used`,
       ].filter(Boolean)
       return parts.length ? parts.join(' · ') : null
     }
@@ -469,6 +514,7 @@ export const BLANK_ACCOUNT = {
   default_region: '',
   environment: '',
   watch_deployments: false,
+  watch_capacity: false,
 }
 
 // "Access key AKIA…, assumes watchly-monitor", "Watchly's own credentials".

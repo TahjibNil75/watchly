@@ -141,6 +141,18 @@ const KIND_META = {
       </>
     ),
   },
+  // A gauge close to its end: Elastic IPs left loose, or the quota nearly used.
+  account_capacity: {
+    tone: 'pending',
+    group: 'infrastructure',
+    icon: (
+      <>
+        <path d="M4 16a8 8 0 1 1 16 0" />
+        <path d="M12 16l4.5-5" />
+        <path d="M4 20h16" />
+      </>
+    ),
+  },
   deploy_started: {
     tone: 'maintenance',
     group: 'deployments',
@@ -165,7 +177,7 @@ const GROUPS = [
   {
     key: 'infrastructure',
     title: 'Infrastructure',
-    note: 'AWS servers and load balancers: one alert per resource, and one per VPC when the whole VPC is lost.',
+    note: 'AWS servers, load balancers and databases: one alert per resource, one per VPC when the whole VPC is lost, and an account’s Elastic IPs when it watches them.',
   },
   {
     key: 'deployments',

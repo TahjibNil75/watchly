@@ -93,13 +93,20 @@ class InfraCheckType(str, enum.Enum):
     #: Read a database's status from RDS: available, stopped, storage full...
     DB_STATUS = "db_status"
     #: Read a database's CloudWatch metrics (CPU, free storage and memory,
-    #: connections, replica lag) against thresholds.
+    #: connections, replica lag, IOPS, burst balance, and where its storage
+    #: is heading) against thresholds.
     DB_METRICS = "db_metrics"
+    #: Read a server's CloudWatch metrics (CPU, a burstable instance's CPU
+    #: credits, its EBS volumes' burst balance and IOPS, and its disks'
+    #: use, when the CloudWatch agent reports it) against thresholds.
+    EC2_METRICS = "ec2_metrics"
 
 
 #: Which checks each kind of resource takes.
 CHECKS_BY_KIND: dict[ResourceKind, frozenset[InfraCheckType]] = {
-    ResourceKind.SERVER: frozenset({InfraCheckType.PING, InfraCheckType.TCP, InfraCheckType.HTTP}),
+    ResourceKind.SERVER: frozenset(
+        {InfraCheckType.PING, InfraCheckType.TCP, InfraCheckType.HTTP, InfraCheckType.EC2_METRICS}
+    ),
     ResourceKind.LOAD_BALANCER: frozenset(
         {InfraCheckType.HTTP, InfraCheckType.TCP, InfraCheckType.TARGET_HEALTH}
     ),
@@ -119,7 +126,7 @@ CHECKS_BY_KIND: dict[ResourceKind, frozenset[InfraCheckType]] = {
 
 #: Checks that open a connection, and so (when they go into the VPC) tell
 #: whether Watchly can reach it at all. `target_health`, `group_health`,
-#: `db_status` and `db_metrics` ask the AWS API instead.
+#: `db_status`, `db_metrics` and `ec2_metrics` ask the AWS API instead.
 NETWORK_CHECKS = frozenset({InfraCheckType.PING, InfraCheckType.TCP, InfraCheckType.HTTP})
 
 
@@ -235,6 +242,23 @@ class AwsAccount(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     deployments_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Look at what the account holds rather than what runs in it: Elastic
+    #: IPs attached to nothing, and how close it is to its Elastic IP quota.
+    #: See `capacity.py`. Off unless asked, as it needs ec2:DescribeAddresses
+    #: and servicequotas:GetServiceQuota.
+    watch_capacity: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
+    capacity_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    capacity_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: What the last look found, per region (`{"regions": {name: {...}}}`),
+    #: and its open problems, as a check keeps them (`{"problems": {key:
+    #: {streak, since, detail, last_alert_at, alerted}}}`).
+    capacity: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
     created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
