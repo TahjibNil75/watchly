@@ -13,7 +13,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[Features](#features) · [AWS infrastructure](#aws-infrastructure-monitoring) · [Alert channels](#alert-channels) · [Quick start](#quick-start) · [Email alerts](#set-up-email-alerts-smtp) · [Configuration](#configuration) · [Docs](#documentation)
+[Features](#features) · [AWS infrastructure](#aws-infrastructure-monitoring) · [Docker](#docker-monitoring) · [Alert channels](#alert-channels) · [Quick start](#quick-start) · [Email alerts](#set-up-email-alerts-smtp) · [Configuration](#configuration) · [Docs](#documentation)
 
 <br>
 
@@ -25,10 +25,11 @@
 
 ## About
 
-Watchly watches your websites, servers, databases and DNS records, and the AWS
-infrastructure they run on, around the clock and tells the right people the
+Watchly watches your websites, servers, databases and DNS records, the AWS
+infrastructure they run on, and the Docker containers on your own servers,
+around the clock and tells the right people the
 moment something breaks. Organize what you monitor into projects (a project
-watches either websites or AWS infrastructure), invite your team with the right
+watches websites, AWS infrastructure or Docker hosts), invite your team with the right
 roles, and get alerts by email, Slack, Telegram, WhatsApp or webhook, plus a
 monthly uptime report you can trust.
 
@@ -169,6 +170,55 @@ The full design, with every endpoint, check type and alert, is in
 [`doc/infraapi.md`](doc/infraapi.md); the code layout is in
 [`app/monitoring/infra/aws/README.md`](app/monitoring/infra/aws/README.md).
 
+## Docker monitoring
+
+Watchly can watch the containers on your own servers, wherever they run. A small
+[agent](https://github.com/TahjibNil75/watchly-docker-agent) sits next to Docker
+and **only makes outbound HTTPS requests** to Watchly, so the server needs no
+open port, VPN or SSH access. It is on by default (`DOCKER_ENABLED=true`).
+
+- **Alerts as it happens**: the agent reports every 30 seconds and again about
+  2 seconds after a Docker event, so a crash, an OOM kill or a failing
+  healthcheck doesn't wait for the next heartbeat.
+- **What alerts**: a container down (with how it stopped: exit code, OOM kill or
+  `docker stop`) and back up, unhealthy, out of memory, in a restart loop or
+  running hot on CPU or memory, and a host whose agent goes quiet. A host that
+  goes offline is **one** alert, not one per container, and a redeploy stays
+  quiet thanks to a short grace period.
+- **History**: per-container CPU, memory, network and disk charts for the last
+  day, 7, 30 and 90 days, and a feed of Docker's events next to Watchly's
+  decisions.
+- **Configured in Watchly**: the check interval and the containers to skip
+  (`watchly.ignore=true` or a name pattern) are set in the app and come back on
+  every push, so nothing is edited on the server.
+
+### Set it up
+
+1. **Create a Docker project**: *Projects → New project → Docker*.
+2. **Add a host**: *Docker → Add host*. Watchly shows the host's token once, with
+   a ready-to-paste command.
+3. **Run the agent on the server**:
+
+   ```sh
+   docker run -d --name watchly-agent --restart unless-stopped \
+     -e WATCHLY_URL=https://watchly.example.com \
+     -e WATCHLY_TOKEN=wdk_… \
+     --group-add "$(stat -c %g /var/run/docker.sock)" \
+     -v /var/run/docker.sock:/var/run/docker.sock:ro \
+     --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+     --cpus 0.1 --memory 64m \
+     ghcr.io/tahjibnil75/watchly-docker-agent:latest
+   ```
+
+> [!NOTE]
+> Mounting the Docker socket gives full control of Docker, even with `:ro`. The
+> agent only ever sends `GET` requests, and sends no environment variables,
+> commands, mounts or logs. Each host has its own token, stored only as a hash.
+> See [Security](doc/docker.md#security) to run it behind a socket proxy.
+
+The full guide, with every alert, the settings and retention, is in
+[`doc/docker.md`](doc/docker.md).
+
 ## Alert channels
 
 Each project alerts by any mix of email, Slack, Telegram and WhatsApp, and a
@@ -208,8 +258,9 @@ channel. A webhook, if you set one, receives every alert from every project.
 Down and recovery alerts, reminders while a site stays down, warnings (SSL
 and domain expiry, nameserver changes, slow responses, packet loss, DNS changes),
 the [AWS infrastructure](#aws-infrastructure-monitoring) alerts (a resource down,
-still down, degraded or recovered, and a VPC unreachable or reachable again) and
-the monthly report all use these channels, and each kind can be switched off per
+still down, degraded or recovered, and a VPC unreachable or reachable again), the
+[Docker](#docker-monitoring) alerts (a container down, unhealthy, out of memory,
+restarting or running hot, and a host offline) and the monthly report all use these channels, and each kind can be switched off per
 channel under **Notifications**. Set Slack, Telegram and WhatsApp up on each project in the
 web app; their `.env` settings are only a fallback for projects without their
 own.
