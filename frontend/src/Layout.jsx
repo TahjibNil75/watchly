@@ -85,6 +85,7 @@ const STROKE_ICONS = {
     </>
   ),
   chevron: <path d="m7 9 5 5 5-5" />,
+  collapse: <path d="m15 6-6 6 6 6" />,
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   close: <path d="M6 6l12 12M18 6L6 18" />,
 }
@@ -199,6 +200,16 @@ function UserMenu({ user, logout, onNavigate }) {
   )
 }
 
+const COLLAPSED_KEY = 'watchly.sidebar.collapsed'
+
+function readCollapsed() {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 export default function Layout() {
   const { user, logout } = useAuth()
   const infra = useInfraEnabled()
@@ -207,6 +218,17 @@ export default function Layout() {
   // Only meaningful on narrow screens, where the sidebar is a drawer.
   const [open, setOpen] = useState(false)
   const close = () => setOpen(false)
+  // Wide screens only: the card narrows to icons. The drawer is always full.
+  const [collapsed, setCollapsed] = useState(readCollapsed)
+  const toggleCollapsed = () => {
+    const next = !collapsed
+    setCollapsed(next)
+    try {
+      localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0')
+    } catch {
+      // Private mode: the choice just lasts until reload.
+    }
+  }
 
   useEffect(() => {
     if (!open) return undefined
@@ -256,9 +278,23 @@ export default function Layout() {
 
       {open && <div className="scrim" onClick={close} aria-hidden="true" />}
 
-      <aside id="sidebar" className={open ? 'sidebar open' : 'sidebar'}>
+      <aside
+        id="sidebar"
+        className={`sidebar${open ? ' open' : ''}${collapsed ? ' collapsed' : ''}`}
+      >
         <div className="sidebar-brand">
           <Brand onClick={close} />
+          <button
+            type="button"
+            className="side-toggle"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
+            aria-controls="sidebar"
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={toggleCollapsed}
+          >
+            <Icon name="collapse" />
+          </button>
         </div>
 
         <nav className="side-links" aria-label="Main">
@@ -268,9 +304,9 @@ export default function Layout() {
                 {group.label}
               </div>
               {group.links.map(({ to, label, icon, end, counts: c }) => (
-                <NavLink key={to} to={to} end={end} onClick={close}>
+                <NavLink key={to} to={to} end={end} onClick={close} title={collapsed ? label : undefined}>
                   <Icon name={icon} />
-                  {label}
+                  <span className="side-label">{label}</span>
                   <CountBadge counts={c} />
                 </NavLink>
               ))}

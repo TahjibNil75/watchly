@@ -203,6 +203,7 @@ a:hover {
 .side-links a {
   /* What the solid icons' cut-out detail is drawn in: the link's background. */
   --cut: var(--surface);
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -354,6 +355,123 @@ a:hover {
 }
 .user-menu-pop .is-danger {
   color: var(--down);
+}
+
+.side-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--surface);
+  cursor: pointer;
+}
+.side-toggle:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.side-toggle .icon {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s ease;
+}
+
+/* Wide screens: the sidebar is a floating card that can narrow to icons. Under
+   860px it is the drawer below, which ignores all of this. */
+@media (min-width: 861px) {
+  .sidebar {
+    top: 12px;
+    height: calc(100vh - 24px);
+    margin: 12px 0 12px 12px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    /* Visible so the account menu can open past a narrow card; the links
+       scroll on their own. */
+    overflow: visible;
+    transition: width 0.2s ease;
+  }
+  .sidebar .side-links {
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .sidebar.collapsed {
+    width: 72px;
+    padding-inline: 10px;
+  }
+  .sidebar.collapsed .sidebar-brand {
+    flex-direction: column;
+    gap: 12px;
+    padding: 4px 0 16px;
+  }
+  .sidebar.collapsed .sidebar-brand .brand-mark {
+    width: 40px;
+    height: 40px;
+  }
+  .sidebar.collapsed .side-toggle .icon {
+    transform: rotate(180deg);
+  }
+  /* Hidden to the eye, still the links' and the menu's accessible names. */
+  .sidebar.collapsed .brand-word,
+  .sidebar.collapsed .side-group-label,
+  .sidebar.collapsed .side-label,
+  .sidebar.collapsed .user-menu-who {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .sidebar.collapsed .user-menu-button > .icon {
+    display: none;
+  }
+  .sidebar.collapsed .side-links a {
+    justify-content: center;
+    padding: 11px 0;
+  }
+  .sidebar.collapsed .side-group + .side-group {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  /* The count rides the icon's corner instead of the row's end. */
+  .sidebar.collapsed .side-badge {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    min-width: 16px;
+    padding: 0 4px;
+    font-size: 0.65rem;
+    line-height: 1.45;
+  }
+  .sidebar.collapsed .user-menu-button {
+    justify-content: center;
+    padding: 8px 0;
+  }
+  .sidebar.collapsed .user-menu-pop {
+    right: auto;
+    width: 200px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .side-toggle .icon {
+    transition: none;
+  }
 }
 
 /* The top bar and scrim only exist while the sidebar is a drawer. */
@@ -5572,6 +5690,10 @@ textarea {
     visibility: visible;
     box-shadow: 0 0 40px rgb(0 0 0 / 0.25);
     transition-delay: 0s;
+  }
+  /* Collapsing is a desktop choice; the drawer is always full. */
+  .side-toggle {
+    display: none;
   }
   .scrim {
     display: block;
