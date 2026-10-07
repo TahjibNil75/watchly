@@ -9,24 +9,6 @@ import { useApi } from '../useApi.js'
 
 const POLL_MS = 30000
 
-// One monitor's card: the count that matters, how the rest is doing, and a
-// link to its page. A monitor with problems takes the down tone.
-function Tile({ to, icon, label, value, note, problems, empty }) {
-  const tone = empty ? 'stat-paused' : problems ? 'stat-down' : 'stat-up'
-  return (
-    <Link to={to} className={`stat overview-tile ${tone}`}>
-      <span className="stat-label">
-        {icon}
-        {label}
-      </span>
-      <span className="stat-main">
-        <span className="stat-value">{value ?? '–'}</span>
-      </span>
-      <span className="stat-note">{note}</span>
-    </Link>
-  )
-}
-
 function SvgIcon({ children }) {
   return (
     <svg
@@ -57,57 +39,32 @@ const InfraIcon = () => (
     <path d="M7.5 7.25h.01M7.5 16.75h.01M11 7.25h5.5M11 16.75h5.5" />
   </SvgIcon>
 )
-const ProjectIcon = () => (
-  <SvgIcon>
-    <path d="M20 17a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.9a2 2 0 0 1-1.69-.9l-.81-1.2a2 2 0 0 0-1.67-.9H8a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2zM2 8v11a2 2 0 0 0 2 2h14" />
-  </SvgIcon>
-)
 
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
-
-// "1 down · 4 degraded", or what to say when there is nothing to report.
-const breakdown = (parts, fallback) => {
-  const shown = parts.filter(([n]) => n > 0).map(([n, word]) => `${n} ${word}`)
-  return shown.length ? shown.join(' · ') : fallback
-}
-
-function websiteTile(w) {
-  if (!w) return { value: null, note: 'Loading…' }
-  if (!w.total) return { value: 0, note: 'Nothing watched yet', empty: true }
-  return { value: w.total, note: breakdown([[w.down, 'down']], 'All up'), problems: w.problems }
-}
-
-function infraTile(r) {
-  if (!r) return { value: null, note: 'Loading…' }
-  if (!r.total) return { value: 0, note: 'No resources yet', empty: true }
-  return {
-    value: r.total,
-    note: breakdown(
-      [
-        [r.down, 'down'],
-        [r.degraded, 'degraded'],
-      ],
-      'All healthy',
-    ),
-    problems: r.problems,
-  }
-}
-
-function dockerTile(d) {
-  if (!d) return { value: null, note: 'Loading…' }
-  if (!d.total) return { value: 0, note: d.hosts ? 'No containers reported' : 'No hosts yet', empty: true }
-  return {
-    value: d.total,
-    note: breakdown(
-      [
-        [d.down, 'down'],
-        [d.unhealthy, 'unhealthy'],
-      ],
-      'All running',
-    ),
-    problems: d.problems,
-  }
-}
+// Each monitor's total split into the states its page knows, good ones first
+// and the worst last: [bar class, what to call it, how many].
+const websiteSplit = (w) => [
+  ['up', 'up', w.up],
+  ['maintenance', 'in maintenance', w.maintenance],
+  ['paused', 'paused', w.paused],
+  ['unknown', 'not checked', w.unknown],
+  ['down', 'down', w.down],
+]
+const infraSplit = (r) => [
+  ['healthy', 'healthy', r.healthy],
+  ['maintenance', 'in maintenance', r.maintenance],
+  ['paused', 'paused', r.paused],
+  ['unknown', 'not checked', r.unknown],
+  ['missing', 'missing', r.missing],
+  ['degraded', 'degraded', r.degraded],
+  ['down', 'down', r.down],
+]
+// `running` counts the unhealthy ones too, so they come out of it.
+const dockerSplit = (d) => [
+  ['healthy', 'running', d.running - d.unhealthy],
+  ['paused', 'stopped', d.stopped],
+  ['degraded', 'unhealthy', d.unhealthy],
+  ['down', 'down', d.down],
+]
 
 // Everything that is down or failing, from every monitor, worst first.
 function useAttention({ infra, docker }) {
@@ -124,7 +81,7 @@ function useAttention({ infra, docker }) {
     rows.push({
       key: `site-${site.id}`,
       to: `/websites/${site.id}`,
-      source: 'Website',
+      source: 'websites',
       name: site.name,
       detail: site.url,
       badge: 'down',
@@ -136,7 +93,7 @@ function useAttention({ infra, docker }) {
     rows.push({
       key: `infra-${item.resource.id}`,
       to: `/infra/resources/${item.resource.id}`,
-      source: 'Infra',
+      source: 'infra',
       name: item.resource.name,
       detail: item.summary,
       badge: item.state,
@@ -150,7 +107,7 @@ function useAttention({ infra, docker }) {
     rows.push({
       key: `docker-${c.id}`,
       to: `/docker/containers/${c.id}`,
-      source: 'Docker',
+      source: 'docker',
       name: c.name,
       detail: c.host?.name,
       badge: condition.badge,
@@ -169,103 +126,130 @@ function useAttention({ infra, docker }) {
   }
 }
 
-const SHOWN = 10
+const SHOWN = 5
+
+// One monitor's lane: how many it has, how they split, and the ones that
+// need a look, so a problem sits under the monitor it belongs to.
+function Lane({ to, icon, label, counts, split, empty, rows, loading }) {
+  const total = counts?.total
+  const parts = counts && total > 0 ? split(counts).filter(([, , n]) => n > 0) : []
+  const shown = rows.slice(0, SHOWN)
+  return (
+    <section className="card lane" aria-label={label}>
+      <div className="lane-main">
+        <Link to={to} className="lane-name">
+          <span className="lane-total">{total ?? '–'}</span>
+          <span>
+            <strong>{label}</strong>
+            <span className="lane-kind muted small">{icon}</span>
+          </span>
+        </Link>
+        <div className="lane-bar">
+          {!counts ? (
+            <p className="muted small lane-note">Loading…</p>
+          ) : total === 0 ? (
+            <p className="muted small lane-note">{empty}</p>
+          ) : (
+            <>
+              <span className="stat-bar" role="img" aria-label={parts.map(([, name, n]) => `${n} ${name}`).join(', ')}>
+                {parts.map(([cls, , n]) => (
+                  <i key={cls} className={`stat-bar-${cls}`} style={{ flexGrow: n }} />
+                ))}
+              </span>
+              <ul className="lane-legend small">
+                {parts.map(([cls, name, n]) => (
+                  <li key={cls}>
+                    <i className={`stat-bar-${cls}`} aria-hidden="true" />
+                    {n} {name}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+        <Link to={to} className="lane-open small">
+          Open
+        </Link>
+      </div>
+      {total > 0 &&
+        (rows.length > 0 ? (
+          <>
+            <ul className="overview-list lane-issues">
+              {shown.map((row) => (
+                <li key={row.key}>
+                  <Link to={row.to} className="overview-row">
+                    <span className={`badge badge-${row.badge}`}>{row.label}</span>
+                    <span className="overview-row-main">
+                      <strong>{row.name}</strong>
+                      {row.detail && <span className="muted small">{row.detail}</span>}
+                    </span>
+                    <span className="muted small nowrap">{row.since ? timeAgo(row.since) : ''}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            {rows.length > SHOWN && (
+              <p className="muted small overview-more lane-more">
+                And {rows.length - SHOWN} more. <Link to={to}>Open {label}</Link> to see them all.
+              </p>
+            )}
+          </>
+        ) : (
+          !loading && <p className="muted small lane-ok">Nothing needs attention.</p>
+        ))}
+    </section>
+  )
+}
 
 export default function Overview() {
   const counts = useOutletContext()
   const infra = useInfraEnabled()
   const docker = useDockerEnabled()
-  const projects = useApi(() => api.listProjects(), [])
   const attention = useAttention({ infra, docker })
-
-  const sites = websiteTile(counts.websites)
-  const resources = infraTile(counts.infra)
-  const containers = dockerTile(counts.docker)
-  const projectCount = projects.data?.items?.length
-
-  const rows = attention.rows
-  const shown = rows.slice(0, SHOWN)
+  const rowsOf = (source) => attention.rows.filter((row) => row.source === source)
 
   return (
     <>
       <PageHeader title="Overview" subtitle="Everything Watchly watches, and what needs a look." />
 
-      <div className="overview-tiles">
-        <Tile
+      <ErrorBanner error={attention.error} />
+
+      <div className="overview-lanes">
+        <Lane
           to="/websites"
           icon={<WebsiteIcon />}
           label="Websites"
-          value={sites.value}
-          note={sites.note}
-          problems={sites.problems}
-          empty={sites.empty}
+          counts={counts.websites}
+          split={websiteSplit}
+          empty="Nothing watched yet"
+          rows={rowsOf('websites')}
+          loading={attention.loading}
         />
         {infra && (
-          <Tile
+          <Lane
             to="/infra"
             icon={<InfraIcon />}
             label="Infrastructure"
-            value={resources.value}
-            note={resources.note}
-            problems={resources.problems}
-            empty={resources.empty}
+            counts={counts.infra}
+            split={infraSplit}
+            empty="No resources yet"
+            rows={rowsOf('infra')}
+            loading={attention.loading}
           />
         )}
         {docker && (
-          <Tile
+          <Lane
             to="/docker"
             icon={<DockerIcon />}
             label="Docker"
-            value={containers.value}
-            note={containers.note}
-            problems={containers.problems}
-            empty={containers.empty}
+            counts={counts.docker}
+            split={dockerSplit}
+            empty={counts.docker?.hosts ? 'No containers reported' : 'No hosts yet'}
+            rows={rowsOf('docker')}
+            loading={attention.loading}
           />
         )}
-        <Tile
-          to="/projects"
-          icon={<ProjectIcon />}
-          label="Projects"
-          value={projectCount}
-          note={projectCount == null ? 'Loading…' : plural(projectCount, 'project', 'projects')}
-          empty={projectCount === 0}
-        />
       </div>
-
-      <ErrorBanner error={attention.error ?? projects.error} />
-
-      <section className="card overview-attention" aria-labelledby="needs-attention">
-        <h2 id="needs-attention" className="overview-attention-title">
-          Needs attention
-          {rows.length > 0 && <span className="badge badge-down">{rows.length}</span>}
-        </h2>
-        {attention.loading && !rows.length ? (
-          <p className="muted loading">Loading…</p>
-        ) : rows.length === 0 ? (
-          <p className="muted overview-clear">All clear. Nothing is down or failing.</p>
-        ) : (
-          <ul className="overview-list">
-            {shown.map((row) => (
-              <li key={row.key}>
-                <Link to={row.to} className="overview-row">
-                  <span className={`badge badge-${row.badge}`}>{row.label}</span>
-                  <span className="overview-row-main">
-                    <strong>{row.name}</strong>
-                    {row.detail && <span className="muted small">{row.detail}</span>}
-                  </span>
-                  <span className="chip">{row.source}</span>
-                  <span className="muted small nowrap">{row.since ? timeAgo(row.since) : ''}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-        {rows.length > SHOWN && (
-          <p className="muted small overview-more">
-            And {rows.length - SHOWN} more. Open a monitor above to see them all.
-          </p>
-        )}
-      </section>
     </>
   )
 }

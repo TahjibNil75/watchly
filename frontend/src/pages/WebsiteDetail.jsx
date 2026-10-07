@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
-import { dbEngine, dbSaid, isDatabase, isDns, isPing, recordText, rtt } from '../checkTypes.js'
+import { isDns, isPing, recordText, rtt } from '../checkTypes.js'
 import {
   CheckTypeBadge,
   ConfirmDialog,
@@ -25,14 +25,9 @@ const CHECKS_SHOWN = 60
 
 // A failed connection has no response, so its recorded time (often 0) means
 // nothing. A ping's time is its average round trip, when anything came back,
-// a DNS check's the resolvers' average answer time, and a database check's the
-// time to the server's answer, when it gave one.
+// a DNS check's the resolvers' average answer time.
 const responseTime = (c) =>
-  c.ping
-    ? c.ping.avg_ms
-    : c.dns || c.status_code != null || (c.database && c.is_up)
-      ? c.response_time_ms
-      : null
+  c.ping ? c.ping.avg_ms : c.dns || c.status_code != null ? c.response_time_ms : null
 
 // Up, but some pings went unanswered.
 const lossy = (c) => c.is_up && c.ping?.loss_percent > 0
@@ -248,41 +243,6 @@ function PingCells({ check: c, host }) {
   )
 }
 
-// The host of a database check's `host:port`, an IPv6 address out of its brackets.
-const endpointHost = (url) => url.replace(/:\d+$/, '').replace(/^\[|\]$/g, '')
-
-// "MariaDB 11.4.2", "PostgreSQL": what the server says it is.
-const dbName = (d) => {
-  const name = d.product ?? dbEngine(d.engine).label.split(' / ')[0]
-  return d.version ? `${name} ${d.version}` : name
-}
-
-// "DNS 2 ms · connect 3 ms · TLS 8 ms · answer 3 ms".
-const dbTimeSplit = (c) => timeSplit(c).replace('first byte', 'answer')
-
-// A database check's row: what the server said instead of an HTTP status.
-function DatabaseCells({ check: c, host }) {
-  const d = c.database
-  const said = c.is_up ? dbSaid(d) : d?.message
-  return (
-    <>
-      <td title={d?.code ? `Server code ${d.code}` : undefined}>
-        <div className="truncate">{said ?? '—'}</div>
-      </td>
-      <td className="nowrap" title={dbTimeSplit(c) || undefined}>
-        {responseTime(c) != null ? `${responseTime(c)} ms` : '—'}
-      </td>
-      <td className="muted small">
-        {c.error ?? ''}
-        {/* What a host name resolved to. */}
-        {c.ip_address && c.ip_address !== host && (
-          <div className="truncate">→ {c.ip_address}</div>
-        )}
-      </td>
-    </>
-  )
-}
-
 // A DNS check's row: the records the resolvers agreed on instead of an HTTP
 // status, their average answer time instead of a response time.
 function DnsCells({ check: c }) {
@@ -314,7 +274,6 @@ function Checks({ checks, site }) {
   if (!checks.length) return <Empty>No checks yet. The first one runs within a minute.</Empty>
   const ping = isPing(site)
   const dns = isDns(site)
-  const database = isDatabase(site)
   const failed = checks.filter((c) => !c.is_up)
   const shown = failedOnly ? failed : checks
 
@@ -346,10 +305,10 @@ function Checks({ checks, site }) {
               <tr>
                 <th>When</th>
                 <th>Result</th>
-                <th>{ping ? 'Packets' : dns ? 'Records' : database ? 'Server said' : 'HTTP'}</th>
+                <th>{ping ? 'Packets' : dns ? 'Records' : 'HTTP'}</th>
                 <th>{ping ? 'Round trip' : dns ? 'Answer time' : 'Response'}</th>
                 <th>Error</th>
-                {!ping && !dns && !database && <th aria-label="Details" />}
+                {!ping && !dns && <th aria-label="Details" />}
               </tr>
             </thead>
             <tbody>
@@ -366,8 +325,6 @@ function Checks({ checks, site }) {
                       <PingCells check={c} host={site.url} />
                     ) : dns ? (
                       <DnsCells check={c} />
-                    ) : database ? (
-                      <DatabaseCells check={c} host={endpointHost(site.url)} />
                     ) : (
                       <>
                         <td>{c.status_code ?? '—'}</td>
@@ -416,49 +373,6 @@ function Checks({ checks, site }) {
         </button>
       )}
     </>
-  )
-}
-
-// What the database server said at the latest check, and how the session went.
-function DatabaseServer({ site: s, check }) {
-  const d = check?.database
-  if (!d) return null
-  const engine = dbEngine(s.db_engine)
-  const rows = [
-    ['Server', dbName(d)],
-    d.role && ['Role', d.replica_set ? `${d.role} of replica set ${d.replica_set}` : d.role],
-    [check.is_up ? 'It said' : 'Error', check.is_up ? dbSaid(d) ?? '—' : check.error],
-    !check.is_up && d.message && ['It said', d.message],
-    d.code && ['Server code', <code key="code">{d.code}</code>],
-    [
-      'TLS',
-      d.tls == null
-        ? 'not reached'
-        : d.tls
-          ? d.tls_version ?? 'yes'
-          : engine.tlsFromStart
-            ? 'off for this check'
-            : 'not offered by the server',
-    ],
-    check.ip_address && ['Address', <code key="ip">{check.ip_address}</code>],
-    dbTimeSplit(check) && ['Timing', dbTimeSplit(check)],
-  ].filter(Boolean)
-  return (
-    <section className="card">
-      <h2>Database server</h2>
-      <p className="muted small">
-        What it said at the latest check, {timeAgo(check.checked_at)}. Watchly goes as far as the
-        server&apos;s first answer and never logs in.
-      </p>
-      <dl className="kv">
-        {rows.map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
   )
 }
 
@@ -1067,12 +981,6 @@ const TILE_ICONS = {
       <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
     </>
   ),
-  database: (
-    <>
-      <ellipse cx="12" cy="5.5" rx="7.5" ry="2.5" />
-      <path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5" />
-    </>
-  ),
 }
 
 // The site's state in the dashboard's colours. A pause or a maintenance
@@ -1167,10 +1075,6 @@ function SiteHero({ site: s, checks, children }) {
               <>
                 <code>{s.url}</code> · {s.dns_record_type} record
               </>
-            ) : isDatabase(s) ? (
-              <>
-                <code>{s.url}</code> · {dbEngine(s.db_engine).label}
-              </>
             ) : (
               <a href={s.url} target="_blank" rel="noreferrer">
                 {s.url}
@@ -1246,18 +1150,6 @@ function SiteStats({ site: s, latest, day, month }) {
               ? 'down'
               : 'pending',
       icon: TILE_ICONS.loss,
-    }
-  } else if (isDatabase(s)) {
-    const d = latest?.database
-    // The name alone fits the tile; the version goes underneath.
-    const name = d?.product ?? dbEngine(s.db_engine).label.split(' / ')[0]
-    const said = latest?.is_up ? dbSaid(d) : 'Not answering'
-    last = {
-      label: 'Server',
-      value: name,
-      note: !latest ? ' ' : [d?.version, said].filter(Boolean).join(' · ') || ' ',
-      tone: !latest ? 'paused' : latest.is_up ? 'up' : 'down',
-      icon: TILE_ICONS.database,
     }
   } else if (dns) {
     const d = latest?.dns
@@ -1366,7 +1258,6 @@ export default function WebsiteDetail() {
   const s = site.data
   const ping = isPing(s)
   const dns = isDns(s)
-  const database = isDatabase(s)
 
   async function run(action) {
     setBusy(true)
@@ -1397,11 +1288,7 @@ export default function WebsiteDetail() {
                   ? `${c.dns.record_type} ${recordsText(c.dns.record_type, c.dns.records)}`
                   : 'resolvers disagree'
               }, ${c.response_time_ms} ms average answer`
-            : c.database
-              ? `up · ${dbName(c.database)} answered in ${c.response_time_ms} ms${
-                  dbSaid(c.database) ? `: ${dbSaid(c.database)}` : ''
-                }`
-              : `up · HTTP ${c.status_code} in ${c.response_time_ms} ms`
+            : `up · HTTP ${c.status_code} in ${c.response_time_ms} ms`
       const outcome = result.website.maintenance
         ? ' · in maintenance, so no alerts and no change of status'
         : result.alert_sent
@@ -1465,13 +1352,7 @@ export default function WebsiteDetail() {
       {editing && (
         <section className="card">
           <h2>
-            {ping
-              ? 'Edit host'
-              : dns
-                ? 'Edit DNS check'
-                : database
-                  ? 'Edit database check'
-                  : 'Edit website'}
+            {ping ? 'Edit host' : dns ? 'Edit DNS check' : 'Edit website'}
           </h2>
           <WebsiteForm
             initial={s}
@@ -1489,14 +1370,13 @@ export default function WebsiteDetail() {
         <SiteStats site={s} latest={checks.data?.[0]} day={day.data} month={month.data} />
 
         {dns && !checks.loading && <Resolvers check={checks.data?.[0]} />}
-        {database && !checks.loading && <DatabaseServer site={s} check={checks.data?.[0]} />}
 
-        <SiteHistory websiteId={s.id} ping={ping} dns={dns} database={database} />
+        <SiteHistory websiteId={s.id} ping={ping} dns={dns} />
 
         <Registration site={s} />
 
         {/* Equal-height rows: the cards in a row share a top and a bottom edge. */}
-        {!ping && !dns && !database && (
+        {!ping && !dns && (
           <>
             <div className="site-row site-pair">
               <ServerCard site={s} />
@@ -1569,27 +1449,6 @@ export default function WebsiteDetail() {
                     </dd>
                   </div>
                 </>
-              ) : database ? (
-                <>
-                  <div>
-                    <dt>Check</dt>
-                    <dd>{dbEngine(s.db_engine).label} handshake, no login</dd>
-                  </div>
-                  <div>
-                    <dt>TLS</dt>
-                    <dd>
-                      {dbEngine(s.db_engine).tlsFromStart
-                        ? s.db_tls
-                          ? 'from the start'
-                          : 'off'
-                        : 'whenever the server offers it'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Timeout per step</dt>
-                    <dd>{s.timeout_seconds}s</dd>
-                  </div>
-                </>
               ) : (
                 <>
                   <div>
@@ -1637,7 +1496,7 @@ export default function WebsiteDetail() {
                 <dt>
                   {ping
                     ? 'Latency alert above'
-                    : dns || database
+                    : dns
                       ? 'Slow answer alert above'
                       : 'Slow after'}
                 </dt>

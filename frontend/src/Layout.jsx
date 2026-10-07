@@ -3,66 +3,85 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from './auth.jsx'
 import BrandMark from './BrandMark.jsx'
 import { Avatar } from './components.jsx'
-import { DockerGlyph } from './Docker.jsx'
 import EventToasts from './EventToasts.jsx'
 import { useDockerEnabled } from './docker.js'
 import { useInfraEnabled } from './infra.js'
 import { useNavCounts } from './navCounts.js'
 import { canEditNotificationDefaults, canManageUsers } from './roles.js'
 
-// 24x24 stroke icons, drawn inline so the sidebar needs no icon package.
-const ICONS = {
+// 24x24 icons, drawn inline so the sidebar needs no icon package. The nav
+// links are solid; their cut-out detail is drawn in --cut, the link's own
+// background. Menu and account glyphs stay as strokes.
+const SOLID_ICONS = {
   overview: (
     <>
-      <rect x="3" y="3" width="7" height="9" rx="1.5" />
-      <rect x="14" y="3" width="7" height="5" rx="1.5" />
-      <rect x="14" y="12" width="7" height="9" rx="1.5" />
-      <rect x="3" y="16" width="7" height="5" rx="1.5" />
+      <rect x="3" y="3" width="8" height="8" rx="2" />
+      <rect x="13" y="3" width="8" height="8" rx="2" />
+      <rect x="3" y="13" width="8" height="8" rx="2" />
+      <rect x="13" y="13" width="8" height="8" rx="2" />
     </>
   ),
   websites: (
     <>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01" />
+      <circle cx="12" cy="12" r="10" />
+      <g fill="none" stroke="var(--cut)" strokeWidth="1.6" strokeLinecap="round">
+        <path d="M2.5 12h19" />
+        <path d="M12 2.5c3 2.8 4.4 6 4.4 9.5s-1.4 6.7-4.4 9.5c-3-2.8-4.4-6-4.4-9.5S9 5.3 12 2.5z" />
+      </g>
     </>
   ),
   infra: (
     <>
-      <rect x="3.5" y="4" width="17" height="6.5" rx="1.5" />
-      <rect x="3.5" y="13.5" width="17" height="6.5" rx="1.5" />
-      <path d="M7.5 7.25h.01M7.5 16.75h.01M11 7.25h5.5M11 16.75h5.5" />
+      <rect x="2.5" y="3" width="19" height="8" rx="2.2" />
+      <rect x="2.5" y="13" width="19" height="8" rx="2.2" />
+      <g fill="var(--cut)">
+        <circle cx="6.8" cy="7" r="1.1" />
+        <circle cx="6.8" cy="17" r="1.1" />
+        <rect x="10.5" y="6.2" width="7" height="1.6" rx=".8" />
+        <rect x="10.5" y="16.2" width="7" height="1.6" rx=".8" />
+      </g>
     </>
   ),
-  docker: <DockerGlyph />,
+  docker: (
+    <>
+      <path d="M2.4 12.5h18.8c.9 0 1.7-.9 1.9-2 .6 0 1.1-.3 1.4-.7-.6-.5-1.4-.6-2.1-.4-.4-1-1.1-1.6-1.8-1.9-.5.9-.6 2.2-.1 3.3H2.4z" />
+      <path d="M2.7 13.5h17.8c-1.3 4.2-4.6 6.5-9.5 6.5-4.2 0-7.5-2.2-8.3-6.5z" />
+      <rect x="5" y="9.3" width="2.8" height="2.8" rx=".5" />
+      <rect x="8.3" y="9.3" width="2.8" height="2.8" rx=".5" />
+      <rect x="11.6" y="9.3" width="2.8" height="2.8" rx=".5" />
+      <rect x="8.3" y="6.1" width="2.8" height="2.8" rx=".5" />
+      <rect x="11.6" y="6.1" width="2.8" height="2.8" rx=".5" />
+    </>
+  ),
   projects: (
-    <path d="M20 17a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.9a2 2 0 0 1-1.69-.9l-.81-1.2a2 2 0 0 0-1.67-.9H8a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2zM2 8v11a2 2 0 0 0 2 2h14" />
+    <path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4.3a2 2 0 0 1 1.7.9l.8 1.2a2 2 0 0 0 1.7.9H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z" />
   ),
   notifications: (
     <>
-      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-      <path d="M12 9v4M12 17h.01" />
+      <path d="M12 2.5a6 6 0 0 0-6 6c0 5.5-2 7.2-3 8h18c-1-.8-3-2.5-3-8a6 6 0 0 0-6-6z" />
+      <path d="M9.8 19.5h4.4a2.2 2.2 0 0 1-4.4 0z" />
     </>
   ),
+}
+
+const STROKE_ICONS = {
   users: (
     <>
-      <circle cx="12" cy="7" r="3" />
-      <path d="M6 20a6 6 0 0 1 12 0" />
-      <circle cx="4.5" cy="9.5" r="2" />
-      <path d="M1 19a4 4 0 0 1 3-3.5" />
-      <circle cx="19.5" cy="9.5" r="2" />
-      <path d="M23 19a4 4 0 0 0-3-3.5" />
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20a6.5 6.5 0 0 1 13 0" />
+      <path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14a6.5 6.5 0 0 1 3.5 6" />
     </>
   ),
   profile: (
     <>
-      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21a8 8 0 0 1 16 0" />
     </>
   ),
   signout: (
     <>
-      <path d="M13 4h3a2 2 0 0 1 2 2v14M2 20h3M13 20h9M10 12v.01" />
-      <path d="M13 4.56v16.16a1 1 0 0 1-1.24.97L5 20V5.56a2 2 0 0 1 1.52-1.94l4-1A2 2 0 0 1 13 4.56z" />
+      <path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4" />
+      <path d="m16 8 4 4-4 4M20 12H9" />
     </>
   ),
   chevron: <path d="m7 9 5 5 5-5" />,
@@ -71,6 +90,13 @@ const ICONS = {
 }
 
 function Icon({ name }) {
+  if (name in SOLID_ICONS) {
+    return (
+      <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        {SOLID_ICONS[name]}
+      </svg>
+    )
+  }
   return (
     <svg
       className="icon"
@@ -82,7 +108,7 @@ function Icon({ name }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {ICONS[name]}
+      {STROKE_ICONS[name]}
     </svg>
   )
 }

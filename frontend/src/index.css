@@ -201,6 +201,8 @@ a:hover {
   gap: 2px;
 }
 .side-links a {
+  /* What the solid icons' cut-out detail is drawn in: the link's background. */
+  --cut: var(--surface);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -211,11 +213,13 @@ a:hover {
   font-size: 1.05rem;
 }
 .side-links a:hover {
+  --cut: var(--surface-2);
   color: var(--text);
   background: var(--surface-2);
   text-decoration: none;
 }
 .side-links a.active {
+  --cut: var(--surface-2);
   color: var(--text);
   background: var(--surface-2);
 }
@@ -3359,9 +3363,6 @@ strong + .badge {
 .badge-type-dns {
   --tone: var(--tag-orange);
 }
-.badge-type-database {
-  --tone: var(--tag-pink);
-}
 
 .chip {
   display: inline-block;
@@ -5586,21 +5587,95 @@ textarea {
 
 /* ---------- Overview ---------- */
 
-.overview-tiles {
+.overview-lanes {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
-  margin-bottom: 20px;
 }
-.overview-tile:hover {
-  text-decoration: none;
+.lane {
+  padding: 0;
+  overflow: hidden;
 }
-.overview-attention-title {
+.lane-main {
+  display: grid;
+  grid-template-columns: minmax(0, 13rem) minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  padding: 16px 18px;
+}
+.lane-name {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 0 0 12px;
-  font-size: 1.1rem;
+  gap: 12px;
+  color: inherit;
+}
+.lane-name:hover {
+  text-decoration: none;
+}
+.lane-total {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.lane-name strong,
+.lane-kind {
+  display: block;
+}
+.lane-kind .icon {
+  width: 14px;
+  height: 14px;
+}
+.lane-bar .stat-bar {
+  height: 12px;
+  margin-top: 0;
+}
+.lane-note {
+  margin: 0;
+}
+.lane-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+}
+.lane-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.lane-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.lane-issues {
+  padding: 0 12px;
+  border-top: 1px solid var(--border);
+}
+.lane-issues li:first-child .overview-row {
+  border-top: 0;
+}
+.lane-ok,
+.lane-more {
+  margin: 0;
+  padding: 10px 18px;
+  border-top: 1px solid var(--border);
+}
+.lane-more {
+  padding-top: 10px;
+}
+@media (max-width: 720px) {
+  .lane-main {
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+  }
+  .lane-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }
 .overview-list {
   margin: 0;
@@ -5638,13 +5713,8 @@ textarea {
   min-width: 6.5rem;
   text-align: center;
 }
-.overview-clear,
 .overview-more {
   margin: 0;
-}
-.overview-more {
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
 }
 
 /* ---------- Notifications ---------- */

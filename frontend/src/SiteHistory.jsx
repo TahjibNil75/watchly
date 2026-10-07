@@ -355,9 +355,8 @@ function HistoryTable({ stats, ping, http }) {
 
 // `ping`: the site is a pinged host, so its times are round trips and it has
 // packet loss to show. `dns`: a DNS check, whose times are the resolvers'
-// average answer time. `database`: a database check, timed in steps like an
-// HTTP one, its first byte the server's answer.
-export default function SiteHistory({ websiteId, ping = false, dns = false, database = false }) {
+// average answer time.
+export default function SiteHistory({ websiteId, ping = false, dns = false }) {
   const [range, setRange] = useState('24h')
   // HTTP sites only: response time as lines, or where each check's time goes.
   const [view, setView] = useState('response')
@@ -484,9 +483,7 @@ export default function SiteHistory({ websiteId, ping = false, dns = false, data
               </div>
               <HistoryChart stats={s} ping={ping} view={http ? view : 'response'} />
               <p className="muted small">
-                {http && view === 'steps' && database
-                  ? 'Times are UTC. Each step is its average over the successful checks that performed it; the first byte is the server’s answer. TLS shows only when the session used it.'
-                  : http && view === 'steps'
+                {http && view === 'steps'
                   ? 'Times are UTC. Each step is its average over the successful checks that performed it: a reused connection skips the lookup, connect and handshake, and the time spent reading the body after the first byte is not drawn. Hours from before this was recorded show no breakdown.'
                   : `${
                       ping

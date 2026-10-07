@@ -65,9 +65,7 @@ function describe(event) {
             ? `${name} has high latency`
             : event.website.check_type === 'dns'
               ? `${name} is resolving slowly`
-              : event.website.check_type === 'database'
-                ? `${name} is answering slowly`
-                : `${name} is responding slowly`,
+              : `${name} is responding slowly`,
         detail: `${event.response_time_ms} ms, over its ${event.threshold_ms} ms threshold`,
       }
     case 'packet_loss':

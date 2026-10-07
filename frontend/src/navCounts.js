@@ -31,6 +31,7 @@ function dockerTotals(hosts) {
     hosts: hosts.length,
     total: sum('total'),
     running: sum('running'),
+    stopped: sum('stopped'),
     down,
     unhealthy,
     problems: down + unhealthy,
