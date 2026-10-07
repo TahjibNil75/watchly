@@ -19,6 +19,29 @@ const VIEWS = [
   ['table', 'Table'],
 ]
 
+// A filter shown as "Label  Value". The native select sits invisibly on top, so
+// the keyboard, the phone picker and screen readers all work as they do for a select.
+function FilterPill({ label, value, onChange, options, allLabel }) {
+  const current = options.find((o) => o.value === value)
+  return (
+    <label className={`filter-pill${value ? ' is-active' : ''}`}>
+      <span className="k">{label}</span>
+      <span className="v">{current ? current.label : allLabel}</span>
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="m5 8 5 5 5-5" />
+      </svg>
+      <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
+        <option value="">{`${allLabel} (${label})`}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
 function savedView() {
   try {
     const saved = localStorage.getItem(VIEW_KEY)
@@ -263,65 +286,75 @@ export default function Infrastructure() {
         </div>
       )}
 
-      <div className="toolbar">
-        <div className="view-toggle" role="group" aria-label="View">
-          {VIEWS.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={`btn btn-sm${view === value ? ' is-active' : ''}`}
-              aria-pressed={view === value}
-              onClick={() => setView(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <label className="inline-field">
-          <span>Search</span>
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Name, AWS id or address"
-            maxLength={200}
-          />
-        </label>
-        <label className="inline-field">
-          <span>Kind</span>
-          <select value={kind} onChange={(e) => pick(setKind)(e.target.value)}>
-            <option value="">All kinds</option>
-            {KINDS.map((k) => (
-              <option key={k.value} value={k.value}>
-                {k.plural}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="inline-field">
-          <span>Environment</span>
-          <select value={environment} onChange={(e) => pick(setEnvironment)(e.target.value)}>
-            <option value="">All environments</option>
-            {ENVIRONMENTS.map((env) => (
-              <option key={env.value} value={env.value}>
-                {env.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {ov && ov.vpcs.length > 1 && (
-          <label className="inline-field">
-            <span>VPC</span>
-            <select value={vpcId} onChange={(e) => pick(setVpcId)(e.target.value)}>
-              <option value="">All VPCs</option>
-              {ov.vpcs.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
+      <div className="infra-bar">
+        <div className="infra-bar-row">
+          <label className="infra-search">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <circle cx="9" cy="9" r="5.5" />
+              <path d="m13.5 13.5 4 4" />
+            </svg>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name, AWS id or address"
+              aria-label="Search resources"
+              maxLength={200}
+            />
           </label>
-        )}
+          <div className="view-toggle" role="group" aria-label="View">
+            {VIEWS.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={`btn btn-sm${view === value ? ' is-active' : ''}`}
+                aria-pressed={view === value}
+                onClick={() => setView(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="infra-bar-row">
+          <FilterPill
+            label="Kind"
+            value={kind}
+            onChange={pick(setKind)}
+            allLabel="All"
+            options={KINDS.map((k) => ({ value: k.value, label: k.plural }))}
+          />
+          <FilterPill
+            label="Environment"
+            value={environment}
+            onChange={pick(setEnvironment)}
+            allLabel="All"
+            options={ENVIRONMENTS.map((env) => ({ value: env.value, label: env.label }))}
+          />
+          {ov && ov.vpcs.length > 1 && (
+            <FilterPill
+              label="VPC"
+              value={vpcId}
+              onChange={pick(setVpcId)}
+              allLabel="All"
+              options={ov.vpcs.map((v) => ({ value: v.id, label: v.name }))}
+            />
+          )}
+          {(kind || environment || vpcId) && (
+            <button
+              type="button"
+              className="filter-clear"
+              onClick={() => {
+                setKind('')
+                setEnvironment('')
+                setVpcId('')
+                setPage(0)
+              }}
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
       {view === 'map' ? (
