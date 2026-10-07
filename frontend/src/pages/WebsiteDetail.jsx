@@ -1358,7 +1358,7 @@ export default function WebsiteDetail() {
     return (
       <>
         <ErrorBanner error={site.error} />
-        <Link to="/">← Back to websites</Link>
+        <Link to="/websites">← Back to websites</Link>
       </>
     )
   }
@@ -1416,7 +1416,7 @@ export default function WebsiteDetail() {
   const remove = () => {
     run(async () => {
       await api.deleteWebsite(s.id)
-      navigate(project.data ? `/projects/${project.data.id}` : '/')
+      navigate(project.data ? `/projects/${project.data.id}` : '/websites')
     })
   }
 
@@ -1435,7 +1435,7 @@ export default function WebsiteDetail() {
   return (
     <>
       <p className="crumbs">
-        <Link to="/">Websites</Link>
+        <Link to="/websites">Websites</Link>
         {project.data && (
           <>
             {' / '}

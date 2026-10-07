@@ -61,6 +61,14 @@ _EMOJI = {
     NotificationKind.DEPLOY_STARTED: ":rocket:",
     NotificationKind.DEPLOY_FINISHED: ":checkered_flag:",
     NotificationKind.ACCOUNT_CAPACITY: ":straight_ruler:",
+    NotificationKind.DOCKER_CONTAINER_DOWN: ":rotating_light:",
+    NotificationKind.DOCKER_CONTAINER_RECOVERED: ":white_check_mark:",
+    NotificationKind.DOCKER_CONTAINER_UNHEALTHY: ":large_yellow_circle:",
+    NotificationKind.DOCKER_CONTAINER_OOM: ":boom:",
+    NotificationKind.DOCKER_RESTART_LOOP: ":repeat:",
+    NotificationKind.DOCKER_RESOURCE_HIGH: ":fire:",
+    NotificationKind.DOCKER_HOST_OFFLINE: ":no_entry:",
+    NotificationKind.DOCKER_HOST_RECOVERED: ":link:",
 }
 
 _TONE_DOT = {

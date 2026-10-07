@@ -168,6 +168,71 @@ const KIND_META = {
       </>
     ),
   },
+  docker_container_down: {
+    tone: 'down',
+    group: 'docker',
+    icon: (
+      <>
+        <rect x="3" y="7" width="13" height="10" rx="1.5" />
+        <path d="M7 10v4M10 10v4M18.5 9.5l3 3M21.5 9.5l-3 3" />
+      </>
+    ),
+  },
+  docker_container_recovered: {
+    tone: 'up',
+    group: 'docker',
+    icon: (
+      <>
+        <rect x="3" y="7" width="13" height="10" rx="1.5" />
+        <path d="M7 10v4M10 10v4M17.5 12l2 2 3-4" />
+      </>
+    ),
+  },
+  docker_container_unhealthy: {
+    tone: 'pending',
+    group: 'docker',
+    icon: <path d="M3 12h4l2-5 4 10 2-5h6" />,
+  },
+  docker_container_oom: {
+    tone: 'down',
+    group: 'docker',
+    icon: (
+      <>
+        <rect x="4" y="5" width="16" height="14" rx="2" />
+        <path d="M8 9v6M12 9v6M16 9v6M2 9h2M2 15h2M20 9h2M20 15h2" />
+      </>
+    ),
+  },
+  docker_restart_loop: {
+    tone: 'down',
+    group: 'docker',
+    icon: <path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4" />,
+  },
+  docker_resource_high: {
+    tone: 'pending',
+    group: 'docker',
+    icon: <path d="M12 3c1 3 4 5 4 9a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 0-8z" />,
+  },
+  docker_host_offline: {
+    tone: 'down',
+    group: 'docker',
+    icon: (
+      <>
+        <rect x="3.5" y="5" width="17" height="11" rx="1.5" />
+        <path d="M8 20h8M12 16v4M9.5 8.5l5 5M14.5 8.5l-5 5" />
+      </>
+    ),
+  },
+  docker_host_recovered: {
+    tone: 'up',
+    group: 'docker',
+    icon: (
+      <>
+        <rect x="3.5" y="5" width="17" height="11" rx="1.5" />
+        <path d="M8 20h8M12 16v4M9 10.5l2 2 4-4" />
+      </>
+    ),
+  },
 }
 
 const GROUPS = [
@@ -184,10 +249,21 @@ const GROUPS = [
     title: 'Deployments',
     note: 'AWS CodeDeploy, for accounts that watch it: down alerts pause while a deployment runs.',
   },
+  {
+    key: 'docker',
+    title: 'Docker',
+    note: 'Containers on Docker hosts, from their agents: one alert per container, and one per host when its agent stops reporting.',
+  },
   { key: 'other', title: 'Other' },
 ]
 
 const groupOf = (kind) => KIND_META[kind]?.group ?? 'other'
+
+// Which kind of project each group's notifications come from; the rest are
+// websites'. `other` shows everywhere.
+const GROUP_MONITORS = { infrastructure: 'infrastructure', deployments: 'infrastructure', docker: 'docker' }
+const groupShows = (group, monitors) =>
+  !monitors || group.key === 'other' || (GROUP_MONITORS[group.key] ?? 'websites') === monitors
 
 // The channels a kind can go out on, in CHANNELS order, with their switch.
 const TOGGLES = CHANNELS.filter((ch) => ch.id !== 'webhook').map((ch) => ({
@@ -793,9 +869,7 @@ export default function NotificationSettings({ projectId, canEdit, channels, mon
   return (
     <div>
       <ErrorBanner error={list.error} />
-      {GROUPS.filter(
-        (group) => !monitors || (monitors === 'infrastructure') === (group.key === 'infrastructure'),
-      ).map((group) => {
+      {GROUPS.filter((group) => groupShows(group, monitors)).map((group) => {
         const items = list.data.items.filter((s) => groupOf(s.kind) === group.key)
         if (!items.length) return null
         return (

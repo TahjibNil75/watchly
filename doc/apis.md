@@ -441,7 +441,9 @@ Create a project. **At least one alert channel is required** — email
 becomes its owner.
 
 `monitors` decides what the project watches, for good: `websites` (the
-default) or `infrastructure` (AWS; needs `INFRA_AWS_ENABLED`). An
+default), `infrastructure` (AWS; needs `INFRA_AWS_ENABLED`) or `docker`
+(needs `DOCKER_ENABLED`; its hosts are added afterwards, see
+[`docker.md`](docker.md)). An
 infrastructure project takes at least one AWS account in `aws_accounts`, each
 as for [`POST /monitoring/infra/aws/accounts`](infraapi.md#post-accounts)
 without `project_id`; each is tried with AWS first, and the project is only
@@ -834,11 +836,72 @@ Does not stop the scheduled report.
 
 ---
 
+## Docker
+
+Every endpoint answers `404` while `DOCKER_ENABLED` is off. Details, and the
+agent's side, in [`docker.md`](docker.md).
+
+### `POST /api/v1/docker/ingest`
+Where the Watchly Docker agent pushes, with `Authorization: Bearer <agent
+token>` instead of a session; the body is the agent's schema-1 push, usually
+gzip'd. Answers the agent's settings, `{"config": {"interval_s", "ignore"}}`.
+`200` · `400` bad gzip · `401` missing or unknown token · `413` too large ·
+`422` not a schema-1 push · `429` over `RATE_LIMIT_DOCKER_INGEST`
+
+### `GET /api/v1/monitoring/docker/hosts`
+The Docker hosts the caller may see, each with its containers counted.
+Query: `project_id`. `200`
+
+### `POST /api/v1/monitoring/docker/hosts`
+Add a host to a `docker` project: `project_id`, `name`, and optionally
+`description`, `interval_seconds` (10-300, default 30) and `ignore_patterns`.
+The response holds the agent `token` once; only its hash is kept.
+`201` · `403` · `404` · `409` name taken in the project · `422` not a Docker project
+
+### `GET /api/v1/monitoring/docker/hosts/{host_id}`
+`200` · `404`
+
+### `PATCH /api/v1/monitoring/docker/hosts/{host_id}`
+`name`, `description`, `interval_seconds`, `ignore_patterns`; the agent picks
+up the last two with its next push. `200` · `403` · `404` · `409`
+
+### `POST /api/v1/monitoring/docker/hosts/{host_id}/token`
+A new agent token; the old one stops working at once. `200` · `403` · `404`
+
+### `DELETE /api/v1/monitoring/docker/hosts/{host_id}`
+The host, its containers and their history. `204` · `403` · `404`
+
+### `GET /api/v1/monitoring/docker/containers`
+Containers the caller may see, with `counts` (`total`, `running`, `down`,
+`unhealthy`, `stopped`). Query: `host_id`, `project_id`, `q` (name, image or
+compose project), `include_removed`. Each has a `condition`: `running`,
+`unhealthy`, `down`, `restarting`, `paused`, `stopped`, `removed`, or
+`unknown` while its host is not reporting. `200`
+
+### `GET /api/v1/monitoring/docker/containers/{container_id}`
+`200` · `404`
+
+### `PATCH /api/v1/monitoring/docker/containers/{container_id}`
+`{"muted": true|false}`: a muted container is tracked but never alerts.
+`200` · `403` · `404`
+
+### `GET /api/v1/monitoring/docker/containers/{container_id}/stats`
+CPU, memory and network over `range` (`24h`, `7d`, `30d`, `90d`): five-minute
+buckets for a day, hourly for a week, daily beyond. `200` · `404`
+
+### `GET /api/v1/monitoring/docker/events`
+The Docker feed, newest first. Query: `host_id`, `container_id`, `project_id`,
+`source` (`docker` for Docker's own events, `watchly` for what Watchly made of
+them), `limit` (1-200), `before_id`. `200`
+
+---
+
 ## Health
 
 ### `GET /health`
-Public liveness check. Returns `{"status": "ok", "version": "1.1.0", "monitoring": "on"|"off"}`,
-`version` being the running release.
+Public liveness check. Returns `{"status": "ok", "version": "1.1.0", "monitoring": "on"|"off",
+"infra_aws": "on"|"off", "docker": "on"|"off"}`, `version` being the running release and the
+last two which optional features the dashboard should offer.
 `200`
 
 ---

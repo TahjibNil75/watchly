@@ -200,7 +200,7 @@ const FEEDS = {
     fetch: (query) => api.websiteEvents(query),
     seenKey: (userId) => `watchly.lastEventId.${userId}`,
     toToast,
-    home: '/',
+    home: '/websites',
   },
   infra: {
     fetch: (query) => api.infraEvents(query),

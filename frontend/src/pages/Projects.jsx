@@ -5,6 +5,7 @@ import { useAuth } from '../auth.jsx'
 import ChannelLogo from '../ChannelLogo.jsx'
 import { CHANNELS } from '../channels.js'
 import { Empty, ErrorBanner, Loading, PageHeader } from '../components.jsx'
+import { DockerGlyph } from '../Docker.jsx'
 import { initials } from '../format.js'
 import ProjectForm from '../ProjectForm.jsx'
 import { canCreateProjects, canViewAllProjects } from '../roles.js'
@@ -25,7 +26,18 @@ const RESOURCE_SPLIT = {
   paused: 'paused',
 }
 
-// The two kinds of project, in the order their groups appear on the page.
+// A Docker container's condition, in the bar's terms.
+const CONTAINER_SPLIT = {
+  running: 'up',
+  unhealthy: 'up',
+  paused: 'up',
+  down: 'down',
+  restarting: 'down',
+  stopped: 'paused',
+  unknown: 'unknown',
+}
+
+// The kinds of project, in the order their groups appear on the page.
 const KINDS = [
   {
     monitors: 'websites',
@@ -49,6 +61,12 @@ const KINDS = [
         <path d="M7.5 7.25h.01M7.5 16.75h.01M11 7.25h5.5M11 16.75h5.5" />
       </>
     ),
+  },
+  {
+    monitors: 'docker',
+    title: 'Docker',
+    nouns: 'containers',
+    icon: <DockerGlyph />,
   },
 ]
 // Past this many projects the page offers a search.
@@ -76,8 +94,10 @@ function health(project, c, nouns) {
 // who's on it and where its alerts go. The whole card opens the project.
 function ProjectCard({ project, counts }) {
   const c = counts ?? { total: 0 }
-  const infra = project.monitors === 'infrastructure'
-  const [noun, nouns] = infra ? ['resource', 'resources'] : ['website', 'websites']
+  const [noun, nouns] = {
+    infrastructure: ['resource', 'resources'],
+    docker: ['container', 'containers'],
+  }[project.monitors] ?? ['website', 'websites']
   const { tone, note } = health(project, c, nouns)
   const faces = project.members.slice(0, MAX_FACES)
   const channels = CHANNELS.filter((ch) => project.alert_channels.includes(ch.id))
@@ -200,6 +220,8 @@ export default function Projects() {
   const sites = useApi(() => api.listWebsites(), [], { pollMs: 30000 })
   // Answers 404 while infrastructure monitoring is off: no resources then.
   const resources = useApi(() => api.listResources({ limit: 200 }).catch(() => null), [], { pollMs: 30000 })
+  // Answers 404 while Docker monitoring is off: no containers then.
+  const containers = useApi(() => api.listContainers().catch(() => null), [], { pollMs: 30000 })
   const users = useApi(() => (creating ? api.listUsers({ is_active: true }) : null), [creating])
 
   const counts = {}
@@ -215,6 +237,12 @@ export default function Projects() {
     c.total++
     c[state] = (c[state] ?? 0) + 1
   }
+  for (const container of containers.data?.items ?? []) {
+    const c = (counts[container.project.id] ??= { total: 0 })
+    const state = CONTAINER_SPLIT[container.condition] ?? 'unknown'
+    c.total++
+    c[state] = (c[state] ?? 0) + 1
+  }
   const items = projects.data?.items ?? []
   const needle = query.trim().toLowerCase()
   const shown = needle
@@ -223,7 +251,7 @@ export default function Projects() {
 
   return (
     <>
-      <PageHeader title={creating ? 'New project' : 'Projects'} subtitle="A project groups one client's or product's websites, or its AWS infrastructure, and decides who hears about outages.">
+      <PageHeader title={creating ? 'New project' : 'Projects'} subtitle="A project groups one client's or product's websites, its AWS infrastructure, or its Docker hosts, and decides who hears about outages.">
         {!creating && items.length >= SEARCH_FROM && (
           <input
             type="search"

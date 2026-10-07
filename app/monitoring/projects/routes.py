@@ -59,7 +59,7 @@ async def list_projects(
     offset: int = Query(0, ge=0),
     is_active: bool | None = Query(None),
     owner_id: int | None = Query(None, ge=1),
-    monitors: ProjectMonitors | None = Query(None, description="Only websites or infrastructure projects."),
+    monitors: ProjectMonitors | None = Query(None, description="Only websites, infrastructure or docker projects."),
     actor: User = Depends(get_current_user),
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectListResponse:
@@ -100,9 +100,9 @@ async def create_project(
 ) -> ProjectRead:
     """The caller becomes the project's owner and can manage it thereafter.
 
-    `monitors` decides what the project watches, for good: `websites`, or
+    `monitors` decides what the project watches, for good: `websites`,
     `infrastructure`, which takes at least one AWS account in `aws_accounts`
-    (more may be added later). Each account's credentials are tried with AWS
+    (more may be added later), or `docker`, whose hosts are added afterwards. Each account's credentials are tried with AWS
     first; the project is created only if all of them work."""
     accounts = []
     if payload.monitors is ProjectMonitors.INFRASTRUCTURE:
@@ -117,6 +117,11 @@ async def create_project(
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
         except InfraInvalidError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    if payload.monitors is ProjectMonitors.DOCKER and not settings.DOCKER_ENABLED:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Docker monitoring is off: set DOCKER_ENABLED=true.",
+        )
     try:
         project = await service.create(payload, owner=actor, with_rows=accounts)
     except (DuplicateProjectError, UnknownMembersError) as exc:

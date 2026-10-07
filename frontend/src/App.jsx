@@ -7,6 +7,9 @@ import AcceptInvite from './pages/AcceptInvite.jsx'
 import ChoosePassword from './pages/ChoosePassword.jsx'
 import ConfirmEmail from './pages/ConfirmEmail.jsx'
 import Dashboard from './pages/Dashboard.jsx'
+import Docker from './pages/Docker.jsx'
+import DockerContainerDetail from './pages/DockerContainerDetail.jsx'
+import DockerHostDetail from './pages/DockerHostDetail.jsx'
 import Infrastructure from './pages/Infrastructure.jsx'
 import InfraResourceDetail from './pages/InfraResourceDetail.jsx'
 import InfraSettings from './pages/InfraSettings.jsx'
@@ -14,9 +17,11 @@ import InfraVpc from './pages/InfraVpc.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
 import Landing from './pages/Landing.jsx'
 import Login from './pages/Login.jsx'
+import NewDockerHost from './pages/NewDockerHost.jsx'
 import NewInfraResource from './pages/NewInfraResource.jsx'
 import NewWebsite from './pages/NewWebsite.jsx'
 import Notifications from './pages/Notifications.jsx'
+import Overview from './pages/Overview.jsx'
 import Profile from './pages/Profile.jsx'
 import ProjectDetail from './pages/ProjectDetail.jsx'
 import Projects from './pages/Projects.jsx'
@@ -28,7 +33,7 @@ import WebsiteDetail from './pages/WebsiteDetail.jsx'
 function NotFound() {
   return (
     <Empty>
-      Page not found. <Link to="/">Back to websites</Link>
+      Page not found. <Link to="/">Back to the overview</Link>
     </Empty>
   )
 }
@@ -80,7 +85,8 @@ export default function App() {
         <Route path="confirm-email" element={<ConfirmEmail />} />
       </Route>
       <Route element={<Layout />}>
-        <Route index element={<Dashboard />} />
+        <Route index element={<Overview />} />
+        <Route path="websites" element={<Dashboard />} />
         <Route path="websites/new" element={<NewWebsite />} />
         <Route path="websites/:id" element={<WebsiteDetail />} />
         <Route path="infra" element={<Infrastructure />} />
@@ -88,6 +94,10 @@ export default function App() {
         <Route path="infra/settings" element={<InfraSettings />} />
         <Route path="infra/resources/:id" element={<InfraResourceDetail />} />
         <Route path="infra/vpcs/:id" element={<InfraVpc />} />
+        <Route path="docker" element={<Docker />} />
+        <Route path="docker/new" element={<NewDockerHost />} />
+        <Route path="docker/hosts/:id" element={<DockerHostDetail />} />
+        <Route path="docker/containers/:id" element={<DockerContainerDetail />} />
         <Route path="projects" element={<Projects />} />
         <Route path="projects/:id" element={<ProjectDetail />} />
         <Route path="notifications" element={<Notifications />} />

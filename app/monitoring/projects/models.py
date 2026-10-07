@@ -56,6 +56,9 @@ class ProjectMonitors(str, enum.Enum):
     #: AWS infrastructure, through the project's own AWS accounts
     #: (`app/monitoring/infra/aws`).
     INFRASTRUCTURE = "infrastructure"
+    #: Docker containers, reported by an agent on each host
+    #: (`app/monitoring/docker`).
+    DOCKER = "docker"
 
 
 class Project(Base, TimestampMixin):

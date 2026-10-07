@@ -79,6 +79,14 @@ _EMOJI = {
     NotificationKind.DEPLOY_STARTED: "🚀",
     NotificationKind.DEPLOY_FINISHED: "🏁",
     NotificationKind.ACCOUNT_CAPACITY: "📏",
+    NotificationKind.DOCKER_CONTAINER_DOWN: "🚨",
+    NotificationKind.DOCKER_CONTAINER_RECOVERED: "✅",
+    NotificationKind.DOCKER_CONTAINER_UNHEALTHY: "🟡",
+    NotificationKind.DOCKER_CONTAINER_OOM: "💥",
+    NotificationKind.DOCKER_RESTART_LOOP: "🔁",
+    NotificationKind.DOCKER_RESOURCE_HIGH: "🔥",
+    NotificationKind.DOCKER_HOST_OFFLINE: "⛔",
+    NotificationKind.DOCKER_HOST_RECOVERED: "🔗",
 }
 
 _TONE_DOT = {

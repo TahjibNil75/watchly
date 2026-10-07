@@ -23,6 +23,7 @@ from app.core.config import settings
 from app.core.rate_limit import purge_closed_windows
 from app.db.session import AsyncSessionLocal, engine
 from app.invitations.service import InvitationService
+from app.monitoring.docker.monitor import DockerHistoryService, DockerMonitor
 from app.monitoring.infra.aws.capacity import CapacityWatcher
 from app.monitoring.infra.aws.deployments import DeploymentWatcher
 from app.monitoring.infra.aws.history import InfraHistoryService
@@ -53,7 +54,8 @@ async def run_tick() -> int:
     """Run one round of due checks (websites, and with INFRA_AWS_ENABLED the
     CodeDeploy deployments of the accounts that watch them, the
     infrastructure checks, the sync of their resources from AWS, and the
-    Elastic IPs of the accounts that watch their capacity), then the
+    Elastic IPs of the accounts that watch their capacity; with DOCKER_ENABLED
+    the Docker hosts whose agents went quiet), then the
     housekeeping that follows them: rolling checks up by the hour, any monthly
     reports that are due, purging
     checks, feed events and ended maintenance past their retention, and
@@ -74,6 +76,11 @@ async def run_tick() -> int:
         await _run_guarded("Infrastructure rollup", lambda s: InfraHistoryService(s).rollup())
         await _run_guarded("Infrastructure purge", lambda s: InfraHistoryService(s).purge())
         await _run_guarded("Infrastructure feed purge", lambda s: InfraService(s).purge_old())
+    if settings.DOCKER_ENABLED:
+        # The agents push; this only notices the ones that stopped.
+        await _run_guarded("Docker host liveness", lambda s: DockerMonitor(s).mark_offline())
+        await _run_guarded("Docker rollup", lambda s: DockerHistoryService(s).rollup())
+        await _run_guarded("Docker purge", lambda s: DockerHistoryService(s).purge())
     await _run_guarded("Hourly rollup", lambda s: HistoryService(s).rollup())
     await _run_guarded("Monthly report run", lambda s: ReportService(s).send_due_reports())
     # After the rollup, which the purge relies on to have copied what it deletes.

@@ -307,7 +307,7 @@ class ProjectBase(BaseModel):
     is_active: bool = True
     monitors: ProjectMonitors = Field(
         default=ProjectMonitors.WEBSITES,
-        description="`websites` or `infrastructure` (AWS). Fixed once the project exists.",
+        description="`websites`, `infrastructure` (AWS) or `docker`. Fixed once the project exists.",
     )
     extra_emails: list[EmailStr] = Field(
         default_factory=list,

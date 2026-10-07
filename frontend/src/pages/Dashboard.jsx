@@ -272,41 +272,49 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="toolbar">
-        <label className="inline-field">
-          <span>Search</span>
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Name, URL or host"
-            maxLength={200}
-          />
-        </label>
-        <label className="inline-field">
-          <span>Type</span>
-          <select value={checkType} onChange={(e) => pick(setCheckType)(e.target.value)}>
-            <option value="">All types</option>
-            {CHECK_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {projectItems.length > 1 && (
+      <div className="infra-bar is-websites">
+        <div className="infra-bar-row">
+          <label className="infra-search">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <circle cx="9" cy="9" r="5.5" />
+              <path d="m13.5 13.5 4 4" />
+            </svg>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name, URL or host"
+              aria-label="Search websites"
+              maxLength={200}
+            />
+          </label>
+        </div>
+        <div className="infra-bar-row">
           <label className="inline-field">
-            <span>Project</span>
-            <select value={projectId} onChange={(e) => pick(setProjectId)(e.target.value)}>
-              <option value="">All projects</option>
-              {projectItems.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
+            <span>Type</span>
+            <select value={checkType} onChange={(e) => pick(setCheckType)(e.target.value)}>
+              <option value="">All types</option>
+              {CHECK_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
                 </option>
               ))}
             </select>
           </label>
-        )}
+          {projectItems.length > 1 && (
+            <label className="inline-field">
+              <span>Project</span>
+              <select value={projectId} onChange={(e) => pick(setProjectId)(e.target.value)}>
+                <option value="">All projects</option>
+                {projectItems.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
       </div>
 
       {sites.loading ? (

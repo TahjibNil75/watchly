@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { AccountFields } from './AwsAccounts.jsx'
 import { ErrorBanner, Loading, UserChecklist } from './components.jsx'
+import { DockerGlyph } from './Docker.jsx'
 import { parseEmails, parsePhoneNumbers } from './format.js'
+import { useDockerEnabled } from './docker.js'
 import { BLANK_ACCOUNT, newAccountPayload, useInfraEnabled } from './infra.js'
 
 const NAME_MAX_WORDS = 10
@@ -26,6 +28,7 @@ const MODE_ICONS = {
       <path d="M7.5 7.25h.01M7.5 16.75h.01M11 7.25h5.5M11 16.75h5.5" />
     </>
   ),
+  docker: <DockerGlyph />,
 }
 
 const MODES = [
@@ -40,6 +43,12 @@ const MODES = [
     label: 'Infrastructure (AWS)',
     covers: "EC2 servers, load balancers and Auto Scaling groups, read from the project's own AWS accounts.",
     tags: ['EC2', 'Load balancers', 'Auto Scaling', 'Databases'],
+  },
+  {
+    value: 'docker',
+    label: 'Docker',
+    covers: 'Containers on your own servers, reported by a small agent that only makes outbound requests.',
+    tags: ['Crashes and restarts', 'Health checks', 'OOM kills', 'CPU and memory'],
   },
 ]
 
@@ -86,6 +95,7 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
   })
   const [memberIds, setMemberIds] = useState([])
   const infraEnabled = useInfraEnabled()
+  const dockerEnabled = useDockerEnabled()
   const [monitors, setMonitors] = useState('websites')
   const nextKey = useRef(1)
   const [accounts, setAccounts] = useState([{ ...BLANK_ACCOUNT, key: 0 }])
@@ -164,7 +174,7 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
 
   const infra = monitors === 'infrastructure'
   const stepIds = [
-    ...(infraEnabled ? ['type'] : []),
+    ...(infraEnabled || dockerEnabled ? ['type'] : []),
     'details',
     ...(infra ? ['accounts'] : []),
     'people',
@@ -484,7 +494,12 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
           </p>
         </div>
         <div className="wizard-modes" role="radiogroup" aria-label="What the project monitors">
-          {MODES.map((mode) => (
+          {MODES.filter(
+            (mode) =>
+              mode.value === 'websites' ||
+              (mode.value === 'infrastructure' && infraEnabled) ||
+              (mode.value === 'docker' && dockerEnabled),
+          ).map((mode) => (
             <button
               key={mode.value}
               type="button"

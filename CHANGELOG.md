@@ -10,8 +10,33 @@ major version.
 
 ## [Unreleased]
 
+### Added
+
+- Docker monitoring, on by default (`DOCKER_ENABLED`): a new `docker` project
+  type, a Docker page, and the `/api/v1/monitoring/docker` API. Each host runs
+  the separate [Watchly Docker agent](https://github.com/TahjibNil75/watchly-docker-agent),
+  which pushes container state, resource use and Docker events to
+  `POST /api/v1/docker/ingest` with the host's token; nothing on the host is
+  opened. See [`doc/docker.md`](doc/docker.md).
+- Alerts for a container down (after `DOCKER_DOWN_GRACE_SECONDS`) and back,
+  unhealthy, killed for memory, in a restart loop, or over its CPU or memory
+  threshold, and for a host whose agent stops reporting or loses Docker: eight
+  new notification kinds, on every channel, with editable templates.
+- Migration `0048_docker_monitoring`.
+- An Overview page as the home page: one card per monitor and a list of
+  everything down or failing across websites, infrastructure and Docker.
+  Websites moved from `/` to `/websites`.
+
+### Fixed
+
+- A project's notification settings showed the deployment alerts under website
+  projects instead of infrastructure ones.
+
 ### Changed
 
+- The sidebar groups its links under Monitor and Workspace, shows each
+  monitor's total (or, in red, how many things need a look), and keeps Profile,
+  Users and Sign out in a menu on the signed-in user. Docker uses the whale icon.
 - Log files keep only the last `LOG_RETENTION_HOURS` (default 6); older lines
   are deleted. This replaces size rotation, so `LOG_MAX_BYTES` and
   `LOG_BACKUP_COUNT` no longer do anything.

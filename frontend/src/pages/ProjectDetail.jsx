@@ -13,6 +13,7 @@ import {
   UserChecklist,
   WebsiteTable,
 } from '../components.jsx'
+import { ContainerTable, HostStatusBadge } from '../Docker.jsx'
 import { saveFile } from '../download.js'
 import { dateTime, parseEmails, previousMonthUtc } from '../format.js'
 import { ResourceTable } from '../Infra.jsx'
@@ -35,11 +36,19 @@ export default function ProjectDetail() {
 
   const project = useApi(() => api.getProject(id), [id])
   const infra = project.data?.monitors === 'infrastructure'
+  const docker = project.data?.monitors === 'docker'
+  const websites = project.data && !infra && !docker
   const sites = useApi(
-    () => (project.data && !infra ? api.listWebsites({ project_id: id }) : null),
-    [id, project.data, infra],
+    () => (websites ? api.listWebsites({ project_id: id }) : null),
+    [id, websites],
     { pollMs: 30000 },
   )
+  const hosts = useApi(() => (docker ? api.listDockerHosts({ project_id: id }) : null), [id, docker], {
+    pollMs: 30000,
+  })
+  const containers = useApi(() => (docker ? api.listContainers({ project_id: id }) : null), [id, docker], {
+    pollMs: 30000,
+  })
   const resources = useApi(
     () => (infra ? api.listResources({ project_id: id, sort: 'name', limit: 200 }) : null),
     [id, infra],
@@ -142,6 +151,7 @@ export default function ProjectDetail() {
           <>
             {p.name}{' '}
             {infra && <span className="chip">infrastructure</span>}
+            {docker && <span className="chip">docker</span>}
             {!p.is_active && <span className="badge badge-paused">inactive</span>}
           </>
         }
@@ -152,6 +162,10 @@ export default function ProjectDetail() {
             {infra ? (
               <Link to={`/infra/new?project=${p.id}`} className="btn btn-primary">
                 Add resources
+              </Link>
+            ) : docker ? (
+              <Link to={`/docker/new?project=${p.id}`} className="btn btn-primary">
+                Add Docker host
               </Link>
             ) : (
               <Link to={`/websites/new?project=${p.id}`} className="btn btn-primary">
@@ -186,7 +200,9 @@ export default function ProjectDetail() {
           {(sites.data?.total ?? 0) > 0 &&
             ` This also stops monitoring its ${sites.data.total} website(s) and deletes their history.`}
           {infra &&
-            ` This also deletes its AWS accounts and stops monitoring its ${resources.data?.total ?? 0} resource(s), deleting their history.`}{' '}
+            ` This also deletes its AWS accounts and stops monitoring its ${resources.data?.total ?? 0} resource(s), deleting their history.`}
+          {docker &&
+            ` This also deletes its ${hosts.data?.items.length ?? 0} Docker host(s) and their containers' history; their agents' tokens stop working.`}{' '}
           This can&apos;t be undone.
         </ConfirmDialog>
       )}
@@ -217,7 +233,76 @@ export default function ProjectDetail() {
         </section>
       )}
 
-      {infra ? (
+      {docker ? (
+        <>
+          <section className="section">
+            <h2>Docker hosts</h2>
+            <ErrorBanner error={hosts.error} />
+            {hosts.loading ? (
+              <Loading />
+            ) : (hosts.data?.items ?? []).length === 0 ? (
+              <p className="muted small">
+                No hosts yet.{' '}
+                {canManage && (
+                  <>
+                    <Link to={`/docker/new?project=${p.id}`}>Add the first one</Link>: Watchly gives it a token for the
+                    agent you run there.
+                  </>
+                )}
+              </p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Status</th>
+                      <th>Host</th>
+                      <th>Containers</th>
+                      <th>Last report</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hosts.data.items.map((h) => (
+                      <tr key={h.id}>
+                        <td>
+                          <HostStatusBadge status={h.status} />
+                        </td>
+                        <td>
+                          <Link to={`/docker/hosts/${h.id}`} className="strong-link">
+                            {h.name}
+                          </Link>
+                          {h.hostname && <div className="muted small">{h.hostname}</div>}
+                        </td>
+                        <td className="nowrap">
+                          {h.counts.total}
+                          {h.counts.down > 0 && <span className="text-down"> · {h.counts.down} down</span>}
+                          {h.counts.unhealthy > 0 && <span className="text-pending"> · {h.counts.unhealthy} unhealthy</span>}
+                        </td>
+                        <td className="nowrap">{h.last_seen_at ? dateTime(h.last_seen_at) : 'never'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+          {(hosts.data?.items ?? []).length > 0 && (
+            <section className="section">
+              <h2>Containers</h2>
+              <ErrorBanner error={containers.error} />
+              {containers.loading ? (
+                <Loading />
+              ) : (
+                <ContainerTable
+                  containers={containers.data?.items ?? []}
+                  hosts={Object.fromEntries((hosts.data?.items ?? []).map((h) => [h.id, h]))}
+                  emptyLabel="No containers reported yet."
+                />
+              )}
+            </section>
+          )}
+        </>
+      ) : infra ? (
         <>
           <section className="section">
             <h2>Resources</h2>
@@ -271,8 +356,8 @@ export default function ProjectDetail() {
         <section className="card">
           <h2>Members</h2>
           <p className="muted small">
-            Members can see this project and all its {infra ? 'resources' : 'websites'}, and are emailed about every{' '}
-            {infra ? 'one' : 'site'}.
+            Members can see this project and all its {infra ? 'resources' : docker ? 'Docker hosts' : 'websites'}, and
+            are emailed about every {infra || docker ? 'one' : 'site'}.
             Only admins and DevOps see projects they aren&apos;t in.
           </p>
           <PersonList
@@ -402,7 +487,7 @@ export default function ProjectDetail() {
               Anything left alone follows the global settings.
             </p>
           </div>
-          {!infra && (
+          {websites && (
             <div className="section-actions">
               <button type="button" className="btn btn-sm" onClick={downloadReport} disabled={busy}>
                 Download last month&apos;s report (CSV)

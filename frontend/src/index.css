@@ -22,6 +22,8 @@
   --paused: #7a808c;
   /* The Developer role's colour, apart from the status tones. */
   --teal: #0e8a9c;
+  /* Docker projects and pages. */
+  --docker: #1b6fb3;
   /* Environment and check-type badges: hues apart from the status colours. */
   --tag-teal: #0b7a8a;
   --tag-pink: #b83280;
@@ -31,7 +33,7 @@
   --shadow: 0 1px 2px rgb(16 24 40 / 0.05);
 
   color-scheme: light;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 16px;
   line-height: 1.5;
   color: var(--text);
@@ -61,6 +63,7 @@
     --series-2: #d95926;
     --paused: #8b919c;
     --teal: #3cc3d6;
+    --docker: #58aef0;
     --tag-teal: #3cc3d6;
     --tag-pink: #f07ab8;
     --tag-orange: #ff9a4d;
@@ -225,14 +228,128 @@ a:hover {
   flex: none;
 }
 
-/* Sign out stays pinned to the bottom. */
+/* The user menu stays pinned to the bottom. */
 .side-footer {
   margin-top: auto;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Links come in groups under a quiet label. */
+.side-group + .side-group {
+  margin-top: 14px;
+}
+.side-group-label {
+  padding: 6px 14px 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.side-group {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px 4px 0;
-  border-top: 1px solid var(--border);
+  gap: 2px;
+}
+
+/* A monitor's total, or in red how many of its things need a look. */
+.side-badge {
+  margin-left: auto;
+  min-width: 1.6em;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.side-links a.active .side-badge:not(.is-alarm) {
+  background: var(--surface);
+}
+.side-badge.is-alarm {
+  color: var(--action-text);
+  background: var(--down);
+}
+
+.user-menu {
+  position: relative;
+}
+.user-menu-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  background: none;
+  cursor: pointer;
+}
+.user-menu-button:hover,
+.user-menu-button[aria-expanded='true'] {
+  background: var(--surface-2);
+}
+.user-menu-button > .icon {
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  color: var(--muted);
+}
+.user-menu-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+.user-menu-who strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-menu-pop {
+  position: absolute;
+  inset: auto 0 calc(100% + 8px) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.18);
+  z-index: 5;
+}
+.user-menu-pop a,
+.user-menu-pop button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  background: none;
+  cursor: pointer;
+}
+.user-menu-pop a:hover,
+.user-menu-pop button:hover {
+  text-decoration: none;
+  background: var(--surface-2);
+}
+.user-menu-pop a.active {
+  color: var(--primary);
+}
+.user-menu-pop .is-danger {
+  color: var(--down);
 }
 
 /* The top bar and scrim only exist while the sidebar is a drawer. */
@@ -1395,6 +1512,8 @@ a:hover {
 .landing {
   /* The accents are the glow's: the whole page takes the mascot's mood. */
   --primary-text: var(--action-text);
+  /* The landing keeps the system font; the app UI wears Space Grotesk. */
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -4012,10 +4131,19 @@ strong + .badge {
 /* The Infrastructure toolbar: a glowing search with the Map / Table switch,
    and the filters as "Label  Value" pills on a second row. */
 .infra-bar {
+  /* The colour of the page's search: Infrastructure's blue-violet by default,
+     green for Websites, Docker's blue for Docker. */
+  --accent: var(--primary);
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-bottom: 16px;
+}
+.infra-bar.is-websites {
+  --accent: var(--up);
+}
+.infra-bar.is-docker {
+  --accent: var(--docker);
 }
 .infra-bar-row {
   display: flex;
@@ -4035,7 +4163,7 @@ strong + .badge {
   left: 16px;
   width: 19px;
   height: 19px;
-  color: var(--primary);
+  color: var(--accent);
   pointer-events: none;
 }
 .infra-search input {
@@ -4043,20 +4171,20 @@ strong + .badge {
   padding: 0 16px 0 46px;
   border-radius: 14px;
   font-size: 1.02rem;
-  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--primary) 12%, transparent),
-    0 8px 26px color-mix(in srgb, var(--primary) 14%, transparent);
+    0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 8px 26px color-mix(in srgb, var(--accent) 14%, transparent);
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
 }
 .infra-search input:focus {
   outline: none;
-  border-color: var(--primary);
+  border-color: var(--accent);
   box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--primary) 28%, transparent),
-    0 8px 26px color-mix(in srgb, var(--primary) 20%, transparent);
+    0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 8px 26px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 .filter-pill {
   position: relative;
@@ -5454,6 +5582,69 @@ textarea {
   .container {
     padding: 20px 16px 48px;
   }
+}
+
+/* ---------- Overview ---------- */
+
+.overview-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.overview-tile:hover {
+  text-decoration: none;
+}
+.overview-attention-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+.overview-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.overview-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 6px;
+  border-top: 1px solid var(--border);
+  color: inherit;
+}
+.overview-row:hover {
+  text-decoration: none;
+  background: var(--surface-2);
+}
+.overview-row-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.overview-row-main > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.overview-row .chip {
+  margin-right: 0;
+}
+.overview-row .badge {
+  flex: none;
+  min-width: 6.5rem;
+  text-align: center;
+}
+.overview-clear,
+.overview-more {
+  margin: 0;
+}
+.overview-more {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
 
 /* ---------- Notifications ---------- */
@@ -7994,4 +8185,129 @@ a.map-node:hover {
   .project-group-chevron {
     transition: none;
   }
+}
+
+/* ---------- Docker ---------- */
+
+.wizard-modes:has(> :nth-child(3)) {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+.wizard-mode.is-docker {
+  --c: var(--docker);
+}
+.wizard[data-monitors='docker'] {
+  --mode: var(--docker);
+  --mode-solid: var(--docker);
+  --mode-solid-text: #ffffff;
+}
+.project-group.is-docker {
+  --kind: var(--docker);
+}
+.stats-docker {
+  grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr));
+}
+.stats-docker .stat-value {
+  font-size: 2rem;
+}
+.stat-all {
+  --tone: var(--docker);
+}
+@media (max-width: 900px) {
+  .stats-docker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.docker-usage {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 0.9rem;
+}
+.docker-problems {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+tr.is-muted td {
+  opacity: 0.6;
+}
+
+.docker-connect {
+  display: grid;
+  gap: 12px;
+}
+.docker-connect p {
+  margin: 0;
+}
+.docker-snippet {
+  position: relative;
+}
+.docker-snippet pre {
+  margin: 0;
+  padding: 12px 14px;
+  padding-right: 76px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+.docker-snippet .btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.docker-feed {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.docker-feed li {
+  --tone: var(--paused);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+.docker-feed li.tone-down {
+  --tone: var(--down);
+}
+.docker-feed li.tone-up {
+  --tone: var(--up);
+}
+.docker-feed li.tone-pending {
+  --tone: var(--pending);
+}
+.docker-feed-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tone);
+  transform: translateY(-1px);
+}
+.docker-feed-text {
+  flex: 1;
+  min-width: 0;
+}
+.docker-feed-text .chip {
+  margin-left: 6px;
+}
+
+.docker-charts {
+  display: grid;
+  gap: 18px;
+}
+.docker-charts h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.docker-charts p {
+  margin: 0 0 4px;
 }

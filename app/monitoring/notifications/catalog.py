@@ -188,6 +188,38 @@ _CAPACITY = {
     "dashboard_url": "Link to the project in Watchly (empty if ALERT_DASHBOARD_URL is unset)",
 }
 
+_DOCKER_CONTAINER = {
+    "project": "Project name",
+    "host": "The Docker host, as named in Watchly",
+    "container": "The container's name",
+    "image": "Its image, e.g. “ghcr.io/acme/api:1.4.2”",
+    "state": "Docker's state for it: running, exited, restarting...",
+    "health": "Its healthcheck: healthy, unhealthy, starting, or none",
+    "exit_code": "Its last exit code, or “—”",
+    "restart_count": "How many times Docker's restart policy restarted it",
+    "detail": "What happened, e.g. “exited with code 137 (killed)” or “memory at 94% of its "
+    "512 MiB limit for 3 heartbeats”",
+    "downtime": "How long it has been (or was) down, e.g. “4m”, or “—”",
+    "occurred_at": "When Watchly noticed (UTC)",
+    "dashboard_url": "Link to the container in Watchly (empty if ALERT_DASHBOARD_URL is unset)",
+}
+
+_DOCKER_HOST = {
+    "project": "Project name",
+    "host": "The Docker host, as named in Watchly",
+    "hostname": "The machine's hostname, as Docker reports it, or “—”",
+    "reason": "“the agent stopped reporting” or “Docker is not answering the agent: …”",
+    "last_seen": "When the agent last reported (UTC), or “never”",
+    "downtime": "How long it was offline, e.g. “21m”, or “—”",
+    "occurred_at": "When Watchly noticed (UTC)",
+    "dashboard_url": "Link to the host in Watchly (empty if ALERT_DASHBOARD_URL is unset)",
+}
+
+_DOCKER_AUDIENCE = (
+    "The project's members and extra emails, ALERT_DEFAULT_EMAILS, and the project's Slack "
+    "channel, Telegram chat and WhatsApp numbers. A muted container alerts nobody."
+)
+
 _INFRA_AUDIENCE = (
     "The project's members and extra emails, the resource's extra recipients, and the "
     "project's Slack channel, Telegram chat and WhatsApp numbers."
@@ -473,6 +505,82 @@ CATALOG: dict[NotificationKind, KindInfo] = {
             default_subject="[CAPACITY] {{project}} / {{account}} in {{region}}: {{problem}}",
             default_body="{{account}} in {{region}}: {{problem_detail}}.",
             placeholders=_CAPACITY,
+        ),
+        KindInfo(
+            kind=NotificationKind.DOCKER_CONTAINER_DOWN,
+            label="Container down",
+            description="A container that was running stopped and stayed stopped past the grace "
+            "period (DOCKER_DOWN_GRACE_SECONDS), so a redeploy stays quiet.",
+            audience=_DOCKER_AUDIENCE,
+            default_subject="[DOWN] {{project}} / {{host}}: {{container}} is down",
+            default_body="{{container}} on {{host}} is down: {{detail}}.",
+            placeholders=_DOCKER_CONTAINER,
+        ),
+        KindInfo(
+            kind=NotificationKind.DOCKER_CONTAINER_RECOVERED,
+            label="Container back up",
+            description="A container that was down runs again.",
+            audience="Same as “Container down”.",
+            default_subject="[RECOVERED] {{project}} / {{host}}: {{container}} is running again",
+            default_body="{{container}} on {{host}} is running again after {{downtime}}.",
+            placeholders=_DOCKER_CONTAINER,
+        ),
+        KindInfo(
+            kind=NotificationKind.DOCKER_CONTAINER_UNHEALTHY,
+            label="Container unhealthy",
+            description="A running container's own healthcheck reports it unhealthy.",
+            audience="Same as “Container down”.",
+            default_subject="[UNHEALTHY] {{project}} / {{host}}: {{container}}",
+            default_body="{{container}} on {{host}} runs, but {{detail}}.",
+            placeholders=_DOCKER_CONTAINER,
+        ),
+        KindInfo(
+            kind=NotificationKind.DOCKER_CONTAINER_OOM,
+            label="Container out of memory",
+            description="The kernel killed a process in a container for lack of memory.",
+            audience="Same as “Container down”.",
+            default_subject="[OOM] {{project}} / {{host}}: {{container}} ran out of memory",
+            default_body="{{container}} on {{host}} was {{detail}}.",
+            placeholders=_DOCKER_CONTAINER,
+        ),
+        KindInfo(
+            kind=NotificationKind.DOCKER_RESTART_LOOP,
+            label="Container restart loop",
+            description="A container keeps crashing and being restarted by its restart policy "
+            "(DOCKER_RESTART_LOOP_COUNT restarts within DOCKER_RESTART_LOOP_WINDOW_SECONDS).",
+            audience="Same as “Container down”.",
+            default_subject="[RESTARTING] {{project}} / {{host}}: {{container}} keeps restarting",
+            default_body="{{container}} on {{host}} {{detail}}; last exit code {{exit_code}}.",
+            placeholders=_DOCKER_CONTAINER,
+        ),
+        KindInfo(
+            kind=NotificationKind.DOCKER_RESOURCE_HIGH,
+            label="Container running hot",
+            description="A container stays over its CPU or memory threshold "
+            "(DOCKER_CPU_ALERT_PERCENT, DOCKER_MEMORY_ALERT_PERCENT) for several heartbeats.",
+            audience="Same as “Container down”.",
+            default_subject="[HOT] {{project}} / {{host}}: {{container}}",
+            default_body="{{container}} on {{host}}: {{detail}}.",
+            placeholders=_DOCKER_CONTAINER,
+        ),
+        KindInfo(
+            kind=NotificationKind.DOCKER_HOST_OFFLINE,
+            label="Docker host offline",
+            description="A host's agent stopped reporting (DOCKER_OFFLINE_AFTER_SECONDS), or "
+            "reports that it cannot reach Docker. Its containers' alerts pause meanwhile.",
+            audience=_DOCKER_AUDIENCE,
+            default_subject="[OFFLINE] {{project}} / {{host}} stopped reporting",
+            default_body="{{host}} is offline: {{reason}}. Last heard from {{last_seen}}.",
+            placeholders=_DOCKER_HOST,
+        ),
+        KindInfo(
+            kind=NotificationKind.DOCKER_HOST_RECOVERED,
+            label="Docker host back",
+            description="That host's agent reports again, with Docker reachable.",
+            audience="Same as “Docker host offline”.",
+            default_subject="[RECOVERED] {{project}} / {{host}} reports again",
+            default_body="{{host}} reports again after {{downtime}} offline.",
+            placeholders=_DOCKER_HOST,
         ),
     )
 }

@@ -289,8 +289,9 @@ async def log_requests(
     else:
         elapsed_ms = (time.perf_counter() - started) * 1000
         status = response.status_code
-        # The container healthcheck calls this every few seconds.
-        if request.url.path == "/health" and status < 400:
+        # The container healthcheck calls this every few seconds, and every
+        # Docker agent pushes every half minute.
+        if status < 400 and (request.url.path == "/health" or request.url.path.endswith("/docker/ingest")):
             response.headers["X-Request-ID"] = request_id_var.get()
             return response
         access_logger.log(

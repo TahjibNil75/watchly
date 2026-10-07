@@ -288,7 +288,7 @@ class InfraService:
         project = await self.project_for_write(project_id, actor)
         if project.monitors is not ProjectMonitors.INFRASTRUCTURE:
             raise InfraInvalidError(
-                f"{project.name} monitors websites: AWS accounts belong to infrastructure projects."
+                f"{project.name} monitors {project.monitors.value}: AWS accounts belong to infrastructure projects."
             )
         return project
 

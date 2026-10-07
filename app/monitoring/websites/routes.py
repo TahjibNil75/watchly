@@ -284,9 +284,9 @@ async def create_website(
     sends the site's WhatsApp alerts to its own numbers, from the project's
     business number."""
     project = await _assert_can_manage(projects, payload.project_id, actor)
-    if project.monitors is ProjectMonitors.INFRASTRUCTURE:
+    if project.monitors is not ProjectMonitors.WEBSITES:
         raise _unprocessable(
-            ValueError(f"{project.name} monitors infrastructure: add websites to a websites project.")
+            ValueError(f"{project.name} monitors {project.monitors.value}: add websites to a websites project.")
         )
     try:
         website = await service.create(payload, project, created_by_id=actor.id)

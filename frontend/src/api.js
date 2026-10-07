@@ -317,4 +317,19 @@ export const api = {
     v1(`/monitoring/infra/aws/resources/${id}/maintenance/end`, { method: 'POST' }),
   cancelResourceMaintenance: (id, windowId) =>
     v1(`/monitoring/infra/aws/resources/${id}/maintenance/${windowId}`, { method: 'DELETE' }),
+
+  // Docker hosts and their containers, reported by the Watchly Docker agent.
+  // Every call answers 404 while the API has DOCKER_ENABLED off.
+  listDockerHosts: (query) => v1('/monitoring/docker/hosts', { query }),
+  getDockerHost: (id) => v1(`/monitoring/docker/hosts/${id}`),
+  createDockerHost: (payload) => v1('/monitoring/docker/hosts', { method: 'POST', body: payload }),
+  updateDockerHost: (id, payload) => v1(`/monitoring/docker/hosts/${id}`, { method: 'PATCH', body: payload }),
+  rotateDockerToken: (id) => v1(`/monitoring/docker/hosts/${id}/token`, { method: 'POST' }),
+  deleteDockerHost: (id) => v1(`/monitoring/docker/hosts/${id}`, { method: 'DELETE' }),
+  listContainers: (query) => v1('/monitoring/docker/containers', { query }),
+  getContainer: (id) => v1(`/monitoring/docker/containers/${id}`),
+  updateContainer: (id, payload) => v1(`/monitoring/docker/containers/${id}`, { method: 'PATCH', body: payload }),
+  // range: 24h | 7d | 30d | 90d
+  containerStats: (id, range) => v1(`/monitoring/docker/containers/${id}/stats`, { query: { range } }),
+  dockerEvents: (query) => v1('/monitoring/docker/events', { query }),
 }

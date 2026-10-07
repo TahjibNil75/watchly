@@ -341,6 +341,42 @@ class Settings(BaseSettings):
     #: Diagnose runs and VPC tests, per user. NoDecode: see ALERT_DEFAULT_EMAILS.
     RATE_LIMIT_INFRA_DIAGNOSE: Annotated[RateLimit, NoDecode] = RateLimit(30, 60)
 
+    # --- Docker monitoring (app/monitoring/docker) ----------------------------
+    #: Docker projects, the Docker page, and the endpoint the Watchly Docker
+    #: agent (github.com/TahjibNil75/watchly-docker-agent) pushes to. The agent
+    #: runs on the Docker host and only makes outbound requests, so Watchly
+    #: needs no access to the host.
+    DOCKER_ENABLED: bool = True
+    #: A host whose agent has not pushed for this long, or for three of its
+    #: intervals if that is longer, is offline: one alert for the host
+    #: instead of one per container.
+    DOCKER_OFFLINE_AFTER_SECONDS: int = Field(default=120, ge=30)
+    #: A container that stopped running is down only after this long, so a
+    #: redeploy (stop, recreate, start) stays quiet.
+    DOCKER_DOWN_GRACE_SECONDS: int = Field(default=60, ge=0)
+    #: Restarts within DOCKER_RESTART_LOOP_WINDOW_SECONDS that make a restart loop.
+    DOCKER_RESTART_LOOP_COUNT: int = Field(default=3, ge=2)
+    DOCKER_RESTART_LOOP_WINDOW_SECONDS: int = Field(default=600, ge=60)
+    #: A container using this share of its host's CPU (all cores) is busy.
+    #: 0 turns CPU alerts off.
+    DOCKER_CPU_ALERT_PERCENT: int = Field(default=90, ge=0, le=100)
+    #: A container using this share of its memory limit (of the host's memory
+    #: when it has none) is short of memory. 0 turns memory alerts off.
+    DOCKER_MEMORY_ALERT_PERCENT: int = Field(default=90, ge=0, le=100)
+    #: Heartbeats in a row over a CPU or memory threshold before it alerts.
+    DOCKER_PROBLEM_CHECKS: int = Field(default=3, ge=1)
+    #: After a container's problem alerted, stay quiet this long about the
+    #: same problem of the same container.
+    DOCKER_PROBLEM_ALERT_COOLDOWN_SECONDS: int = Field(default=3600, ge=0)
+    #: Hours of raw resource samples kept (one per container per heartbeat);
+    #: past that, charts come from hourly rollups, kept CHECK_RETENTION_DAYS.
+    DOCKER_SAMPLE_RETENTION_HOURS: int = Field(default=48, ge=6)
+    #: Days a removed container stays listed before it is forgotten.
+    DOCKER_REMOVED_CONTAINER_DAYS: int = Field(default=7, ge=1)
+    #: Pushes per agent token. An agent sends one per interval plus one
+    #: shortly after Docker events. NoDecode: see ALERT_DEFAULT_EMAILS.
+    RATE_LIMIT_DOCKER_INGEST: Annotated[RateLimit, NoDecode] = RateLimit(60, 60)
+
     # --- Monthly uptime report --------------------------------------------
     MONTHLY_REPORTS_ENABLED: bool = True
     #: Day of the month to send the previous month's report. Capped at 28 so
@@ -406,6 +442,7 @@ class Settings(BaseSettings):
         "RATE_LIMIT_EMAIL_LINKS",
         "RATE_LIMIT_ACCOUNT_REQUESTS",
         "RATE_LIMIT_INFRA_DIAGNOSE",
+        "RATE_LIMIT_DOCKER_INGEST",
         mode="before",
     )
     @classmethod

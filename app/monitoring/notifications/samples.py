@@ -20,6 +20,8 @@ from app.monitoring.alerts.events import (
     SlowResponseEvent,
     SslExpiryEvent,
 )
+from app.monitoring.docker.events import CONTAINER_KINDS, HOST_KINDS
+from app.monitoring.docker.events import sample as docker_sample
 from app.monitoring.infra.aws.events import (
     CapacityEvent,
     CheckLine,
@@ -39,6 +41,7 @@ from app.monitoring.websites.models import CheckType, DnsRecordType
 from app.monitoring.websites.pinger import PingStats
 
 _PROJECT = "Acme Corp"
+DOCKER_KINDS = CONTAINER_KINDS | HOST_KINDS
 
 
 def _site(now: datetime) -> WebsiteSnapshot:
@@ -245,6 +248,8 @@ def sample_event(kind: NotificationKind) -> Notification:
                 sites_without_data=1,
                 recipients=recipients,
             )
+    if kind in DOCKER_KINDS:
+        return docker_sample(kind, now, recipients)
     return _infra_sample(kind, now, recipients)
 
 

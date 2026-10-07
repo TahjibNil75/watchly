@@ -64,6 +64,22 @@ class NotificationKind(str, enum.Enum):
     #: Infrastructure: an AWS account holds Elastic IPs attached to nothing,
     #: or is close to its Elastic IP quota (opt-in per AWS account).
     ACCOUNT_CAPACITY = "account_capacity"
+    #: Docker: a container stopped running and stayed stopped.
+    DOCKER_CONTAINER_DOWN = "docker_container_down"
+    #: Docker: that container runs again.
+    DOCKER_CONTAINER_RECOVERED = "docker_container_recovered"
+    #: Docker: a container's healthcheck reports it unhealthy.
+    DOCKER_CONTAINER_UNHEALTHY = "docker_container_unhealthy"
+    #: Docker: the kernel killed a container's process for lack of memory.
+    DOCKER_CONTAINER_OOM = "docker_container_oom"
+    #: Docker: a container keeps crashing and being restarted.
+    DOCKER_RESTART_LOOP = "docker_restart_loop"
+    #: Docker: a container stays over its CPU or memory threshold.
+    DOCKER_RESOURCE_HIGH = "docker_resource_high"
+    #: Docker: a host's agent stopped reporting, or cannot reach Docker.
+    DOCKER_HOST_OFFLINE = "docker_host_offline"
+    #: Docker: that host reports again.
+    DOCKER_HOST_RECOVERED = "docker_host_recovered"
 
 
 class Tone(str, enum.Enum):

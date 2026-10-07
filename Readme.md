@@ -41,6 +41,7 @@ It runs on your own infrastructure with a single `docker compose up`.
 - **DNS monitoring**: query several public resolvers at once and alert when records change or drift from what you expect
 - **Database monitoring**: give a PostgreSQL, MySQL/MariaDB, Redis/Valkey or MongoDB endpoint, `host:port`, and nothing else; Watchly goes as far as the server's first answer without logging in, so it tells a database that is up from one that is starting up, out of connections, or hidden behind a proxy with nothing behind it
 - **AWS infrastructure monitoring**: EC2 servers, Auto Scaling groups, Application and Network Load Balancers and RDS databases, found in your VPCs and kept in sync with AWS; see [AWS infrastructure monitoring](#aws-infrastructure-monitoring)
+- **Docker monitoring**: containers on your own servers, reported by a tiny [agent](https://github.com/TahjibNil75/watchly-docker-agent) that only makes outbound requests: crashes, restart loops, OOM kills, failing healthchecks, CPU and memory, and hosts that go quiet; see [`doc/docker.md`](doc/docker.md)
 - **Early warnings**: SSL certificates and domain registrations about to expire, changed nameservers, slow responses and packet loss, not just "down"
 - **Security headers**: each website's HSTS, CSP, X-Frame-Options, X-Content-Type-Options and Referrer-Policy, graded A to F; Permissions-Policy and the Cross-Origin policies are listed alongside
 - **CDN detection**: whether a site is served through Cloudflare, CloudFront, Fastly, Akamai, Vercel, Netlify and others, with the evidence (headers, DNS aliases) and whether a cache answered
@@ -376,6 +377,8 @@ option. The most important ones:
 | `ALERT_LOGO_URL` | the logo on GitHub | Public HTTPS logo Slack and Telegram show on alerts; blank turns it off (email always embeds it) |
 | `DNS_RESOLVERS` | Cloudflare, Google, Quad9, OpenDNS | Resolvers queried by DNS checks |
 | `INFRA_AWS_ENABLED` | `false` | Turns on [AWS infrastructure monitoring](#aws-infrastructure-monitoring) |
+| `DOCKER_ENABLED` | `true` | Docker projects and the [agent's ingest endpoint](doc/docker.md) |
+| `DOCKER_DOWN_GRACE_SECONDS` / `DOCKER_OFFLINE_AFTER_SECONDS` | `60` / `120` | How long a container may be stopped, and a host's agent quiet, before alerting |
 | `AWS_REGION` | the instance's own region | Default region for AWS accounts without one of their own |
 | `AWS_SYNC_INTERVAL_SECONDS` | `300` | How often AWS resources' addresses and states are read again |
 | `WEBSITE_PRIVATE_TARGETS` | `block` | `allow` lets website checks reach private addresses; for LAN installs only, never on EC2 |
@@ -459,6 +462,7 @@ See [`doc/local-setup.md`](doc/local-setup.md) for a full walkthrough and troubl
 | [`doc/hld.md`](doc/hld.md) | High-level design: architecture, data model, key flows |
 | [`doc/apis.md`](doc/apis.md) | Every API endpoint with a short description |
 | [`doc/infraapi.md`](doc/infraapi.md) | AWS infrastructure monitoring: concepts, IAM setup, accounts, checks, alerts and its API |
+| [`doc/docker.md`](doc/docker.md) | Docker monitoring: the agent, connecting a host, what alerts, settings and its API |
 | [`frontend/README.md`](frontend/README.md) | The web UI |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each release |
 

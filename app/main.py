@@ -88,4 +88,6 @@ async def health() -> dict[str, str]:
         "monitoring": "on" if scheduler.is_running else "off",
         # Whether the dashboard should offer the Infrastructure page.
         "infra_aws": "on" if settings.INFRA_AWS_ENABLED else "off",
+        # Whether it should offer the Docker page and Docker projects.
+        "docker": "on" if settings.DOCKER_ENABLED else "off",
     }
