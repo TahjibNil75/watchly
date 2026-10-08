@@ -12,7 +12,7 @@ import {
   memory,
   pct,
 } from './docker.js'
-import { dateTime, since, timeAgo } from './format.js'
+import { dateTime, since, timeAgo, timeFormat } from './format.js'
 
 export function ConditionBadge({ condition }) {
   const c = CONDITIONS[condition] ?? CONDITIONS.unknown
@@ -270,9 +270,9 @@ function niceTop(max) {
 
 const PAD = { top: 10, right: 12, left: 64, bottom: 24 }
 const PLOT = 150
-const TIME = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
-const DAY = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
-const FULL = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+const TIME = { hour: '2-digit', minute: '2-digit' }
+const DAY = { month: 'short', day: 'numeric' }
+const FULL = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
 
 // Up to two lines over time, e.g. average and peak. `series` is
 // [{ key, label, className }]; `format` turns a value into text; `max` caps
@@ -350,7 +350,7 @@ export function MetricChart({ points, series, format, max, label, daily, binary 
               y={PAD.top + PLOT + 18}
               textAnchor={i === n - 1 && n > 1 ? 'end' : i === 0 ? 'start' : 'middle'}
             >
-              {tickFormat.format(new Date(points[i].at))}
+              {timeFormat(tickFormat).format(new Date(points[i].at))}
             </text>
           ))}
           {p && (
@@ -371,7 +371,7 @@ export function MetricChart({ points, series, format, max, label, daily, binary 
           className="chart-tip"
           style={{ left: x(active), transform: `translateX(${x(active) < width / 2 ? '12px' : 'calc(-100% - 12px)'})` }}
         >
-          <div className="muted">{(daily ? DAY : FULL).format(new Date(p.at))}</div>
+          <div className="muted">{timeFormat(daily ? DAY : FULL).format(new Date(p.at))}</div>
           {series.map((s) => (
             <div key={s.key} className={`chart-tip-row ${s.className}`}>
               <span className="line-key" />

@@ -6,6 +6,19 @@
     <meta name="referrer" content="no-referrer" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Watchly</title>
+    <script>
+      // Set the theme before first paint so a saved Dark or Night never flashes
+      // light, and the density likewise. Mirrors src/theme.js and src/prefs.js.
+      try {
+        var t = localStorage.getItem('watchly.theme')
+        if (t !== 'light' && t !== 'dark' && t !== 'night') {
+          t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        }
+        document.documentElement.dataset.theme = t
+        var p = JSON.parse(localStorage.getItem('watchly.prefs'))
+        document.documentElement.dataset.density = p && p.density === 'compact' ? 'compact' : 'comfortable'
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -14,7 +14,7 @@ import {
   StatusBadge,
   UserChecklist,
 } from '../components.jsx'
-import { bytes, dateTime, duration, percent, since, timeAgo, until } from '../format.js'
+import { bytes, calendarDate, dateTime, duration, percent, since, timeAgo, until } from '../format.js'
 import Maintenance from '../Maintenance.jsx'
 import { canManageProject } from '../roles.js'
 import SiteHistory from '../SiteHistory.jsx'
@@ -429,8 +429,7 @@ function Resolvers({ check }) {
 // Whole days until a certificate or domain ends; negative once it has.
 const daysLeft = (iso) => Math.floor((new Date(iso).getTime() - Date.now()) / 86_400_000)
 
-const shortDate = (iso) =>
-  new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+const shortDate = calendarDate
 
 // Red inside a week, amber inside a month, as the SSL tile has it.
 const expiryTone = (days) => (days <= 7 ? 'down' : days <= 30 ? 'pending' : 'up')

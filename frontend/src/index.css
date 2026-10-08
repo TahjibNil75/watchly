@@ -41,37 +41,70 @@
   -webkit-font-smoothing: antialiased;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1116;
-    --surface: #171a21;
-    --surface-2: #1e222b;
-    --border: #2a2f3a;
-    --text: #e6e8ec;
-    --muted: #9aa1ad;
-    --primary: #6d8bff;
-    --primary-text: #0f1116;
-    --action: #3dbb72;
-    --action-text: #0f1116;
-    --up: #3dbb72;
-    --down: #f16565;
-    --pending: #e0a93b;
-    --maintenance: #a88cf0;
-    --warn: #e0a93b;
-    --warn-text: #0f1116;
-    --series-1: #6d8bff;
-    --series-2: #d95926;
-    --paused: #8b919c;
-    --teal: #3cc3d6;
-    --docker: #58aef0;
-    --tag-teal: #3cc3d6;
-    --tag-pink: #f07ab8;
-    --tag-orange: #ff9a4d;
-    --tag-olive: #b8c93a;
-    --shadow: none;
+/* The theme is <html data-theme>: light is the :root above; Auto resolves to
+   light or dark in theme.js. */
+:root[data-theme='dark'] {
+  --bg: #0f1116;
+  --surface: #171a21;
+  --surface-2: #1e222b;
+  --border: #2a2f3a;
+  --text: #e6e8ec;
+  --muted: #9aa1ad;
+  --primary: #6d8bff;
+  --primary-text: #0f1116;
+  --action: #3dbb72;
+  --action-text: #0f1116;
+  --up: #3dbb72;
+  --down: #f16565;
+  --pending: #e0a93b;
+  --maintenance: #a88cf0;
+  --warn: #e0a93b;
+  --warn-text: #0f1116;
+  --series-1: #6d8bff;
+  --series-2: #d95926;
+  --paused: #8b919c;
+  --teal: #3cc3d6;
+  --docker: #58aef0;
+  --tag-teal: #3cc3d6;
+  --tag-pink: #f07ab8;
+  --tag-orange: #ff9a4d;
+  --tag-olive: #b8c93a;
+  --shadow: none;
 
-    color-scheme: dark;
-  }
+  color-scheme: dark;
+}
+
+/* Night: the sign-in page's night-shift palette, for the whole app. Greens
+   and near-black, with the same status colours as Dark. */
+:root[data-theme='night'] {
+  --bg: #080b10;
+  --surface: #0c1218;
+  --surface-2: #121a22;
+  --border: #1d2a28;
+  --text: #e3ece7;
+  --muted: #8b9a93;
+  --primary: #3dbb72;
+  --primary-text: #071009;
+  --action: #3dbb72;
+  --action-text: #071009;
+  --up: #3dbb72;
+  --down: #f16565;
+  --pending: #e0a93b;
+  --maintenance: #a88cf0;
+  --warn: #e0a93b;
+  --warn-text: #071009;
+  --series-1: #6d8bff;
+  --series-2: #d95926;
+  --paused: #8b919c;
+  --teal: #3cc3d6;
+  --docker: #58aef0;
+  --tag-teal: #3cc3d6;
+  --tag-pink: #f07ab8;
+  --tag-orange: #ff9a4d;
+  --tag-olive: #b8c93a;
+  --shadow: none;
+
+  color-scheme: dark;
 }
 
 * {
@@ -355,6 +388,108 @@ a:hover {
 }
 .user-menu-pop .is-danger {
   color: var(--down);
+}
+.pill-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.pill-group legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+.pill-row {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.pill-row label {
+  position: relative;
+  cursor: pointer;
+}
+.pill-row input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.pill-row span {
+  display: block;
+  padding: 6px 12px;
+  border-radius: 7px;
+  font-size: 0.88rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pill-row label:hover span {
+  color: var(--text);
+}
+.pill-row input:checked + span {
+  color: var(--text);
+  font-weight: 600;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.pill-row input:focus-visible + span {
+  outline: 2px solid color-mix(in srgb, var(--up) 45%, transparent);
+  outline-offset: 0;
+}
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.theme-tile {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 14px 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--surface);
+  cursor: pointer;
+}
+.theme-tile:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+.theme-tile:has(input:checked) {
+  color: var(--text);
+  border-color: var(--muted);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px var(--muted);
+}
+.theme-tile:has(input:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--up) 45%, transparent);
+  border-color: var(--up);
+}
+.theme-tile input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.theme-icon svg {
+  display: block;
+  width: 26px;
+  height: 26px;
+}
+.theme-tile:has(input:checked) .theme-icon {
+  color: var(--up);
+}
+.theme-name {
+  font-weight: 600;
+  font-size: 0.88rem;
 }
 
 .side-toggle {
@@ -5127,6 +5262,28 @@ tbody tr:hover td {
   color: var(--text);
 }
 
+/* Compact: tighter tables, cards and lists. Set on <html> from Profile > Appearance. */
+:root[data-density='compact'] th,
+:root[data-density='compact'] td {
+  padding: 5px 12px;
+}
+:root[data-density='compact'] table {
+  font-size: 0.86rem;
+}
+:root[data-density='compact'] .table-wrap > p {
+  padding: 6px 12px;
+}
+:root[data-density='compact'] .card {
+  padding: 14px;
+  margin-bottom: 14px;
+}
+:root[data-density='compact'] .section {
+  margin-bottom: 16px;
+}
+:root[data-density='compact'] .kv {
+  gap: 4px;
+}
+
 /* ---------- Key/value lists ---------- */
 
 .kv {
@@ -7046,12 +7203,10 @@ textarea {
   --map-halo: var(--surface-2);
   margin-bottom: 20px;
 }
-@media (prefers-color-scheme: dark) {
-  .map {
-    --fam-lb: #3987e5;
-    --fam-server: #199e70;
-    --fam-bastion: #c98500;
-  }
+:root:is([data-theme='dark'], [data-theme='night']) .map {
+  --fam-lb: #3987e5;
+  --fam-server: #199e70;
+  --fam-bastion: #c98500;
 }
 .map .banner p {
   margin: 0;

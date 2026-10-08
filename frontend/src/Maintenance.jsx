@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
 import { ErrorBanner } from './components.jsx'
-import { dateTime, duration, until } from './format.js'
+import { dateTime, dayKey, duration, timeOfDay, until, zonedInputToIso, zonedNowInput } from './format.js'
+import { activeZone } from './prefs.js'
 
 // How long "Start maintenance" lasts; 30 minutes unless picked otherwise.
 const DURATIONS = [
@@ -12,9 +13,9 @@ const DURATIONS = [
   [240, '4 hours'],
 ]
 
-const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+const time = timeOfDay
 
-const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString()
+const sameDay = (a, b) => dayKey(a) === dayKey(b)
 
 const length = (w) => duration((new Date(w.ends_at) - new Date(w.starts_at)) / 1000)
 
@@ -22,17 +23,10 @@ const length = (w) => duration((new Date(w.ends_at) - new Date(w.starts_at)) / 1
 const span = (w) =>
   `${dateTime(w.starts_at)} → ${sameDay(w.starts_at, w.ends_at) ? time(w.ends_at) : dateTime(w.ends_at)} (${length(w)})`
 
-// A datetime-local input's value is local time with no zone; the API wants one.
-const toIso = (local) => new Date(local).toISOString()
+// A datetime-local input's value is wall-clock time with no zone; the API wants one.
+const toIso = zonedInputToIso
 
-// Now, as a datetime-local value, for the inputs' `min`.
-function localNow() {
-  const d = new Date()
-  d.setSeconds(0, 0)
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
-}
-
-const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
+const localNow = zonedNowInput
 
 // The website calls; an infrastructure resource passes its own.
 const SITE_ACTIONS = {
@@ -235,7 +229,7 @@ export default function Maintenance({
               </label>
             </div>
             <span className="muted small">
-              Times are in your time zone ({ZONE}). A window lasts at most 7 days, and can&apos;t
+              Times are in your time zone ({activeZone()}). A window lasts at most 7 days, and can&apos;t
               overlap another.
             </span>
             <div className="form-actions">

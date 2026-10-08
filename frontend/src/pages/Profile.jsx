@@ -5,8 +5,10 @@ import { useApi } from '../useApi.js'
 import { Avatar, ErrorBanner, PageHeader, PasswordChecklist, RolePill } from '../components.jsx'
 import { withoutSpaces } from '../fields.js'
 import { isStrongPassword, WEAK_PASSWORD } from '../password.js'
-import { dateTime, timeAgo } from '../format.js'
+import { calendarDate, dateTime, timeAgo } from '../format.js'
 import { roleClass } from '../roles.js'
+import { deviceZone, DENSITY_CHOICES, HOUR_CHOICES, usePrefs, zoneNames } from '../prefs.js'
+import { THEMES, useTheme } from '../theme.js'
 
 // 24x24 strokes for the card heads, drawn like the sidebar's.
 const ICONS = {
@@ -28,10 +30,36 @@ const ICONS = {
       <path d="M3.5 12h17M12 3.5c2.4 2.5 3.6 5.3 3.6 8.5s-1.2 6-3.6 8.5c-2.4-2.5-3.6-5.3-3.6-8.5s1.2-6 3.6-8.5Z" />
     </>
   ),
+  appearance: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" />
+    </>
+  ),
   password: (
     <>
       <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
       <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5M12 14.5v2" />
+    </>
+  ),
+  // The four themes.
+  system: (
+    <>
+      <rect x="3" y="4.5" width="18" height="12" rx="2" />
+      <path d="M8.5 20h7M12 16.5V20" />
+    </>
+  ),
+  light: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" />
+    </>
+  ),
+  dark: <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />,
+  night: (
+    <>
+      <path d="M18.5 13.5A7 7 0 0 1 9.5 5a7 7 0 1 0 9 8.5Z" />
+      <path d="M17 3v4M15 5h4M21 9.5v2M20 10.5h2" />
     </>
   ),
 }
@@ -67,8 +95,7 @@ function CardHead({ icon, title, note }) {
   )
 }
 
-const day = (iso) =>
-  iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—'
+const day = calendarDate
 
 // Who is signed in, in their role's colour, like the head of a website's page.
 function ProfileHero({ user }) {
@@ -311,6 +338,106 @@ function CountriesCard() {
   )
 }
 
+const THEME_NOTES = {
+  system: 'Follows your device',
+  light: 'Light surfaces',
+  dark: 'Dark surfaces',
+  night: 'Near-black with green, like the sign-in page',
+}
+
+// A row of radio buttons drawn as joined pills. (Not .choice: that is the card style used by the forms.)
+function PillGroup({ name, label, value, choices, onChange }) {
+  return (
+    <fieldset className="pill-group">
+      <legend>{label}</legend>
+      <div className="pill-row">
+        {choices.map((choice) => (
+          <label key={choice.value}>
+            <input
+              type="radio"
+              name={name}
+              value={choice.value}
+              checked={value === choice.value}
+              onChange={() => onChange(choice.value)}
+            />
+            <span>{choice.label}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
+// How Watchly looks and shows times. Kept in this browser, not on the account.
+function AppearanceCard() {
+  const [theme, setTheme] = useTheme()
+  const [prefs, setPrefs] = usePrefs()
+  const device = deviceZone()
+  const zones = zoneNames()
+  return (
+    <section className="card form">
+      <CardHead
+        icon="appearance"
+        title="Appearance"
+        note="Theme, density and time display for this browser."
+      />
+      <fieldset className="theme-options">
+        <legend className="visually-hidden">Theme</legend>
+        {THEMES.map(({ value, label }) => (
+          <label key={value} className="theme-tile" title={THEME_NOTES[value]}>
+            <input
+              type="radio"
+              name="theme"
+              value={value}
+              checked={theme === value}
+              onChange={() => setTheme(value)}
+            />
+            <span className="theme-icon">
+              <Icon name={value} />
+            </span>
+            <span className="theme-name">{label}</span>
+          </label>
+        ))}
+      </fieldset>
+      <p className="muted small">{THEME_NOTES[theme]}.</p>
+
+      <PillGroup
+        name="density"
+        label="Density"
+        value={prefs.density}
+        choices={DENSITY_CHOICES}
+        onChange={(density) => setPrefs({ density })}
+      />
+      <p className="muted small">Compact fits more rows in tables and lists.</p>
+
+      <div className="row-2">
+        <label className="field">
+          <span>Time zone</span>
+          <select value={prefs.timeZone} onChange={(e) => setPrefs({ timeZone: e.target.value })}>
+            <option value="auto">Device ({device})</option>
+            {zones.map((zone) => (
+              <option key={zone} value={zone}>
+                {zone.replaceAll('_', ' ')}
+              </option>
+            ))}
+          </select>
+        </label>
+        <PillGroup
+          name="hours"
+          label="Clock"
+          value={prefs.hours}
+          choices={HOUR_CHOICES}
+          onChange={(hours) => setPrefs({ hours })}
+        />
+      </div>
+      <p className="muted small">
+        Check times, incidents and maintenance windows show as <strong>{dateTime(new Date().toISOString())}</strong>.
+        Charts that are cut by UTC day or hour stay in UTC.
+      </p>
+    </section>
+  )
+}
+
 const EMPTY_PASSWORDS = { current_password: '', new_password: '', confirm_password: '' }
 
 function PasswordCard({ user }) {
@@ -401,12 +528,13 @@ export default function Profile() {
   const { user, updateUser } = useAuth()
   return (
     <>
-      <PageHeader title="Profile" subtitle="Your name, email address and password." />
+      <PageHeader title="Profile" subtitle="Your name, email address, theme and password." />
       <ProfileHero user={user} />
       <div className="grid-2 profile-grid">
         <DetailsCard user={user} updateUser={updateUser} />
         <EmailCard user={user} updateUser={updateUser} />
       </div>
+      <AppearanceCard />
       <PasswordCard user={user} />
       <CountriesCard />
     </>

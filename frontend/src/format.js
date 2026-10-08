@@ -1,3 +1,5 @@
+import { getPrefs, zoneOptions } from './prefs.js'
+
 export function duration(totalSeconds) {
   const s = Math.max(0, Math.round(totalSeconds))
   const days = Math.floor(s / 86400)
@@ -34,8 +36,68 @@ export function initials(name) {
 export const percent = (value) =>
   value == null ? '—' : value === 100 ? '100%' : `${(Math.floor(value * 100) / 100).toFixed(2)}%`
 
+// Times follow the zone and clock chosen on the Profile page (see prefs.js).
+export const timeFormat = (options) => new Intl.DateTimeFormat(undefined, { ...options, ...zoneOptions() })
+
 export function dateTime(iso) {
-  return iso ? new Date(iso).toLocaleString() : '—'
+  return iso
+    ? new Date(iso).toLocaleString(undefined, zoneOptions())
+    : '—'
+}
+
+export const timeOfDay = (iso) => timeFormat({ hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
+
+export const calendarDate = (iso) =>
+  iso ? timeFormat({ day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)) : '—'
+
+// The calendar day an instant falls on in the chosen zone, to tell days apart.
+export const dayKey = (iso) => timeFormat({ year: 'numeric', month: 'numeric', day: 'numeric' }).format(new Date(iso))
+
+// The chosen zone's clock reading for an instant, as [y, m, d, h, mi, s].
+function zonedParts(date) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: zoneOptions().timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, Number(part.value)]),
+  )
+  return [parts.year, parts.month, parts.day, parts.hour, parts.minute, parts.second]
+}
+
+// How far the chosen zone is ahead of UTC at an instant, in ms.
+const zoneOffset = (date) => {
+  const [y, m, d, h, mi, s] = zonedParts(date)
+  return Date.UTC(y, m - 1, d, h, mi, s) - Math.floor(date.getTime() / 1000) * 1000
+}
+
+// A datetime-local input's value ('2026-10-09T14:30') read as the chosen
+// zone's wall clock, as an ISO instant. The device's zone when none is chosen.
+export function zonedInputToIso(local) {
+  if (getPrefs().timeZone === 'auto') return new Date(local).toISOString()
+  const [y, m, d, h, mi] = local.split(/[-T:]/).map(Number)
+  const wall = Date.UTC(y, m - 1, d, h, mi)
+  const first = wall - zoneOffset(new Date(wall))
+  return new Date(wall - zoneOffset(new Date(first))).toISOString()
+}
+
+// Now in the chosen zone, as a datetime-local value.
+export function zonedNowInput() {
+  const now = new Date()
+  if (getPrefs().timeZone === 'auto') {
+    now.setSeconds(0, 0)
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+  }
+  const [y, m, d, h, mi] = zonedParts(now)
+  const two = (n) => String(n).padStart(2, '0')
+  return `${y}-${two(m)}-${two(d)}T${two(h)}:${two(mi)}`
 }
 
 // The month before this one, as 'YYYY-MM' in UTC, which is how reports cut months.
