@@ -107,6 +107,123 @@
   color-scheme: dark;
 }
 
+/* Dim: a softer slate dark, lower contrast than Dark for long sessions. */
+:root[data-theme='dim'] {
+  --bg: #1c2128;
+  --surface: #22272e;
+  --surface-2: #2d333b;
+  --border: #3d444d;
+  --text: #cdd9e5;
+  --muted: #909dab;
+  --primary: #6cb6ff;
+  --primary-text: #1c2128;
+  --action: #57ab5a;
+  --action-text: #1c2128;
+  --up: #57ab5a;
+  --down: #f47067;
+  --pending: #c69026;
+  --maintenance: #b083f0;
+  --warn: #c69026;
+  --warn-text: #1c2128;
+  --series-1: #6cb6ff;
+  --series-2: #f69d50;
+  --paused: #8b949e;
+  --teal: #3cc3d6;
+  --docker: #58aef0;
+  --tag-teal: #3cc3d6;
+  --tag-pink: #f07ab8;
+  --tag-orange: #ff9a4d;
+  --tag-olive: #b8c93a;
+  --shadow: none;
+
+  color-scheme: dark;
+}
+
+/* Paper: warm, low-glare light. Series and tag colours are Light's; the
+   status colours are a shade deeper to hold their contrast on cream. */
+:root[data-theme='paper'] {
+  --bg: #f3eee4;
+  --surface: #fbf8f1;
+  --surface-2: #efe8db;
+  --border: #ddd3c2;
+  --text: #2a251e;
+  --muted: #6b6256;
+  --primary: #2f55b8;
+  --up: #187f45;
+  --down: #c0392b;
+  --pending: #9a6210;
+  --shadow: 0 1px 2px rgb(60 40 10 / 0.06);
+}
+
+/* High contrast: black and white, strong borders and bright status colours,
+   for low vision, bright rooms and wall displays. */
+:root[data-theme='contrast'] {
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --surface-2: #161616;
+  --border: #767676;
+  --text: #ffffff;
+  --muted: #cfcfcf;
+  --primary: #8fb0ff;
+  --primary-text: #000000;
+  --action: #4ade80;
+  --action-text: #000000;
+  --up: #4ade80;
+  --down: #ff6b6b;
+  --pending: #ffc940;
+  --maintenance: #c4a8ff;
+  --warn: #ffc940;
+  --warn-text: #000000;
+  --series-1: #8fb0ff;
+  --series-2: #ff9a4d;
+  --paused: #b0b0b0;
+  --teal: #5fe0f0;
+  --docker: #7cc4ff;
+  --tag-teal: #5fe0f0;
+  --tag-pink: #ff8cc8;
+  --tag-orange: #ffaa66;
+  --tag-olive: #d4e157;
+  --shadow: none;
+
+  color-scheme: dark;
+}
+:root[data-theme='contrast'] :focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+/* Ocean: deep navy with a blue accent; the status colours are Dark's. */
+:root[data-theme='ocean'] {
+  --bg: #0b1220;
+  --surface: #111a2e;
+  --surface-2: #17223a;
+  --border: #24314d;
+  --text: #e2e8f3;
+  --muted: #93a0b8;
+  --primary: #5aa9ff;
+  --primary-text: #0b1220;
+  --action: #3dbb72;
+  --action-text: #0b1220;
+  --up: #3dbb72;
+  --down: #f16565;
+  --pending: #e0a93b;
+  --maintenance: #a88cf0;
+  --warn: #e0a93b;
+  --warn-text: #0b1220;
+  --series-1: #6d8bff;
+  --series-2: #d95926;
+  --paused: #8b919c;
+  --teal: #3cc3d6;
+  --docker: #58aef0;
+  --tag-teal: #3cc3d6;
+  --tag-pink: #f07ab8;
+  --tag-orange: #ff9a4d;
+  --tag-olive: #b8c93a;
+  --shadow: none;
+
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -7203,7 +7320,14 @@ textarea {
   --map-halo: var(--surface-2);
   margin-bottom: 20px;
 }
-:root:is([data-theme='dark'], [data-theme='night']) .map {
+:root:is(
+    [data-theme='dark'],
+    [data-theme='night'],
+    [data-theme='dim'],
+    [data-theme='contrast'],
+    [data-theme='ocean']
+  )
+  .map {
   --fam-lb: #3987e5;
   --fam-server: #199e70;
   --fam-bastion: #c98500;

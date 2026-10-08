@@ -7,6 +7,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.monitoring.infra.aws.edge_security import grade as grade_edge_security
 from app.monitoring.infra.aws.credentials import AccountAuth, AccountFields, AccountInput
 from app.monitoring.infra.aws.models import (
     CheckHealth,
@@ -608,6 +609,38 @@ class ResourceRecipientsUpdate(BaseModel):
     recipient_ids: list[int] = Field(min_length=1, max_length=100)
 
 
+class EdgeItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    key: str = Field(description="e.g. `acl`, `core`, `rate`, `tls`.")
+    group: Literal["waf", "alb"]
+    label: str
+    status: Literal["ok", "weak", "missing", "unknown", "info"]
+    value: str | None
+    note: str | None
+
+
+class EdgeExtraRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    label: str
+    value: str
+
+
+class EdgeSecurityRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    acl_name: str | None = Field(description="The Web ACL in front of the ALB; null when there is none.")
+    acl_arn: str | None
+    score: int = Field(description="How many of the graded items are ok.")
+    total: int = Field(description="Items that are ok, weak or missing; unknown and info ones are left out.")
+    grade: str = Field(description="`A` to `F` by the share that is ok; `?` when nothing could be graded.")
+    items: list[EdgeItemRead]
+    extras: list[EdgeExtraRead] = Field(
+        default_factory=list, description="Further rules and settings, shown, not graded."
+    )
+
+
 class ResourceRead(BaseModel):
     id: int
     project: ProjectBrief
@@ -620,6 +653,13 @@ class ResourceRead(BaseModel):
     address: str | None
     aws_state: str | None
     aws_detail: dict
+    edge_security: EdgeSecurityRead | None = Field(
+        default=None,
+        description=(
+            "ALB only: its AWS WAF Web ACL and hardening settings, graded; null for "
+            "other kinds, and until the first sync that read them."
+        ),
+    )
     synced_at: datetime | None
     missing_since: datetime | None
     is_enabled: bool
@@ -653,6 +693,11 @@ class ResourceRead(BaseModel):
             address=resource.address,
             aws_state=resource.aws_state,
             aws_detail=resource.aws_detail or {},
+            edge_security=(
+                EdgeSecurityRead.model_validate(report)
+                if (report := grade_edge_security(resource.aws_detail))
+                else None
+            ),
             synced_at=resource.synced_at,
             missing_since=resource.missing_since,
             is_enabled=resource.is_enabled,

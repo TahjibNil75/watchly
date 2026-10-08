@@ -141,7 +141,9 @@ The role needs only these read-only permissions:
       "autoscaling:DescribeAutoScalingGroups", "autoscaling:DescribeScalingActivities",
       "rds:DescribeDBInstances", "cloudwatch:GetMetricData",
       "ec2:DescribeVolumes", "ec2:DescribeInstanceTypes",
-      "rds:DescribeDBParameters", "cloudwatch:ListMetrics"
+      "rds:DescribeDBParameters", "cloudwatch:ListMetrics",
+      "elasticloadbalancing:DescribeLoadBalancerAttributes",
+      "wafv2:GetWebACLForResource", "wafv2:GetLoggingConfiguration"
     ],
     "Resource": "*"
   }]
@@ -154,6 +156,8 @@ per resource at one check every five minutes. To follow deployments, also allow
 `codedeploy:ListDeployments`, `codedeploy:BatchGetDeployments` and
 `codedeploy:GetDeploymentGroup`; to watch Elastic IPs, `ec2:DescribeAddresses`,
 `servicequotas:GetServiceQuota` and `servicequotas:GetAWSDefaultServiceQuota`.
+The last three in the policy let an ALB's page grade the AWS WAF in front of it
+and the ALB's own TLS and header settings.
 After adding an account, **Test** in the app tries every permission and says
 which are missing.
 

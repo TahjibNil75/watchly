@@ -297,6 +297,151 @@ def _target_group_name(arn: str) -> str:
     return parts[1].split("/", 1)[0] if len(parts) == 2 else arn
 
 
+def _listener_row(listener: dict) -> dict:
+    """A listener as `aws_detail` keeps it: with its TLS policy, and whether
+    an HTTP one sends everyone to HTTPS."""
+    redirect = next(
+        (
+            action.get("RedirectConfig") or {}
+            for action in listener.get("DefaultActions", [])
+            if action.get("Type") == "redirect"
+        ),
+        None,
+    )
+    return {
+        "protocol": listener.get("Protocol"),
+        "port": listener.get("Port"),
+        "ssl_policy": listener.get("SslPolicy"),
+        "redirects_to_https": redirect is not None and redirect.get("Protocol") == "HTTPS",
+    }
+
+
+def _first_key(value: dict | None) -> str | None:
+    """`{"Block": {}}` -> `block`: how WAF spells an action."""
+    if not value:
+        return None
+    return next(iter(value)).lower()
+
+
+def _waf_rule_row(rule: dict) -> dict:
+    """One Web ACL rule, flattened to what `edge_security` grades: which
+    managed or own rule group it runs, or what kind of rule it is, and
+    whether it only counts."""
+    statement = rule.get("Statement") or rule.get("FirewallManagerStatement") or {}
+    row = {
+        "name": rule.get("Name"),
+        "priority": rule.get("Priority"),
+        "kind": "custom",
+        "vendor": None,
+        "group": None,
+        "version": None,
+        "action": _first_key(rule.get("Action")),
+        "count_override": "none",
+        "counted_rules": [],
+        "limit": None,
+    }
+    group = statement.get("ManagedRuleGroupStatement") or statement.get("RuleGroupReferenceStatement")
+    if group is not None:
+        managed = "ManagedRuleGroupStatement" in statement
+        counted = [
+            item.get("Name")
+            for item in group.get("RuleActionOverrides", [])
+            if "Count" in (item.get("ActionToUse") or {})
+        ] + [item.get("Name") for item in group.get("ExcludedRules", [])]
+        whole = "Count" in (rule.get("OverrideAction") or {})
+        row.update(
+            kind="managed" if managed else "group",
+            vendor=group.get("VendorName") if managed else None,
+            # `.../regional/rulegroup/<name>/<id>` for a group of the account's own.
+            group=group.get("Name") if managed else group.get("ARN", "").split("/")[-2:][0],
+            version=group.get("Version"),
+            # A rule group's own rules decide, unless the whole group counts.
+            action="count" if whole else "enforce",
+            count_override="all" if whole else ("partial" if counted else "none"),
+            counted_rules=counted[:20],
+        )
+    elif "RateBasedStatement" in statement:
+        row.update(kind="rate", limit=statement["RateBasedStatement"].get("Limit"))
+    elif "GeoMatchStatement" in statement or "GeoMatchStatement" in (
+        statement.get("NotStatement") or {}
+    ).get("Statement", {}):
+        row["kind"] = "geo"
+    elif "IPSetReferenceStatement" in statement:
+        row["kind"] = "ip_set"
+    return row
+
+
+async def _waf_detail(arn: str, region: client.Region, skipped: list[Skipped]) -> dict:
+    """The regional Web ACL in front of an ALB, as `aws_detail["waf"]` keeps
+    it: `{"acl": None}` when there is none, `{"error": code}` when AWS would
+    not say."""
+    try:
+        response = await client.call("wafv2", "get_web_acl_for_resource", region, ResourceArn=arn)
+    except AwsError as exc:
+        if exc.code == "WAFNonexistentItemException":
+            return {"acl": None}
+        _skip(skipped, exc)
+        return {"error": exc.code}
+    acl = response.get("WebACL")
+    if not acl:
+        return {"acl": None}
+    logging_on: bool | None
+    try:
+        config = await client.call(
+            "wafv2", "get_logging_configuration", region, ResourceArn=acl["ARN"]
+        )
+        logging_on = bool((config.get("LoggingConfiguration") or {}).get("LogDestinationConfigs"))
+    except AwsError as exc:
+        if exc.code == "WAFNonexistentItemException":
+            logging_on = False
+        else:
+            _skip(skipped, exc)
+            logging_on = None
+    rules = [
+        *acl.get("PreProcessFirewallManagerRuleGroups", []),
+        *acl.get("Rules", []),
+        *acl.get("PostProcessFirewallManagerRuleGroups", []),
+    ]
+    return {
+        "acl": {
+            "name": acl.get("Name"),
+            "arn": acl.get("ARN"),
+            "default_action": _first_key(acl.get("DefaultAction")),
+            "capacity": acl.get("Capacity"),
+            "firewall_manager": bool(acl.get("ManagedByFirewallManager")),
+            "logging": logging_on,
+            "rules": [_waf_rule_row(rule) for rule in rules],
+        }
+    }
+
+
+#: ALB attributes `edge_security` grades, and what `aws_detail` calls them.
+LB_ATTRIBUTES = {
+    "waf.fail_open.enabled": "waf_fail_open",
+    "routing.http.drop_invalid_header_fields.enabled": "drop_invalid_headers",
+    "routing.http.desync_mitigation_mode": "desync_mode",
+    "deletion_protection.enabled": "deletion_protection",
+    "access_logs.s3.enabled": "access_logs",
+}
+
+
+async def _lb_attributes(arn: str, region: client.Region, skipped: list[Skipped]) -> dict | None:
+    try:
+        response = await client.call(
+            "elbv2", "describe_load_balancer_attributes", region, LoadBalancerArn=arn
+        )
+    except AwsError as exc:
+        _skip(skipped, exc)
+        return None
+    found = {}
+    for item in response.get("Attributes", []):
+        name = LB_ATTRIBUTES.get(item.get("Key"))
+        if name is not None:
+            value = item.get("Value")
+            found[name] = value == "true" if value in ("true", "false") else value
+    return found
+
+
 async def _load_balancer_info(
     lb: dict, region: client.Region, *, count_targets: bool
 ) -> tuple[AwsResourceInfo, list[Skipped]]:
@@ -337,7 +482,7 @@ async def _load_balancer_info(
             )
         )
     listener_rows = sorted(
-        ({"protocol": item.get("Protocol"), "port": item.get("Port")} for item in listeners),
+        (_listener_row(item) for item in listeners),
         key=lambda row: (row["protocol"] != "HTTP", row["port"] or 0),
     )
     scheme = lb.get("Scheme")
@@ -349,6 +494,10 @@ async def _load_balancer_info(
         "security_groups": lb.get("SecurityGroups", []),
         "azs": [z.get("ZoneName") for z in lb.get("AvailabilityZones", [])],
     }
+    if lb.get("Type") == "application":
+        # What `edge_security` grades: WAF attaches to ALBs only.
+        detail["waf"] = await _waf_detail(arn, region, skipped)
+        detail["attributes"] = await _lb_attributes(arn, region, skipped)
     first = listener_rows[0] if listener_rows else None
     summary = f"{LOAD_BALANCER_TYPES.get(lb.get('Type'), lb.get('Type'))} · {scheme}"
     if first:

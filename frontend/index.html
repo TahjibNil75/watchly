@@ -11,7 +11,7 @@
       // light, and the density likewise. Mirrors src/theme.js and src/prefs.js.
       try {
         var t = localStorage.getItem('watchly.theme')
-        if (t !== 'light' && t !== 'dark' && t !== 'night') {
+        if (['light', 'dark', 'night', 'dim', 'paper', 'contrast', 'ocean'].indexOf(t) < 0) {
           t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
         }
         document.documentElement.dataset.theme = t

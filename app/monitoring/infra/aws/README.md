@@ -73,9 +73,10 @@ infra/
     ├── limits.py         what AWS caps a resource at: CPU credits, provisioned IOPS,
     │                     a database's max_connections
     ├── history.py        hourly rollup and purge of check results
-    ├── client.py         the only module that imports boto3 (EC2, ELBv2, Auto Scaling, RDS,
+    ├── client.py         the only module that imports boto3 (EC2, ELBv2, WAFv2, Auto Scaling, RDS,
     │                     CloudWatch, CodeDeploy, Service Quotas, STS, IMDS); one session per account (`Account`, `Region`); every call
     │                     goes through anyio.to_thread
+    ├── edge_security.py  an ALB's AWS WAF Web ACL and hardening settings, graded when read
     ├── discovery.py      a VPC's instances, load balancers, Auto Scaling groups and RDS databases; suggested
     │                     checks; sync; a group's instances now (`read_group`)
     ├── diagnose.py       step-by-step dry run of a check; what an account's credentials may do

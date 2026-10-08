@@ -486,6 +486,131 @@ function UnwatchedGroup({ resource: r, canAdd }) {
   )
 }
 
+const gradeTone = (grade) => ({ A: 'up', B: 'up', C: 'unknown', D: 'unknown' })[grade] ?? 'down'
+
+const EDGE_STATUS = {
+  ok: { tone: 'up', label: 'OK' },
+  weak: { tone: 'unknown', label: 'Weak' },
+  missing: { tone: 'down', label: 'Missing' },
+  unknown: { tone: 'paused', label: 'Unknown' },
+  info: { tone: 'paused', label: 'N/A' },
+}
+
+// What a Web ACL rule does with a match: a rule group's own rules decide
+// ("enforce") unless the whole group was set to Count.
+const RULE_ACTION = {
+  enforce: { tone: 'up', label: 'Enforce' },
+  block: { tone: 'up', label: 'Block' },
+  count: { tone: 'unknown', label: 'Count' },
+  allow: { tone: 'paused', label: 'Allow' },
+  captcha: { tone: 'paused', label: 'CAPTCHA' },
+  challenge: { tone: 'paused', label: 'Challenge' },
+}
+
+function ruleText(rule) {
+  if (rule.kind === 'managed') return `${rule.vendor}/${rule.group}${rule.version ? ` ${rule.version}` : ''}`
+  if (rule.kind === 'group') return `rule group ${rule.group}`
+  if (rule.kind === 'rate') return `rate limit ${rule.limit}`
+  if (rule.kind === 'geo') return 'geo match'
+  if (rule.kind === 'ip_set') return 'IP set'
+  return 'custom rule'
+}
+
+function EdgeList({ items }) {
+  return (
+    <ul className="sec-list">
+      {items.map((item) => {
+        const status = EDGE_STATUS[item.status]
+        return (
+          <li key={item.key}>
+            <span className={`badge badge-${status.tone}`}>{status.label}</span>
+            <div className="sec-body">
+              <strong>{item.label}</strong>
+              {item.value && (
+                <code className="sec-value" title={item.value}>
+                  {item.value}
+                </code>
+              )}
+              {item.note && <span className="muted small">{item.note}</span>}
+            </div>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+// The AWS WAF Web ACL in front of an ALB and the ALB's own hardening, graded
+// by the API: what is there, and what is missing.
+function EdgeSecurity({ resource: r }) {
+  const report = r.edge_security
+  if (r.kind !== 'load_balancer' || r.aws_detail?.type !== 'application') return null
+  const rules = r.aws_detail?.waf?.acl?.rules ?? []
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>WAF &amp; edge security</h2>
+        {report && report.total > 0 && (
+          <span className={`badge badge-${gradeTone(report.grade)} sec-grade`}>
+            {report.grade} · {report.score} of {report.total}
+          </span>
+        )}
+      </div>
+      {!report ? (
+        <p className="muted small">Read from AWS at the next sync.</p>
+      ) : (
+        <>
+          <h3 className="sec-extras-title">AWS WAF{report.acl_name && ` · ${report.acl_name}`}</h3>
+          <EdgeList items={report.items.filter((i) => i.group === 'waf')} />
+          <h3 className="sec-extras-title">Load balancer</h3>
+          <EdgeList items={report.items.filter((i) => i.group === 'alb')} />
+          {report.extras?.length > 0 && (
+            <>
+              <h3 className="sec-extras-title">Also set, not graded</h3>
+              <ul className="sec-list">
+                {report.extras.map((x, i) => (
+                  <li key={`${x.label}-${i}`}>
+                    <div className="sec-body">
+                      <strong>{x.label}</strong>
+                      <code className="sec-value" title={x.value}>
+                        {x.value}
+                      </code>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {rules.length > 0 && (
+            <details className="advanced sec-foot">
+              <summary>All {rules.length} Web ACL rules</summary>
+              <ul className="sec-list">
+                {rules.map((rule) => {
+                  const action = RULE_ACTION[rule.action] ?? { tone: 'paused', label: rule.action ?? '—' }
+                  return (
+                    <li key={`${rule.priority}-${rule.name}`}>
+                      <span className={`badge badge-${action.tone}`}>{action.label}</span>
+                      <div className="sec-body">
+                        <strong>
+                          {rule.priority}. {rule.name}
+                        </strong>
+                        <code className="sec-value">{ruleText(rule)}</code>
+                        {rule.count_override === 'partial' && (
+                          <span className="muted small">Counting only: {rule.counted_rules.join(', ')}</span>
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </details>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
 function AwsDetails({ resource: r }) {
   const d = r.aws_detail ?? {}
   const rows = [
@@ -526,6 +651,7 @@ function AwsDetails({ resource: r }) {
     ['Availability zone', d.az ?? d.azs?.join(', ')],
     ['Subnet', d.subnet],
     ['Listeners', d.listeners?.map((l) => `${l.protocol}:${l.port}`).join(', ')],
+    ['Web ACL', d.waf && (d.waf.acl ? d.waf.acl.name : d.waf.error ? 'not readable' : 'none')],
     [
       'Target groups',
       d.target_groups?.length > 0 &&
@@ -910,6 +1036,8 @@ export default function InfraResourceDetail() {
         )}
 
         <Stats resource={r} />
+
+        <EdgeSecurity resource={r} />
 
         <div className="site-row site-pair">
           <AwsDetails resource={r} />

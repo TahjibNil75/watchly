@@ -250,6 +250,43 @@ def _can_ping() -> bool:
     return True
 
 
+async def _allowed(call) -> tuple[bool, str | None, dict | None]:
+    """Whether a call on a real resource is allowed: AWS authorizes before it
+    looks, so anything but a refusal (e.g. a load balancer that is not an
+    ALB) means it is."""
+    try:
+        return True, None, await call
+    except AwsError as exc:
+        return (False, exc.code, None) if exc.access_denied else (True, None, None)
+
+
+async def _edge_permissions(region: client.Region, lb_arn: str | None) -> list[PermissionRead]:
+    """The reads behind an ALB's edge security: its attributes, its Web ACL,
+    and that ACL's logging."""
+    actions = (
+        "elasticloadbalancing:DescribeLoadBalancerAttributes",
+        "wafv2:GetWebACLForResource",
+        "wafv2:GetLoggingConfiguration",
+    )
+    if lb_arn is None:
+        return [PermissionRead(action=action, ok=None, detail="nothing to try it on") for action in actions]
+    (attrs_ok, attrs_error, _), (waf_ok, waf_error, waf) = await asyncio.gather(
+        _allowed(client.call("elbv2", "describe_load_balancer_attributes", region, LoadBalancerArn=lb_arn)),
+        _allowed(client.call("wafv2", "get_web_acl_for_resource", region, ResourceArn=lb_arn)),
+    )
+    permissions = [
+        PermissionRead(action=actions[0], ok=attrs_ok, detail=attrs_error),
+        PermissionRead(action=actions[1], ok=waf_ok, detail=waf_error),
+    ]
+    acl_arn = ((waf or {}).get("WebACL") or {}).get("ARN")
+    if acl_arn is None:
+        permissions.append(PermissionRead(action=actions[2], ok=None, detail="no Web ACL to try it on"))
+    else:
+        ok, error, _ = await _allowed(client.call("wafv2", "get_logging_configuration", region, ResourceArn=acl_arn))
+        permissions.append(PermissionRead(action=actions[2], ok=ok, detail=error))
+    return permissions
+
+
 async def _caller_and_permissions(
     region: client.Region, *, deployments: bool = False, capacity: bool = False
 ) -> tuple[CallerRead | None, str | None, list[PermissionRead]]:
@@ -344,6 +381,7 @@ async def _caller_and_permissions(
             continue
         ok, error, _ = await _try(call())
         permissions.append(PermissionRead(action=action, ok=ok, detail=error))
+    permissions.extend(await _edge_permissions(region, lb_arn))
     if deployments:
         permissions.extend(await _deployment_permissions(region))
     return caller, caller_error, permissions

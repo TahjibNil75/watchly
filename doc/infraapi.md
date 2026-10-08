@@ -54,6 +54,17 @@
 > `rds:DescribeDBParameters` and `cloudwatch:ListMetrics`, and a Capacity
 > statement.
 >
+> **Revised 2026-10-08: ALB edge security.** An Application Load Balancer's
+> page grades the AWS WAF Web ACL attached to it, if any: the AWS managed rule
+> groups that matter (core, known bad inputs, IP reputation, SQL injection), a
+> rate-based rule, rule groups left in Count mode, WAF logging and fail-open.
+> It also grades the ALB's own HTTP-to-HTTPS redirect, TLS policy, invalid-header
+> dropping and desync mitigation. Read at each sync into `aws_detail` (`waf`,
+> `attributes`), graded when read as `edge_security` on `GET /resources/{id}`.
+> Nothing alerts. The IAM policy gains
+> `elasticloadbalancing:DescribeLoadBalancerAttributes`,
+> `wafv2:GetWebACLForResource` and `wafv2:GetLoggingConfiguration`.
+>
 > Companion docs: [`apis.md`](apis.md) for today's endpoints, [`hld.md`](hld.md)
 > for how the pieces fit, and the package's
 > [`README`](../app/monitoring/infra/aws/README.md) for its file layout.
@@ -528,7 +539,10 @@ addresses.
         "ec2:DescribeVolumes",
         "ec2:DescribeInstanceTypes",
         "rds:DescribeDBParameters",
-        "cloudwatch:ListMetrics"
+        "cloudwatch:ListMetrics",
+        "elasticloadbalancing:DescribeLoadBalancerAttributes",
+        "wafv2:GetWebACLForResource",
+        "wafv2:GetLoggingConfiguration"
       ],
       "Resource": "*"
     }
@@ -536,10 +550,15 @@ addresses.
 }
 ```
 
-The last four are what `ec2_metrics` and `db_metrics` measure against: a
-volume's type and IOPS, an RDS class's memory and its parameter group's
-`max_connections`, and the CloudWatch agent's disks. Without them those
-thresholds are skipped, and the rest of each check works.
+`ec2:DescribeVolumes` through `cloudwatch:ListMetrics` are what `ec2_metrics`
+and `db_metrics` measure against: a volume's type and IOPS, an RDS class's
+memory and its parameter group's `max_connections`, and the CloudWatch agent's
+disks. Without them those thresholds are skipped, and the rest of each check
+works.
+
+The last three grade an ALB's edge security (`edge_security` on the resource):
+the AWS WAF Web ACL in front of it, its rules and logging, and the ALB's TLS,
+redirect and header settings. Without them those items read "unknown".
 
 To have an account's Elastic IPs and Elastic IP quota watched
 (`watch_capacity`, see [Capacity](#capacity)), add:

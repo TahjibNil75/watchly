@@ -42,7 +42,7 @@ const ICONS = {
       <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5M12 14.5v2" />
     </>
   ),
-  // The four themes.
+  // The themes.
   system: (
     <>
       <rect x="3" y="4.5" width="18" height="12" rx="2" />
@@ -62,6 +62,25 @@ const ICONS = {
       <path d="M17 3v4M15 5h4M21 9.5v2M20 10.5h2" />
     </>
   ),
+  dim: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" fillOpacity="0.35" />
+    </>
+  ),
+  paper: (
+    <>
+      <path d="M6 3.5h8.5L19 8v12.5H6Z" />
+      <path d="M14.5 3.5V8H19M9 12h7M9 15.5h7" />
+    </>
+  ),
+  contrast: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" />
+    </>
+  ),
+  ocean: <path d="M3 9.5c3-2.5 6 2.5 9 0s6 2.5 9 0M3 15c3-2.5 6 2.5 9 0s6 2.5 9 0" />,
 }
 
 function Icon({ name }) {
@@ -343,6 +362,10 @@ const THEME_NOTES = {
   light: 'Light surfaces',
   dark: 'Dark surfaces',
   night: 'Near-black with green, like the sign-in page',
+  dim: 'Softer dark, easier on the eyes',
+  paper: 'Warm, low-glare light',
+  contrast: 'Maximum contrast for readability',
+  ocean: 'Deep navy with blue accents',
 }
 
 // A row of radio buttons drawn as joined pills. (Not .choice: that is the card style used by the forms.)

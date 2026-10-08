@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 
-// The app's theme is a choice of 'system' (follow the OS), 'light', 'dark' or
-// 'night'. The page always carries a resolved theme as <html data-theme>, so
+// The app's theme is 'system' (follow the OS) or one of the named palettes
+// below. The page always carries a resolved theme as <html data-theme>, so
 // the stylesheet only ever matches on that. index.html applies it before first
 // paint with the same logic as applyTheme(); keep the two in step.
 export const THEME_KEY = 'watchly.theme'
@@ -11,6 +11,10 @@ export const THEMES = [
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
   { value: 'night', label: 'Night' },
+  { value: 'dim', label: 'Dim' },
+  { value: 'paper', label: 'Paper' },
+  { value: 'contrast', label: 'High contrast' },
+  { value: 'ocean', label: 'Ocean' },
 ]
 
 const VALUES = THEMES.map((theme) => theme.value)
