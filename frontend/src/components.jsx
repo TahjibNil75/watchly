@@ -5,6 +5,7 @@ import { environmentLabel } from './environments.js'
 import { duration, initials, since, timeAgo } from './format.js'
 import { passwordRules } from './password.js'
 import { ROLES, roleClass } from './roles.js'
+import Select from './Select.jsx'
 
 export function RolePill({ role }) {
   return <span className={`role-pill ${roleClass(role)}`}>{role}</span>
@@ -13,18 +14,17 @@ export function RolePill({ role }) {
 // A role picker that looks like RolePill, for the rows the viewer may change.
 export function RoleSelect({ value, onChange, disabled, label }) {
   return (
-    <span className={`role-select ${roleClass(value)}`}>
-      <select
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={label}
-      >
-        {ROLES.map((r) => (
-          <option key={r}>{r}</option>
-        ))}
-      </select>
-    </span>
+    <Select
+      className={`role-select ${roleClass(value)}`}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={label}
+    >
+      {ROLES.map((r) => (
+        <option key={r}>{r}</option>
+      ))}
+    </Select>
   )
 }
 
@@ -61,6 +61,34 @@ export function CheckTypeBadge({ site }) {
       {type.short}
       {site.dns_record_type && ` ${site.dns_record_type}`}
     </span>
+  )
+}
+
+// A ring that turns while `busy` is true. When the request ends well it closes
+// into a full ring around a tick for a moment, then goes. Renders nothing the
+// rest of the time, so it can sit next to a label without moving it. Pass
+// `failed` (usually `!!error`) so a rejected request does not look saved.
+export function BusyRing({ busy, failed = false }) {
+  const [phase, setPhase] = useState(busy ? 'busy' : 'idle')
+  const [wasBusy, setWasBusy] = useState(busy)
+  if (busy !== wasBusy) {
+    setWasBusy(busy)
+    setPhase(busy ? 'busy' : failed ? 'idle' : 'done')
+  }
+
+  useEffect(() => {
+    if (phase !== 'done') return
+    const timer = setTimeout(() => setPhase('idle'), 1400)
+    return () => clearTimeout(timer)
+  }, [phase])
+
+  if (phase === 'idle') return null
+  return (
+    <svg className={`busy-ring is-${phase}`} viewBox="0 0 24 24" aria-hidden="true">
+      <circle className="busy-ring-track" cx="12" cy="12" r="9.5" />
+      <circle className="busy-ring-arc" cx="12" cy="12" r="9.5" pathLength="100" />
+      {phase === 'done' && <path className="busy-ring-tick" d="M7.5 12.5l3 3 6-6.5" pathLength="100" />}
+    </svg>
   )
 }
 
@@ -160,26 +188,6 @@ export function PageHeader({ title, subtitle, children }) {
 
 export function Empty({ children }) {
   return <div className="empty">{children}</div>
-}
-
-// Multi-select over users as a scrollable checkbox list.
-export function UserChecklist({ users, selected, onChange, emptyLabel = 'No users to add.' }) {
-  if (!users.length) return <p className="muted small">{emptyLabel}</p>
-  const toggle = (id) =>
-    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
-  return (
-    <div className="checklist">
-      {users.map((u) => (
-        <label key={u.id} className="checklist-item">
-          <input type="checkbox" checked={selected.includes(u.id)} onChange={() => toggle(u.id)} />
-          <span>
-            {u.full_name || u.username}
-            <span className="muted small"> · {u.email}</span>
-          </span>
-        </label>
-      ))}
-    </div>
-  )
 }
 
 export function PersonList({ people, onRemove, emptyLabel }) {

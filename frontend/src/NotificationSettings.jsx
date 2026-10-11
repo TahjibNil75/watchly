@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 import ChannelLogo from './ChannelLogo.jsx'
 import { CHANNELS } from './channels.js'
-import { ErrorBanner, Loading } from './components.jsx'
+import { BusyRing, ErrorBanner, Loading } from './components.jsx'
 import { useApi } from './useApi.js'
 
 // Each kind's colour, icon (24x24 strokes, like the dashboard's) and group. A
@@ -823,6 +823,7 @@ function KindEditor({ setting, scope, canEdit, channels, titleTag: Title, onSave
           {dirty && (
             <>
               <button type="button" className="btn btn-primary btn-sm" onClick={save} disabled={busy}>
+                <BusyRing busy={busy} failed={!!error} />
                 {busy ? 'Saving…' : 'Save'}
               </button>
               <button

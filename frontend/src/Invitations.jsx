@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { api } from './api.js'
-import { Empty, ErrorBanner, Loading, RolePill } from './components.jsx'
+import { BusyRing, Empty, ErrorBanner, Loading, RolePill } from './components.jsx'
 import { withoutSpaces } from './fields.js'
 import { duration, timeAgo } from './format.js'
 import { canManageInvitation, invitableRoles } from './roles.js'
 import { useApi } from './useApi.js'
+import Select from './Select.jsx'
 
 // No 'expired': the server deletes invitations once they expire.
 const STATUSES = ['pending', 'accepted', 'revoked']
@@ -83,11 +84,11 @@ export function InviteForm({ me, onNotice, onSent, onCancel }) {
         </label>
         <label className="field">
           <span>Role</span>
-          <select value={role} onChange={(e) => setRole(e.target.value)}>
+          <Select value={role} onChange={(e) => setRole(e.target.value)}>
             {roles.map((r) => (
               <option key={r}>{r}</option>
             ))}
-          </select>
+          </Select>
         </label>
       </div>
       <p className="muted small">
@@ -96,6 +97,7 @@ export function InviteForm({ me, onNotice, onSent, onCancel }) {
       </p>
       <div className="form-actions">
         <button className="btn btn-primary" disabled={busy}>
+          <BusyRing busy={busy} failed={!!error} />
           {busy ? 'Sending…' : 'Send invitation'}
         </button>
         <button type="button" className="btn btn-danger-solid" onClick={onCancel}>

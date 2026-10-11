@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import BrandMark from '../BrandMark.jsx'
-import { ErrorBanner, PasswordChecklist } from '../components.jsx'
+import { BusyRing, ErrorBanner, PasswordChecklist } from '../components.jsx'
 import { isStrongPassword, WEAK_PASSWORD } from '../password.js'
 
 /**
@@ -90,7 +90,7 @@ export default function ChoosePassword() {
           />
         </label>
         <button className="btn btn-primary btn-block" disabled={busy}>
-          {busy && <span className="spinner" aria-hidden="true" />}
+          <BusyRing busy={busy} failed={!!error} />
           {busy ? 'Saving…' : 'Save and continue'}
         </button>
         <p className="muted small center">

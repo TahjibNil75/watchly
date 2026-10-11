@@ -9,6 +9,7 @@ import { InfraMap } from '../NetworkMap.jsx'
 import { KINDS, STATES, kindInfo, loadAllResources, useInfraEnabled } from '../infra.js'
 import { canCreateProjects, canViewAllProjects } from '../roles.js'
 import { useApi } from '../useApi.js'
+import Select from '../Select.jsx'
 
 const PAGE_SIZE = 50
 // The map reads at most this many VPCs' topologies from AWS for its links.
@@ -19,26 +20,23 @@ const VIEWS = [
   ['table', 'Table'],
 ]
 
-// A filter shown as "Label  Value". The native select sits invisibly on top, so
-// the keyboard, the phone picker and screen readers all work as they do for a select.
+// A filter shown as "Label  Value", opening inline like every other drop-down.
 function FilterPill({ label, value, onChange, options, allLabel }) {
-  const current = options.find((o) => o.value === value)
   return (
-    <label className={`filter-pill${value ? ' is-active' : ''}`}>
-      <span className="k">{label}</span>
-      <span className="v">{current ? current.label : allLabel}</span>
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="m5 8 5 5 5-5" />
-      </svg>
-      <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
-        <option value="">{`${allLabel} (${label})`}</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <Select
+      className={`filter-pill${value ? ' is-active' : ''}`}
+      prefix={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={label}
+    >
+      <option value="">{allLabel}</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </Select>
   )
 }
 

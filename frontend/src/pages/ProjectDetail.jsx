@@ -10,7 +10,6 @@ import {
   Loading,
   PageHeader,
   PersonList,
-  UserChecklist,
   WebsiteTable,
 } from '../components.jsx'
 import { ContainerTable, HostStatusBadge } from '../Docker.jsx'
@@ -21,6 +20,7 @@ import NotificationSettings from '../NotificationSettings.jsx'
 import ProjectForm from '../ProjectForm.jsx'
 import { canManageProject } from '../roles.js'
 import { useApi } from '../useApi.js'
+import PeoplePicker from '../PeoplePicker.jsx'
 
 export default function ProjectDetail() {
   const { id } = useParams()
@@ -137,6 +137,8 @@ export default function ProjectDetail() {
     })
 
   const memberIds = new Set(p.members.map((m) => m.id))
+  // The directory loads one page; a search in the picker reaches the rest.
+  const hasMoreUsers = (users.data?.total ?? 0) > (users.data?.items.length ?? 0)
   const candidates = (users.data?.items ?? []).filter((u) => !memberIds.has(u.id))
   const owner =
     p.owner_id === user.id ? 'you' : users.data?.items.find((u) => u.id === p.owner_id)?.username
@@ -365,10 +367,10 @@ export default function ProjectDetail() {
             onRemove={canManage ? removeMember : null}
             emptyLabel="No members yet."
           />
-          {canManage && candidates.length > 0 && (
+          {canManage && (candidates.length > 0 || hasMoreUsers) && (
             <details className="advanced">
               <summary>Add members</summary>
-              <UserChecklist users={candidates} selected={adding} onChange={setAdding} />
+              <PeoplePicker users={users.data?.items ?? []} exclude={[...memberIds]} selected={adding} onChange={setAdding} />
               <button
                 type="button"
                 className="btn btn-sm"

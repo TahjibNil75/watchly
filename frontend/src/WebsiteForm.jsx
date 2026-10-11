@@ -11,10 +11,12 @@ import {
   sesHostIn,
   sesHostRegion,
 } from './checkTypes.js'
-import { ErrorBanner, UserChecklist } from './components.jsx'
+import { BusyRing, ErrorBanner } from './components.jsx'
+import PeoplePicker from './PeoplePicker.jsx'
 import { ENVIRONMENTS } from './environments.js'
 import { duration, parseEmails, parsePhoneNumbers } from './format.js'
 import { useApi } from './useApi.js'
+import Select from './Select.jsx'
 
 const NAME_MAX_WORDS = 25
 
@@ -250,13 +252,13 @@ function MailFields({ form, set, initial, pickProvider, pickRegion, accounts, se
       <div className="row-2">
         <label className="field">
           <span>Provider</span>
-          <select value={form.mail_provider} onChange={pickProvider}>
+          <Select value={form.mail_provider} onChange={pickProvider}>
             {MAIL_PROVIDERS.map((p) => (
               <option key={p.value} value={p.value}>
                 {p.label}
               </option>
             ))}
-          </select>
+          </Select>
           <span className="muted small">
             {ses || resend
               ? 'Watchly logs in over SMTP and reads the sending quota from the provider’s API. No mail is sent.'
@@ -265,13 +267,13 @@ function MailFields({ form, set, initial, pickProvider, pickRegion, accounts, se
         </label>
         <label className="field">
           <span>Encryption</span>
-          <select value={form.mail_tls} onChange={set('mail_tls')}>
+          <Select value={form.mail_tls} onChange={set('mail_tls')}>
             {MAIL_TLS.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}
               </option>
             ))}
-          </select>
+          </Select>
           {!login && (
             <span className="muted small">
               Without TLS Watchly only greets the server: it never sends a password unencrypted.
@@ -345,7 +347,7 @@ function MailFields({ form, set, initial, pickProvider, pickRegion, accounts, se
         <div className="row-2">
           <label className="field">
             <span>Read the quota with</span>
-            <select value={form.mail_quota_source} onChange={set('mail_quota_source')}>
+            <Select value={form.mail_quota_source} onChange={set('mail_quota_source')}>
               <option value="own">Watchly’s own AWS credentials</option>
               {accounts.map((a) => (
                 <option key={a.id} value={`account:${a.id}`}>
@@ -354,12 +356,12 @@ function MailFields({ form, set, initial, pickProvider, pickRegion, accounts, se
               ))}
               {linked && !listed && <option value={form.mail_quota_source}>AWS account #{linked}</option>}
               <option value="key">An access key of this check’s own</option>
-            </select>
+            </Select>
             <span className="muted small">Needs the ses:GetAccount permission.</span>
           </label>
           <label className="field">
             <span>SES region</span>
-            <select
+            <Select
               value={form.mail_region}
               onChange={pickRegion}
               // A host that does not name a region leaves nothing to take it from.
@@ -376,7 +378,7 @@ function MailFields({ form, set, initial, pickProvider, pickRegion, accounts, se
                   {label} · {value}
                 </option>
               ))}
-            </select>
+            </Select>
             <span className="muted small">Where the quota is read; keep it the same as the SMTP host's.</span>
           </label>
         </div>
@@ -641,26 +643,26 @@ export default function WebsiteForm({
         {creating && (
           <label className="field">
             <span>Project</span>
-            <select value={form.project_id} onChange={set('project_id')} required>
+            <Select value={form.project_id} onChange={set('project_id')} required>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
         <label className="field">
           <span>Environment</span>
           {/* Required for new sites; sites that predate the field can stay unset. */}
-          <select value={form.environment} onChange={set('environment')} required={creating}>
+          <Select value={form.environment} onChange={set('environment')} required={creating}>
             <option value="">{creating ? 'Select environment…' : 'Not set'}</option>
             {ENVIRONMENTS.map((env) => (
               <option key={env.value} value={env.value}>
                 {env.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       </div>
 
@@ -729,13 +731,13 @@ export default function WebsiteForm({
         <div className="row-2">
           <label className="field">
             <span>Record type</span>
-            <select value={form.dns_record_type} onChange={set('dns_record_type')}>
+            <Select value={form.dns_record_type} onChange={set('dns_record_type')}>
               {RECORD_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
                 </option>
               ))}
-            </select>
+            </Select>
             <span className="muted small">
               Looked up at several public resolvers at once, so a change seen by only some of them
               shows.
@@ -762,13 +764,13 @@ export default function WebsiteForm({
       <div className="row-3">
         <label className="field">
           <span>Check every</span>
-          <select value={form.check_interval_seconds} onChange={set('check_interval_seconds')}>
+          <Select value={form.check_interval_seconds} onChange={set('check_interval_seconds')}>
             {intervals.map((s) => (
               <option key={s} value={s}>
                 {duration(s)}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="field">
           <span>
@@ -948,11 +950,11 @@ export default function WebsiteForm({
           <div className="row-3">
             <label className="field">
               <span>Method</span>
-              <select value={form.method} onChange={set('method')}>
+              <Select value={form.method} onChange={set('method')}>
                 {METHODS.map((m) => (
                   <option key={m}>{m}</option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>Expected status</span>
@@ -1083,7 +1085,7 @@ export default function WebsiteForm({
         {creating && users.length > 0 && (
           <div className="field">
             <span>Also give these users access to this site and alert them about it</span>
-            <UserChecklist users={users} selected={recipientIds} onChange={setRecipientIds} />
+            <PeoplePicker users={users} selected={recipientIds} onChange={setRecipientIds} />
           </div>
         )}
         <label className="field">
@@ -1181,6 +1183,7 @@ export default function WebsiteForm({
 
       <div className="form-actions">
         <button className="btn btn-primary" disabled={busy}>
+          <BusyRing busy={busy} failed={!!error} />
           {busy ? 'Saving…' : submitLabel}
         </button>
         {onCancel && (

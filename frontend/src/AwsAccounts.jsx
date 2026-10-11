@@ -3,12 +3,13 @@
 // adds, edits, tests and removes them. Mirrors /monitoring/infra/aws/accounts.
 import { useState } from 'react'
 import { api } from './api.js'
-import { ConfirmDialog, EnvironmentBadge, Empty, ErrorBanner, Loading } from './components.jsx'
+import { BusyRing, ConfirmDialog, EnvironmentBadge, Empty, ErrorBanner, Loading } from './components.jsx'
 import { ENVIRONMENTS } from './environments.js'
 import { timeAgo } from './format.js'
 import { RegionSelect } from './Infra.jsx'
 import { BLANK_ACCOUNT, credentialsLine, newAccountPayload } from './infra.js'
 import { useApi } from './useApi.js'
+import Select from './Select.jsx'
 
 export function Mark({ ok }) {
   return (
@@ -40,14 +41,14 @@ export function AccountFields({ value: form, onChange, account = null }) {
       <div className="row-2">
         <label className="field">
           <span>Environment</span>
-          <select value={form.environment} onChange={set('environment')}>
+          <Select value={form.environment} onChange={set('environment')}>
             <option value="">Not set</option>
             {ENVIRONMENTS.map((env) => (
               <option key={env.value} value={env.value}>
                 {env.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="field">
           <span>
@@ -188,7 +189,7 @@ function CapacityCell({ account: a }) {
   )
 }
 
-function AccountForm({ account, busy, onSave, onCancel }) {
+function AccountForm({ account, busy, error, onSave, onCancel }) {
   const [form, setForm] = useState(() =>
     account
       ? {
@@ -233,6 +234,7 @@ function AccountForm({ account, busy, onSave, onCancel }) {
       </p>
       <div className="form-actions">
         <button type="submit" className="btn btn-primary" disabled={busy}>
+          <BusyRing busy={busy} failed={!!error} />
           {busy ? 'Asking AWS…' : account ? 'Save' : 'Add account'}
         </button>
         <button type="button" className="btn" onClick={onCancel} disabled={busy}>
@@ -432,6 +434,7 @@ export function AwsAccountsCard({ projectId }) {
             key={editing === 'new' ? 'new' : editing.id}
             account={editing === 'new' ? null : editing}
             busy={busy}
+            error={error}
             onSave={save}
             onCancel={() => setEditing(null)}
           />

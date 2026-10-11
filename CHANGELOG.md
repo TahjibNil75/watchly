@@ -12,6 +12,9 @@ major version.
 
 ### Added
 
+- `GET /users` takes `q`, a search on username, full name and email, so a
+  directory too large for one page can still be searched.
+
 - Mail checks (`check_type` `mail`): each check logs in to an SMTP server
   (STARTTLS or implicit TLS, the certificate verified) and hangs up without
   sending, so a provider outage, a blocked port or rotated SMTP credentials
@@ -45,6 +48,15 @@ major version.
   projects instead of infrastructure ones.
 
 ### Changed
+
+- Buttons that save or send show a turning ring while the request runs, in
+  place of the old spinner and the bare "Saving…" text. When the request
+  succeeds the ring closes around a tick for a moment; a failed request
+  shows no tick.
+
+- Every drop-down opens inline as an accordion, and the places that choose
+  people (project members, site and resource recipients) use a picker with a
+  search, avatars, emails and role badges in place of the checkbox list.
 
 - The sidebar groups its links under Monitor and Workspace, shows each
   monitor's total (or, in red, how many things need a look), and keeps Profile,

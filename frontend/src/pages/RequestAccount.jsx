@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import BrandMark from '../BrandMark.jsx'
-import { ErrorBanner } from '../components.jsx'
+import { BusyRing, ErrorBanner } from '../components.jsx'
 import { withoutSpaces } from '../fields.js'
 
 export default function RequestAccount() {
@@ -89,7 +89,7 @@ export default function RequestAccount() {
               />
             </label>
             <button className="btn btn-primary btn-block" disabled={busy}>
-              {busy && <span className="spinner" aria-hidden="true" />}
+              <BusyRing busy={busy} failed={!!error} />
               {busy ? 'Sending…' : 'Request an account'}
             </button>
           </>

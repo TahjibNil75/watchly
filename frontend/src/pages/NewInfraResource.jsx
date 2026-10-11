@@ -9,6 +9,7 @@ import { CHECK_TYPES, PUBLIC_IP_CHECKS, useInfraEnabled } from '../infra.js'
 import { canCreateProjects, canManageProject } from '../roles.js'
 import { timeAgo } from '../format.js'
 import { useApi } from '../useApi.js'
+import Select from '../Select.jsx'
 
 const settingsText = (settings) =>
   Object.entries(settings)
@@ -367,7 +368,7 @@ export default function NewInfraResource() {
           <div className="row-3">
             <label className="field">
               <span>Project</span>
-              <select
+              <Select
                 value={projectId}
                 onChange={(e) => {
                   setProjectId(e.target.value)
@@ -381,11 +382,11 @@ export default function NewInfraResource() {
                     {p.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>AWS account</span>
-              <select
+              <Select
                 value={account ? String(account.id) : ''}
                 onChange={(e) => {
                   setAccountId(e.target.value)
@@ -400,18 +401,18 @@ export default function NewInfraResource() {
                     {a.aws_account_id ? ` (${a.aws_account_id})` : ''}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>Environment</span>
-              <select value={chosenEnvironment} onChange={(e) => setEnvironment(e.target.value)} required>
+              <Select value={chosenEnvironment} onChange={(e) => setEnvironment(e.target.value)} required>
                 <option value="">Select environment…</option>
                 {ENVIRONMENTS.map((env) => (
                   <option key={env.value} value={env.value}>
                     {env.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           </div>
           {account && (
@@ -430,7 +431,7 @@ export default function NewInfraResource() {
               </label>
               <label className="field">
                 <span>VPC</span>
-                <select
+                <Select
                   value={awsVpcId}
                   onChange={(e) => {
                     setAwsVpcId(e.target.value)
@@ -452,7 +453,7 @@ export default function NewInfraResource() {
                       {v.registered_as ? ' · watched' : ''}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
             </div>
           )}

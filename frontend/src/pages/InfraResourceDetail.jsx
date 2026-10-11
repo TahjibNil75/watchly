@@ -8,7 +8,6 @@ import {
   ErrorBanner,
   Loading,
   PersonList,
-  UserChecklist,
 } from '../components.jsx'
 import { dateTime, percent, since, timeAgo } from '../format.js'
 import InfraCheckForm from '../InfraCheckForm.jsx'
@@ -28,6 +27,8 @@ import Maintenance from '../Maintenance.jsx'
 import { ENVIRONMENTS } from '../environments.js'
 import { canCreateProjects, canManageProject } from '../roles.js'
 import { useApi } from '../useApi.js'
+import PeoplePicker from '../PeoplePicker.jsx'
+import Select from '../Select.jsx'
 
 const RESULTS_SHOWN = 30
 const RANGES = ['24h', '7d', '30d', '90d']
@@ -763,14 +764,14 @@ function EnvironmentCard({ resource: r, canManage, onChange, onError }) {
       <form className="form" onSubmit={save}>
         <label className="field">
           <span>Environment</span>
-          <select value={value} onChange={(e) => setValue(e.target.value)} disabled={!canManage || busy}>
+          <Select value={value} onChange={(e) => setValue(e.target.value)} disabled={!canManage || busy}>
             <option value="">Not set</option>
             {ENVIRONMENTS.map((env) => (
               <option key={env.value} value={env.value}>
                 {env.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         {canManage && (
           <div className="form-actions">
@@ -855,10 +856,10 @@ function ScalingNotifications({ resource: r, canManage, onChange, onError }) {
           <div className="check-fields">
             <label className="field">
               <span>Scheme</span>
-              <select value={endpoint.scheme} onChange={setField('scheme')} disabled={!canManage}>
+              <Select value={endpoint.scheme} onChange={setField('scheme')} disabled={!canManage}>
                 <option>http</option>
                 <option>https</option>
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>Port</span>
@@ -955,6 +956,8 @@ export default function InfraResourceDetail() {
   const removeRecipient = (person) => run(async () => resource.setData(await api.removeResourceRecipient(r.id, person.id)))
 
   const recipientIds = new Set(r.extra_recipients.map((u) => u.id))
+  // The directory loads one page; a search in the picker reaches the rest.
+  const hasMoreUsers = (users.data?.total ?? 0) > (users.data?.items.length ?? 0)
   const candidates = (users.data?.items ?? []).filter((u) => !recipientIds.has(u.id))
   const canCheck = r.is_enabled && !r.maintenance && r.state !== 'missing'
 
@@ -1062,9 +1065,9 @@ export default function InfraResourceDetail() {
             onRemove={canManage ? removeRecipient : null}
             emptyLabel="No extra recipients."
           />
-          {canManage && candidates.length > 0 && (
+          {canManage && (candidates.length > 0 || hasMoreUsers) && (
             <>
-              <UserChecklist users={candidates} selected={adding} onChange={setAdding} />
+              <PeoplePicker users={users.data?.items ?? []} exclude={[...recipientIds]} selected={adding} onChange={setAdding} />
               <button type="button" className="btn btn-sm" onClick={addRecipients} disabled={busy || !adding.length}>
                 Add {adding.length || ''} recipient{adding.length === 1 ? '' : 's'}
               </button>

@@ -20,7 +20,6 @@ import {
   Loading,
   PersonList,
   StatusBadge,
-  UserChecklist,
 } from '../components.jsx'
 import { bytes, calendarDate, dateTime, duration, percent, since, timeAgo, until } from '../format.js'
 import Maintenance from '../Maintenance.jsx'
@@ -28,6 +27,7 @@ import { canManageProject } from '../roles.js'
 import SiteHistory from '../SiteHistory.jsx'
 import { useApi } from '../useApi.js'
 import WebsiteForm from '../WebsiteForm.jsx'
+import PeoplePicker from '../PeoplePicker.jsx'
 
 const CHECKS_SHOWN = 60
 
@@ -1631,6 +1631,8 @@ export default function WebsiteDetail() {
     })
 
   const recipientIds = new Set(s.recipients.map((r) => r.id))
+  // The directory loads one page; a search in the picker reaches the rest.
+  const hasMoreUsers = (users.data?.total ?? 0) > (users.data?.items.length ?? 0)
   const candidates = (users.data?.items ?? []).filter((u) => !recipientIds.has(u.id))
 
   return (
@@ -1930,10 +1932,10 @@ export default function WebsiteDetail() {
               onRemove={canManage ? removeRecipient : null}
               emptyLabel="No users are alerted about this site specifically."
             />
-            {canManage && candidates.length > 0 && (
+            {canManage && (candidates.length > 0 || hasMoreUsers) && (
               <details className="advanced">
                 <summary>Add recipients</summary>
-                <UserChecklist users={candidates} selected={adding} onChange={setAdding} />
+                <PeoplePicker users={users.data?.items ?? []} exclude={[...recipientIds]} selected={adding} onChange={setAdding} />
                 <button
                   type="button"
                   className="btn btn-sm"

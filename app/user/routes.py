@@ -197,12 +197,15 @@ async def list_users(
     offset: int = Query(0, ge=0),
     role: UserRole | None = Query(None, description="Filter by role."),
     is_active: bool | None = Query(None, description="Filter by active state."),
+    q: str | None = Query(
+        None, max_length=200, description="Username, name or email contains this."
+    ),
     _: User = Depends(require_user_manager),
     service: UserService = Depends(get_user_service),
 ) -> UserListResponse:
     """Paginated directory of users — admin, DevOps and project managers."""
     users, total = await service.list_users(
-        limit=limit, offset=offset, role=role, is_active=is_active
+        limit=limit, offset=offset, role=role, is_active=is_active, q=q
     )
     return UserListResponse(
         items=[UserRead.model_validate(u) for u in users],

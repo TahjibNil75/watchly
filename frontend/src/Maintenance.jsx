@@ -3,6 +3,7 @@ import { api } from './api.js'
 import { ErrorBanner } from './components.jsx'
 import { dateTime, dayKey, duration, timeOfDay, until, zonedInputToIso, zonedNowInput } from './format.js'
 import { activeZone } from './prefs.js'
+import Select from './Select.jsx'
 
 // How long "Start maintenance" lasts; 30 minutes unless picked otherwise.
 const DURATIONS = [
@@ -139,7 +140,7 @@ export default function Maintenance({
       ) : (
         canManage && (
           <div className="maint-row">
-            <select
+            <Select
               value={minutes}
               onChange={(e) => setMinutes(e.target.value)}
               aria-label="How long"
@@ -149,7 +150,7 @@ export default function Maintenance({
                   {label}
                 </option>
               ))}
-            </select>
+            </Select>
             <input
               className="maint-grow"
               value={reason}

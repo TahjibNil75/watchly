@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import BrandMark from '../BrandMark.jsx'
-import { ErrorBanner } from '../components.jsx'
+import { BusyRing, ErrorBanner } from '../components.jsx'
 import { useLinkToken } from '../useLinkToken.js'
 
 /**
@@ -69,7 +69,7 @@ export default function ConfirmEmail() {
                 onClick={confirm}
                 disabled={busy}
               >
-                {busy && <span className="spinner" aria-hidden="true" />}
+                <BusyRing busy={busy} failed={!!error} />
                 {busy ? 'Confirming…' : 'Confirm new address'}
               </button>
             )}

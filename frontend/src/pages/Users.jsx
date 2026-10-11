@@ -15,6 +15,7 @@ import { dateTime, timeAgo } from '../format.js'
 import { InvitationList, InviteForm } from '../Invitations.jsx'
 import { ROLES, canChangeRole, canInvite, canManageUsers, canSuspend } from '../roles.js'
 import { useApi } from '../useApi.js'
+import Select from '../Select.jsx'
 
 const STATUS_FILTERS = [
   { value: '', label: 'Everyone' },
@@ -108,12 +109,12 @@ export default function Users() {
       <div className="toolbar">
         <label className="inline-field">
           <span>Role</span>
-          <select value={role} onChange={(e) => setRole(e.target.value)}>
+          <Select value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="">All roles</option>
             {ROLES.map((r) => (
               <option key={r}>{r}</option>
             ))}
-          </select>
+          </Select>
         </label>
         <div className="segmented" role="group" aria-label="Status">
           {STATUS_FILTERS.map((f) => (

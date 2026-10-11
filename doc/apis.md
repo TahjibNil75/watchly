@@ -262,7 +262,7 @@ is none.
 
 ### `GET /api/v1/users`
 Paginated user directory.
-Query: `limit` (1–100), `offset`, `role`, `is_active`
+Query: `limit` (1–100), `offset`, `role`, `is_active`, `q` (username, name or email contains it)
 `200` · `403` not a management role
 
 ### `GET /api/v1/users/{user_id}`

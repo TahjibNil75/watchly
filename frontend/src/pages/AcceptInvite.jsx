@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import BrandMark from '../BrandMark.jsx'
-import { ErrorBanner, Loading, PasswordChecklist } from '../components.jsx'
+import { BusyRing, ErrorBanner, Loading, PasswordChecklist } from '../components.jsx'
 import { USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH, withoutSpaces } from '../fields.js'
 import { isStrongPassword, WEAK_PASSWORD } from '../password.js'
 import { useApi } from '../useApi.js'
@@ -169,7 +169,7 @@ export default function AcceptInvite() {
         </div>
         <PasswordChecklist id="password-rules" password={form.password} identity={identity} />
         <button className="btn btn-primary btn-block" disabled={busy}>
-          {busy && <span className="spinner" aria-hidden="true" />}
+          <BusyRing busy={busy} failed={!!error} />
           {busy ? 'Creating account…' : 'Create account'}
         </button>
       </form>

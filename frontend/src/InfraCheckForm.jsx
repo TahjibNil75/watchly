@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { ErrorBanner } from './components.jsx'
+import { BusyRing, ErrorBanner } from './components.jsx'
 import { CHECKS_BY_KIND, CHECK_TYPES, PUBLIC_IP_CHECKS } from './infra.js'
+import Select from './Select.jsx'
 
 // A server's check goes to its private IP unless this is ticked; a group's,
 // to each instance's.
@@ -303,13 +304,13 @@ export default function InfraCheckForm({ resource, check, onSubmit, onCancel }) 
       <div className="row-2">
         <label className="field">
           <span>Type</span>
-          <select value={type} onChange={(e) => pickType(e.target.value)} disabled={editing}>
+          <Select value={type} onChange={(e) => pickType(e.target.value)} disabled={editing}>
             {allowed.map((t) => (
               <option key={t} value={t}>
                 {CHECK_TYPES[t].label} — {CHECK_TYPES[t].note}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="field">
           <span>Name</span>
@@ -329,21 +330,21 @@ export default function InfraCheckForm({ resource, check, onSubmit, onCancel }) 
               <>
                 <span>{f.label}</span>
                 {f.type === 'select' ? (
-                  <select value={values[f.key]} onChange={set(f.key)}>
+                  <Select value={values[f.key]} onChange={set(f.key)}>
                     {f.options.map((o) => (
                       <option key={o}>{o}</option>
                     ))}
-                  </select>
+                  </Select>
                 ) : f.type === 'target_group' ? (
                   groups.length ? (
-                    <select value={values[f.key]} onChange={set(f.key)} required>
+                    <Select value={values[f.key]} onChange={set(f.key)} required>
                       <option value="">Pick a target group…</option>
                       {groups.map((g) => (
                         <option key={g.arn} value={g.arn}>
                           {g.name} · {g.health_check}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   ) : (
                     <input value={values[f.key]} onChange={set(f.key)} placeholder="arn:aws:elasticloadbalancing:…" required />
                   )
@@ -390,6 +391,7 @@ export default function InfraCheckForm({ resource, check, onSubmit, onCancel }) 
 
       <div className="form-actions">
         <button type="submit" className="btn btn-primary" disabled={busy}>
+          <BusyRing busy={busy} failed={!!error} />
           {busy ? 'Saving…' : editing ? 'Save check' : 'Add check'}
         </button>
         <button type="button" className="btn" onClick={onCancel} disabled={busy}>

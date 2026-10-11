@@ -7,6 +7,7 @@ import { ErrorBanner, Loading, PageHeader, WebsiteTable } from '../components.js
 import { canCreateProjects, canViewAllProjects } from '../roles.js'
 import { useApi } from '../useApi.js'
 import { useMediaQuery } from '../useMediaQuery.js'
+import Select from '../Select.jsx'
 
 const PAGE_SIZE = 50
 
@@ -292,26 +293,26 @@ export default function Dashboard() {
         <div className="infra-bar-row">
           <label className="inline-field">
             <span>Type</span>
-            <select value={checkType} onChange={(e) => pick(setCheckType)(e.target.value)}>
+            <Select value={checkType} onChange={(e) => pick(setCheckType)(e.target.value)}>
               <option value="">All types</option>
               {CHECK_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           {projectItems.length > 1 && (
             <label className="inline-field">
               <span>Project</span>
-              <select value={projectId} onChange={(e) => pick(setProjectId)(e.target.value)}>
+              <Select value={projectId} onChange={(e) => pick(setProjectId)(e.target.value)}>
                 <option value="">All projects</option>
                 {projectItems.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           )}
         </div>

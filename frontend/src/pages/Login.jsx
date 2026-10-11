@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth, useSignupOpen } from '../auth.jsx'
 import BrandMark, { useBrandMood } from '../BrandMark.jsx'
-import { ErrorBanner } from '../components.jsx'
+import { BusyRing, ErrorBanner } from '../components.jsx'
 import { NightReadouts, NightTraces } from '../NightMonitor.jsx'
 
 // A night-shift monitor: a heartbeat sweeps a dark grid behind the form, with
@@ -105,7 +105,7 @@ export default function Login() {
           </div>
         </label>
         <button className="btn btn-primary btn-block" disabled={busy}>
-          {busy && <span className="spinner" aria-hidden="true" />}
+          <BusyRing busy={busy} failed={!!error} />
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
         <p className="muted small center">

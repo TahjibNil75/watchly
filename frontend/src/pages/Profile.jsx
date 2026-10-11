@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import { useApi } from '../useApi.js'
-import { Avatar, ErrorBanner, PageHeader, PasswordChecklist, RolePill } from '../components.jsx'
+import { Avatar, BusyRing, ErrorBanner, PageHeader, PasswordChecklist, RolePill } from '../components.jsx'
 import { withoutSpaces } from '../fields.js'
 import { isStrongPassword, WEAK_PASSWORD } from '../password.js'
 import { calendarDate, dateTime, timeAgo } from '../format.js'
 import { roleClass } from '../roles.js'
 import { deviceZone, DENSITY_CHOICES, HOUR_CHOICES, usePrefs, zoneNames } from '../prefs.js'
 import { THEMES, useTheme } from '../theme.js'
+import Select from '../Select.jsx'
 
 // 24x24 strokes for the card heads, drawn like the sidebar's.
 const ICONS = {
@@ -223,6 +224,7 @@ function DetailsCard({ user, updateUser }) {
       <p className="muted small">Your username and role can only be changed by an administrator.</p>
       <div className="form-actions">
         <button className="btn btn-primary" disabled={busy}>
+          <BusyRing busy={busy} failed={!!error} />
           {busy ? 'Saving…' : 'Save'}
         </button>
       </div>
@@ -303,6 +305,7 @@ function EmailCard({ user, updateUser }) {
       </p>
       <div className="form-actions">
         <button className="btn btn-primary" disabled={busy}>
+          <BusyRing busy={busy} failed={!!error} />
           {busy ? 'Sending…' : 'Send confirmation link'}
         </button>
       </div>
@@ -436,14 +439,14 @@ function AppearanceCard() {
       <div className="row-2">
         <label className="field">
           <span>Time zone</span>
-          <select value={prefs.timeZone} onChange={(e) => setPrefs({ timeZone: e.target.value })}>
+          <Select value={prefs.timeZone} onChange={(e) => setPrefs({ timeZone: e.target.value })}>
             <option value="auto">Device ({device})</option>
             {zones.map((zone) => (
               <option key={zone} value={zone}>
                 {zone.replaceAll('_', ' ')}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <PillGroup
           name="hours"
@@ -540,6 +543,7 @@ function PasswordCard({ user }) {
       )}
       <div className="form-actions">
         <button className="btn btn-primary" disabled={busy}>
+          <BusyRing busy={busy} failed={!!error} />
           {busy ? 'Changing…' : 'Change password'}
         </button>
       </div>

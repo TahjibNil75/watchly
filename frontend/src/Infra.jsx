@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { EnvironmentBadge, Empty } from './components.jsx'
 import { since, timeAgo } from './format.js'
 import { AWS_REGIONS, CHECK_TYPES, PROVIDERS, exposureLine, kindInfo, resourceTrouble, stateLabel } from './infra.js'
+import Select from './Select.jsx'
 
 export function StateBadge({ state }) {
   return <span className={`badge badge-${state}`}>{stateLabel(state)}</span>
@@ -64,7 +65,7 @@ export function ProviderPicker({ value, onChange }) {
 export function RegionSelect({ value, onChange, emptyLabel, ...rest }) {
   const known = AWS_REGIONS.some((g) => g.regions.some(([code]) => code === value))
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
+    <Select value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
       <option value="">{emptyLabel}</option>
       {value && !known && <option value={value}>{value}</option>}
       {AWS_REGIONS.map((g) => (
@@ -76,7 +77,7 @@ export function RegionSelect({ value, onChange, emptyLabel, ...rest }) {
           ))}
         </optgroup>
       ))}
-    </select>
+    </Select>
   )
 }
 

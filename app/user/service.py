@@ -7,7 +7,7 @@ Knows nothing about HTTP: it raises the domain errors below and
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -109,9 +109,19 @@ class UserService:
         offset: int = 0,
         role: UserRole | None = None,
         is_active: bool | None = None,
+        q: str | None = None,
     ) -> tuple[list[User], int]:
         """Return one page of users plus the total matching the filters."""
         filters = []
+        if q and q.strip():
+            term = q.strip()
+            filters.append(
+                or_(
+                    User.username.icontains(term, autoescape=True),
+                    User.full_name.icontains(term, autoescape=True),
+                    User.email.icontains(term, autoescape=True),
+                )
+            )
         if role is not None:
             filters.append(User.role == role)
         if is_active is not None:

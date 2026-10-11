@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AccountFields } from './AwsAccounts.jsx'
-import { ErrorBanner, Loading, UserChecklist } from './components.jsx'
+import { BusyRing, ErrorBanner, Loading } from './components.jsx'
+import PeoplePicker from './PeoplePicker.jsx'
 import { DockerGlyph } from './Docker.jsx'
 import { parseEmails, parsePhoneNumbers } from './format.js'
 import { useDockerEnabled } from './docker.js'
@@ -450,6 +451,7 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
 
         <div className="form-actions">
           <button className="btn btn-primary" disabled={busy}>
+            <BusyRing busy={busy} failed={!!error} />
             {busy ? 'Saving…' : submitLabel ?? 'Save'}
           </button>
           {onCancel && (
@@ -576,7 +578,7 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
             Members can see this project and its {infra ? 'resources' : 'websites'}, and are alerted about every{' '}
             {infra ? 'one' : 'site'}
           </span>
-          <UserChecklist users={users} selected={memberIds} onChange={setMemberIds} />
+          <PeoplePicker users={users} selected={memberIds} onChange={setMemberIds} />
         </div>
         <label className="field">
           <span>Extra addresses (client contacts, shared inboxes)</span>
@@ -680,6 +682,7 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
               </button>
             )}
             <button key={lastStep ? 'create' : 'next'} className="btn btn-primary" disabled={busy}>
+              <BusyRing busy={busy} failed={!!error} />
               {lastStep ? (busy ? (infra ? 'Asking AWS…' : 'Saving…') : submitLabel ?? 'Create project') : 'Next'}
             </button>
           </span>

@@ -7,6 +7,7 @@ import { ConnectAgent, HostStatusBadge } from '../Docker.jsx'
 import { useDockerEnabled } from '../docker.js'
 import { canCreateProjects, canManageProject } from '../roles.js'
 import { useApi } from '../useApi.js'
+import Select from '../Select.jsx'
 
 // Once the host exists: its token and how to run the agent, and its status,
 // polled until the agent's first push turns it online.
@@ -97,13 +98,13 @@ export default function NewDockerHost() {
         <form className="card" onSubmit={submit}>
           <label className="field">
             <span>Project</span>
-            <select value={projectId} onChange={set('project_id')} required>
+            <Select value={projectId} onChange={set('project_id')} required>
               {manageable.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="field">
             <span>Name</span>
