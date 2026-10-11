@@ -46,7 +46,7 @@ country, and Watchly will:
 It is off while `COUNTRY_HEADER` is empty. The header is the proxy's word, so
 the proxy must overwrite it and the API must not be reachable around the proxy.
 The country is the address's, so a VPN shows as its own. Only `/api` is
-blocked: the web app's static files are served by nginx.
+blocked: the web app's static files are served by Caddy.
 
 **AWS WAF:** add a Geo match rule that only counts (action *Count*, which can
 insert request headers) and sets a custom request header from the

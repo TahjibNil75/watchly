@@ -138,7 +138,7 @@ What infrastructure adds:
  │  ┌──────────────────────────────┐    instance role watchly-monitor (read-only)     │
  │  │ EC2 watchly  10.20.0.25      │──────────────▶ EC2 / ELB APIs                    │
  │  │ sg-watchly                   │                                                  │
- │  │ web (nginx) · api + loop     │                                                  │
+ │  │ web (caddy) · api + loop     │                                                  │
  │  └──────────────┬───────────────┘                                                  │
  │                 │ probes; each target's security group allows sg-watchly           │
  │  public subnets │  internet-facing ALB shop-web, public EC2 bastion 203.0.113.25   │

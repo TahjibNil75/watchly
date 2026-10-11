@@ -45,7 +45,7 @@ services:
       db:
         condition: service_healthy
 
-  # The React app, served by nginx, which also proxies /api to the api service.
+  # The React app, served by Caddy, which also proxies /api to the api service.
   web:
     build: ./frontend
     container_name: watchly-web

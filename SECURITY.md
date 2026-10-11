@@ -38,7 +38,7 @@ Most problems in a self-hosted deployment come from its settings:
   development.
 - **Tell the API which proxy to trust.** Sign-in, signup, forgot password and
   the emailed-link endpoints are rate-limited per client address. Behind a
-  proxy that is not the Compose file's own nginx, set `FORWARDED_ALLOW_IPS` to
+  proxy that is not the Compose file's own Caddy, set `FORWARDED_ALLOW_IPS` to
   its address; otherwise every visitor shares the proxy's limit, and one
   attacker can use it up for everyone.
 - **Keep `.env` out of version control.** It holds your SMTP password and API

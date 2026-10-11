@@ -7,9 +7,9 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# nginx serves the bundle and proxies /api to the backend, so the browser sees
+# Caddy serves the bundle and proxies /api to the backend, so the browser sees
 # a single origin and the API needs no CORS setup.
-FROM nginx:1.29-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
+FROM caddy:2-alpine
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /app/dist /usr/share/caddy
 EXPOSE 80

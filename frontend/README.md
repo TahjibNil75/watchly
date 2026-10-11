@@ -12,7 +12,7 @@ The quickest way is the whole stack in Docker, from the repo root:
 docker compose up -d --build
 ```
 
-The UI is then at http://localhost:8080. It's served by nginx (`nginx.conf`),
+The UI is then at http://localhost:8080. It's served by Caddy (`Caddyfile`),
 which also proxies `/api` and `/health` to the `api` container.
 
 For development with hot reload, start the API first (see the [root README](../Readme.md)), then:
@@ -57,7 +57,7 @@ npm run lint
 `dist/` is a static bundle. Serve it from the same origin as the API, or set
 `VITE_API_URL` at build time and add CORS to the API. Any route other than a
 file must fall back to `index.html` so client-side routing works. The
-`Dockerfile` and `nginx.conf` here already handle this.
+`Dockerfile` and `Caddyfile` here already handle this.
 
 ## Known limits
 
@@ -66,7 +66,7 @@ file must fall back to `index.html` so client-side routing works. The
   `401`, `api.js` trades it at `/auth/refresh` and retries the request once. The
   server rotates the cookie on every use, so refreshes are serialised, within a
   tab and across tabs (Web Locks).
-- The cookie is only sent same-origin (the Vite proxy and the nginx image). A
+- The cookie is only sent same-origin (the Vite proxy and the Caddy image). A
   build pointed at another origin with `VITE_API_URL` would also need CORS with
   credentials.
 - List views load up to 100 items (the API's page limit) and say so when

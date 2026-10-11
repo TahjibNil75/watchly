@@ -6,9 +6,9 @@ set -e
 
 alembic upgrade head
 
-# Requests reach the API through the web container's nginx, so without this
-# they would all seem to come from nginx and share one rate limit. Trust the
-# X-Forwarded-For of the networks this container is on, where nginx is, unless
+# Requests reach the API through the web container's Caddy, so without this
+# they would all seem to come from Caddy and share one rate limit. Trust the
+# X-Forwarded-For of the networks this container is on, where Caddy is, unless
 # FORWARDED_ALLOW_IPS already says whom to trust. A client connecting to the
 # published API port from outside keeps its own address, so cannot forge one.
 if [ -z "${FORWARDED_ALLOW_IPS:-}" ]; then

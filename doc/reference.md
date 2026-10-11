@@ -99,7 +99,7 @@ docker compose up -d --build
 
 | service | URL | what it is |
 | ------- | --- | ---------- |
-| `web` | http://localhost:8080 | React UI; nginx also proxies `/api` to the API |
+| `web` | http://localhost:8080 | React UI; Caddy also proxies `/api` to the API |
 | `api` | http://localhost:8000/docs | FastAPI + the monitoring scheduler |
 | `db`  | `localhost:5432` | PostgreSQL 16, data in the `watchly_pgdata` volume |
 

@@ -34,8 +34,9 @@ It is on by default (`DOCKER_ENABLED=true`).
 - **Hosts that go quiet.** Watchly's scheduler marks a host offline when its
   agent stops pushing.
 
-The agent uses about 10 MiB of memory and close to 0% CPU. The wire format is
-specified in the agent's
+The agent uses about 10 MiB of memory and close to 0% CPU. For a short walk
+through of how it connects and what Watchly does with each push, see
+[`docker-agent.md`](docker-agent.md). The wire format is specified in the agent's
 [`docs/protocol.md`](https://github.com/TahjibNil75/watchly-docker-agent/blob/main/docs/protocol.md).
 
 ## Connect a host
@@ -61,7 +62,7 @@ docker run -d --name watchly-agent --restart unless-stopped \
 ```
 
 `WATCHLY_URL` is the address you open Watchly at. The agent posts to
-`$WATCHLY_URL/api/v1/docker/ingest`, which nginx forwards to the API like any
+`$WATCHLY_URL/api/v1/docker/ingest`, which Caddy forwards to the API like any
 other `/api` request.
 
 To check the setup without leaving anything running, use `--rm` instead of

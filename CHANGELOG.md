@@ -40,6 +40,9 @@ major version.
 - Log files keep only the last `LOG_RETENTION_HOURS` (default 6); older lines
   are deleted. This replaces size rotation, so `LOG_MAX_BYTES` and
   `LOG_BACKUP_COUNT` no longer do anything.
+- The web container serves the app and proxies `/api` with Caddy instead of
+  nginx (`frontend/Caddyfile` replaces `frontend/nginx.conf`). The published
+  port and URLs are unchanged.
 
 ## [1.1.0] - 2026-10-07
 

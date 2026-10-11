@@ -1,0 +1,40 @@
+{
+	# Plain HTTP on :80; TLS belongs to whatever sits in front of this container.
+	auto_https off
+	admin off
+}
+
+:80 {
+	root * /usr/share/caddy
+
+	# Never leak the page URL (or anything in it) to other sites.
+	header Referrer-Policy "no-referrer"
+
+	# Caddy resolves "api" through Docker's DNS on each new connection, so
+	# recreating the api container (which can change its IP) is picked up.
+	handle /api/* {
+		reverse_proxy api:8000 {
+			transport http {
+				# "Check now" waits for the probe, and a site's timeout can be 120s.
+				response_header_timeout 150s
+			}
+		}
+	}
+
+	handle /health {
+		reverse_proxy api:8000
+	}
+
+	# Vite fingerprints everything under /assets, so it can be cached forever.
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Client-side routes such as /websites/3 all load the app shell.
+	handle {
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}
