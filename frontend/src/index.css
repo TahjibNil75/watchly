@@ -3733,6 +3733,9 @@ strong + .badge {
 .badge-type-dns {
   --tone: var(--tag-orange);
 }
+.badge-type-mail {
+  --tone: var(--tag-pink);
+}
 
 .chip {
   display: inline-block;
@@ -3872,6 +3875,59 @@ strong + .badge {
   color: var(--text);
   border-color: color-mix(in srgb, var(--primary) 35%, transparent);
   background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+}
+
+/* ---------- Mail quota ---------- */
+
+/* A mail check's sending quota (MailQuota in WebsiteDetail.jsx): one window
+   to a row, its meter in the colour of how full it is. */
+.quota-windows {
+  display: grid;
+  gap: 16px;
+  margin: 14px 0;
+}
+.quota-window {
+  --tone: var(--up);
+}
+.quota-window.tone-pending {
+  --tone: var(--pending);
+}
+.quota-window.tone-down {
+  --tone: var(--down);
+}
+.quota-window-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.quota-window-head .num {
+  color: var(--tone);
+  font-variant-numeric: tabular-nums;
+}
+.quota-meter {
+  height: 8px;
+  margin: 8px 0 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.quota-meter i {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: inherit;
+  background: var(--tone);
+  transition: width 0.6s ease;
+}
+.quota-window p {
+  margin: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .quota-meter i {
+    transition: none;
+  }
 }
 
 /* ---------- Maintenance ---------- */

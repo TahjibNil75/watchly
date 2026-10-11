@@ -2,7 +2,15 @@ import { Fragment, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
-import { isDns, isPing, recordText, rtt } from '../checkTypes.js'
+import {
+  QUOTA_PERIODS,
+  isDns,
+  isMail,
+  isPing,
+  mailProvider,
+  recordText,
+  rtt,
+} from '../checkTypes.js'
 import {
   CheckTypeBadge,
   ConfirmDialog,
@@ -25,9 +33,14 @@ const CHECKS_SHOWN = 60
 
 // A failed connection has no response, so its recorded time (often 0) means
 // nothing. A ping's time is its average round trip, when anything came back,
-// a DNS check's the resolvers' average answer time.
+// a DNS check's the resolvers' average answer time, a mail check's its whole
+// session up to the login, when the server answered.
 const responseTime = (c) =>
-  c.ping ? c.ping.avg_ms : c.dns || c.status_code != null ? c.response_time_ms : null
+  c.ping
+    ? c.ping.avg_ms
+    : c.dns || c.status_code != null || (c.mail && c.is_up)
+      ? c.response_time_ms
+      : null
 
 // Up, but some pings went unanswered.
 const lossy = (c) => c.is_up && c.ping?.loss_percent > 0
@@ -69,15 +82,20 @@ const STEPS = [
   ['tls_ms', 'TLS'],
   ['first_byte_ms', 'first byte'],
 ]
+// A mail check's last timed step is the server's greeting.
+const MAIL_STEPS = [...STEPS.slice(0, 3), ['first_byte_ms', 'greeting']]
+const stepsOf = (c) => (c.mail ? MAIL_STEPS : STEPS)
 
 // Where a check's time went, e.g. "DNS 12 ms · connect 40 ms · …"; empty when untimed.
 const timeSplit = (c) =>
-  STEPS.filter(([key]) => c[key] != null)
+  stepsOf(c)
+    .filter(([key]) => c[key] != null)
     .map(([key, label]) => `${label} ${c[key]} ms`)
     .join(' · ')
 
 // What the Details panel can show of an HTTP check; older rows have little or none.
 const hasDetails = (c) =>
+  c.mail != null ||
   STEPS.some(([key]) => c[key] != null) ||
   c.redirects?.length > 0 ||
   c.content_length != null ||
@@ -87,7 +105,7 @@ const hasDetails = (c) =>
 // One check's time as a bar split by step, with whatever is left over
 // (reading the body, waiting on the server past the first byte) as the rest.
 function TimingBar({ check: c }) {
-  const steps = STEPS.filter(([key]) => c[key] != null)
+  const steps = stepsOf(c).filter(([key]) => c[key] != null)
   if (!steps.length) return null
   const used = steps.reduce((sum, [key]) => sum + c[key], 0)
   const total = Math.max(c.response_time_ms ?? 0, used, 1)
@@ -126,6 +144,7 @@ function TimingBar({ check: c }) {
 // The network side of one HTTP check, the way a browser's Network tab would
 // list it for the first request: timings, redirects, size and headers.
 function CheckDetails({ check: c }) {
+  if (c.mail) return <MailDetails check={c} />
   const headers = Object.entries(c.headers ?? {})
   return (
     <div className="check-details">
@@ -181,6 +200,219 @@ function CheckDetails({ check: c }) {
           ))}
         </dl>
       )}
+    </div>
+  )
+}
+
+// "47,600 of 50,000 (95.2%)", or "120 sent, no limit".
+function quotaText(w) {
+  if (w.limit == null) return `${w.used.toLocaleString()} sent, no limit`
+  return `${w.used.toLocaleString()} of ${w.limit.toLocaleString()} (${w.percent}%)`
+}
+
+// Green, then amber from the first default warning (80%), red once it ran out.
+const quotaTone = (pct) => (pct == null ? 'up' : pct >= 100 ? 'down' : pct >= 80 ? 'pending' : 'up')
+
+// The fullest of a quota's windows, which is the one that stops mail first.
+const fullest = (quota) =>
+  [...(quota?.windows ?? [])]
+    .filter((w) => w.percent != null)
+    .sort((a, b) => b.percent - a.percent)[0] ?? null
+
+function QuotaWindow({ window: w }) {
+  const pct = w.percent
+  return (
+    <div className={`quota-window tone-${quotaTone(pct)}`}>
+      <div className="quota-window-head">
+        <strong>{QUOTA_PERIODS[w.period] ?? w.period}</strong>
+        <span className="num">{quotaText(w)}</span>
+      </div>
+      {w.limit != null && (
+        <div
+          className="quota-meter"
+          role="meter"
+          aria-valuemin={0}
+          aria-valuemax={w.limit}
+          aria-valuenow={Math.min(w.used, w.limit)}
+          aria-label={`${QUOTA_PERIODS[w.period] ?? w.period}: ${quotaText(w)}`}
+        >
+          <i style={{ width: `${Math.min(pct ?? 0, 100)}%` }} />
+        </div>
+      )}
+      <p className="muted small">
+        {w.remaining != null && `${w.remaining.toLocaleString()} left · `}
+        {w.resets_at ? (
+          <span title={dateTime(w.resets_at)}>resets in {until(w.resets_at)}</span>
+        ) : (
+          'rolling: each email counts for 24 hours'
+        )}
+      </p>
+    </div>
+  )
+}
+
+// What SES or Resend says of the account's sending quota, read every 15
+// minutes over its own API.
+function MailQuota({ site: s }) {
+  if (s.mail_provider !== 'ses' && s.mail_provider !== 'resend') return null
+  const q = s.mail_quota
+  const name = mailProvider(s.mail_provider).label
+  return (
+    <section className="card">
+      <h2>Sending quota</h2>
+      <p className="muted small">
+        Read from {name}’s API,{' '}
+        {q ? (
+          <span title={dateTime(q.read_at)}>last {timeAgo(q.read_at)}</span>
+        ) : (
+          'not yet'
+        )}
+        . Alerts as each window fills (at 80% and 95% by default), and once more if it runs out.
+      </p>
+      {s.mail_quota_error && (
+        <div className="banner banner-error">
+          {q ? 'The last read failed, so these figures are older: ' : ''}
+          {s.mail_quota_error}
+        </div>
+      )}
+      {q && (
+        <>
+          <div className="quota-windows">
+            {q.windows.map((w) => (
+              <QuotaWindow key={w.period} window={w} />
+            ))}
+          </div>
+          {s.mail_provider === 'ses' && (
+            <dl className="kv">
+              <div>
+                <dt>Sending</dt>
+                <dd className={q.sending_enabled === false ? 'text-down' : undefined}>
+                  {q.sending_enabled == null ? '—' : q.sending_enabled ? 'enabled' : 'paused by AWS'}
+                </dd>
+              </div>
+              <div>
+                <dt>Reputation</dt>
+                <dd
+                  className={
+                    q.status === 'shutdown'
+                      ? 'text-down'
+                      : q.status === 'probation'
+                        ? 'text-pending'
+                        : undefined
+                  }
+                >
+                  {q.status ?? '—'}
+                </dd>
+              </div>
+              <div>
+                <dt>Sandbox</dt>
+                <dd className={q.sandbox ? 'text-pending' : undefined}>
+                  {q.sandbox == null
+                    ? '—'
+                    : q.sandbox
+                      ? 'yes: sends only to verified addresses'
+                      : 'no: production access'}
+                </dd>
+              </div>
+              {q.max_send_rate != null && (
+                <div>
+                  <dt>Send rate</dt>
+                  <dd>up to {q.max_send_rate} a second</dd>
+                </div>
+              )}
+              {q.region && (
+                <div>
+                  <dt>Region</dt>
+                  <dd>{q.region}</dd>
+                </div>
+              )}
+            </dl>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+// How a mail check's SMTP session went: its steps, what the server offered,
+// and the quota read with it, if one was due.
+function MailDetails({ check: c }) {
+  const m = c.mail
+  const quota = m.quota
+  return (
+    <div className="check-details">
+      <TimingBar check={c} />
+      <dl className="kv">
+        {c.ip_address != null && (
+          <div>
+            <dt>Server address</dt>
+            <dd>
+              <code>{c.ip_address}</code> · port {m.port}
+            </dd>
+          </div>
+        )}
+        {m.banner && (
+          <div>
+            <dt>Greeting</dt>
+            <dd>
+              <code>{m.banner}</code>
+            </dd>
+          </div>
+        )}
+        <div>
+          <dt>TLS</dt>
+          <dd>{m.tls ? (m.tls_version ?? 'yes') : m.tls === false ? 'none' : '—'}</dd>
+        </div>
+        <div>
+          <dt>Login</dt>
+          <dd>{loginText(m)}</dd>
+        </div>
+        {m.auth_ms != null && (
+          <div>
+            <dt>Login took</dt>
+            <dd>{m.auth_ms} ms</dd>
+          </div>
+        )}
+        {m.code && (
+          <div>
+            <dt>Server said</dt>
+            <dd>
+              <code>
+                {m.code} {m.message}
+              </code>
+            </dd>
+          </div>
+        )}
+        {m.extensions?.length > 0 && (
+          <div>
+            <dt>Offers</dt>
+            <dd>
+              {m.extensions.map((e) => (
+                <span key={e} className="chip">
+                  {e}
+                </span>
+              ))}
+            </dd>
+          </div>
+        )}
+        {m.max_size != null && (
+          <div>
+            <dt>Largest message</dt>
+            <dd>{bytes(m.max_size)}</dd>
+          </div>
+        )}
+        {quota && (
+          <div>
+            <dt>Quota read</dt>
+            <dd>
+              {quota.error ??
+                quota.windows
+                  .map((w) => `${QUOTA_PERIODS[w.period] ?? w.period}: ${quotaText(w)}`)
+                  .join(' · ')}
+            </dd>
+          </div>
+        )}
+      </dl>
     </div>
   )
 }
@@ -267,6 +499,37 @@ function DnsCells({ check: c }) {
   )
 }
 
+// "accepted (PLAIN)", "refused (535)", "not tried".
+function loginText(m) {
+  if (m.authenticated) return `accepted${m.auth_mechanism ? ` (${m.auth_mechanism})` : ''}`
+  if (m.authenticated === false) return `refused${m.code ? ` (${m.code})` : ''}`
+  return 'not tried: no user name'
+}
+
+// A mail check's row: how the login went instead of an HTTP status.
+function MailCells({ check: c }) {
+  const m = c.mail
+  return (
+    <>
+      <td className="nowrap">
+        {!m
+          ? '—'
+          : m.authenticated
+            ? 'login accepted'
+            : m.authenticated === false
+              ? 'login refused'
+              : c.is_up
+                ? 'answered'
+                : '—'}
+      </td>
+      <td className="nowrap" title={timeSplit(c) || undefined}>
+        {responseTime(c) != null ? `${responseTime(c)} ms` : '—'}
+      </td>
+      <td className="muted small">{c.error ?? ''}</td>
+    </>
+  )
+}
+
 function Checks({ checks, site }) {
   const [expanded, setExpanded] = useState(false)
   const [failedOnly, setFailedOnly] = useState(false)
@@ -274,6 +537,7 @@ function Checks({ checks, site }) {
   if (!checks.length) return <Empty>No checks yet. The first one runs within a minute.</Empty>
   const ping = isPing(site)
   const dns = isDns(site)
+  const mail = isMail(site)
   const failed = checks.filter((c) => !c.is_up)
   const shown = failedOnly ? failed : checks
 
@@ -305,8 +569,8 @@ function Checks({ checks, site }) {
               <tr>
                 <th>When</th>
                 <th>Result</th>
-                <th>{ping ? 'Packets' : dns ? 'Records' : 'HTTP'}</th>
-                <th>{ping ? 'Round trip' : dns ? 'Answer time' : 'Response'}</th>
+                <th>{ping ? 'Packets' : dns ? 'Records' : mail ? 'SMTP' : 'HTTP'}</th>
+                <th>{ping ? 'Round trip' : dns ? 'Answer time' : mail ? 'Session' : 'Response'}</th>
                 <th>Error</th>
                 {!ping && !dns && <th aria-label="Details" />}
               </tr>
@@ -327,14 +591,20 @@ function Checks({ checks, site }) {
                       <DnsCells check={c} />
                     ) : (
                       <>
-                        <td>{c.status_code ?? '—'}</td>
-                        <td className="nowrap" title={timeSplit(c) || undefined}>
-                          {responseTime(c) != null ? `${responseTime(c)} ms` : '—'}
-                        </td>
-                        <td className="muted small">
-                          {c.error ?? ''}
-                          {c.final_url && <div className="truncate">→ {c.final_url}</div>}
-                        </td>
+                        {mail ? (
+                          <MailCells check={c} />
+                        ) : (
+                          <>
+                            <td>{c.status_code ?? '—'}</td>
+                            <td className="nowrap" title={timeSplit(c) || undefined}>
+                              {responseTime(c) != null ? `${responseTime(c)} ms` : '—'}
+                            </td>
+                            <td className="muted small">
+                              {c.error ?? ''}
+                              {c.final_url && <div className="truncate">→ {c.final_url}</div>}
+                            </td>
+                          </>
+                        )}
                         <td>
                           {hasDetails(c) && (
                             <button
@@ -452,6 +722,8 @@ function Expiry({ iso }) {
 
 // The host a site's URL names; for a ping or DNS check the URL is the host.
 function hostOf(site) {
+  // A mail check's server is usually a provider's, whose domain is not ours.
+  if (isMail(site)) return ''
   if (isPing(site) || isDns(site)) return site.url.toLowerCase()
   try {
     return new URL(site.url).hostname
@@ -954,6 +1226,12 @@ const STATE_ICONS = {
 }
 
 const TILE_ICONS = {
+  mail: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3.5 6.5 8.5 6.5 8.5-6.5" />
+    </>
+  ),
   uptime: <path d="M3 12h4l2.5-6 5 12 2.5-6h4" />,
   speed: (
     <>
@@ -1070,6 +1348,10 @@ function SiteHero({ site: s, checks, children }) {
           <p className="site-hero-url muted">
             {isPing(s) ? (
               <code>{s.url}</code>
+            ) : isMail(s) ? (
+              <>
+                <code>{s.url}</code> · {mailProvider(s.mail_provider).label}
+              </>
             ) : isDns(s) ? (
               <>
                 <code>{s.url}</code> · {s.dns_record_type} record
@@ -1127,6 +1409,7 @@ const uptimeTone = (value) =>
 function SiteStats({ site: s, latest, day, month }) {
   const ping = isPing(s)
   const dns = isDns(s)
+  const mail = isMail(s)
   const blank = '–'
 
   const time = latest ? responseTime(latest) : null
@@ -1149,6 +1432,26 @@ function SiteStats({ site: s, latest, day, month }) {
               ? 'down'
               : 'pending',
       icon: TILE_ICONS.loss,
+    }
+  } else if (mail && s.mail_quota) {
+    const w = fullest(s.mail_quota)
+    last = {
+      label: 'Sending quota',
+      value: w ? `${w.percent}%` : 'No limit',
+      note: w
+        ? `${w.used.toLocaleString()} of ${w.limit.toLocaleString()} · ${(QUOTA_PERIODS[w.period] ?? w.period).toLowerCase()}`
+        : 'On this plan',
+      tone: s.mail_quota.sending_enabled === false ? 'down' : quotaTone(w?.percent),
+      icon: TILE_ICONS.mail,
+    }
+  } else if (mail) {
+    const m = latest?.mail
+    last = {
+      label: 'SMTP login',
+      value: !m ? blank : m.authenticated ? 'Accepted' : m.authenticated === false ? 'Refused' : 'Not tried',
+      note: !m ? ' ' : m.tls ? `Over ${m.tls_version ?? 'TLS'}` : 'Without TLS',
+      tone: !m ? 'paused' : m.authenticated === false ? 'down' : m.authenticated ? 'up' : 'info',
+      icon: TILE_ICONS.mail,
     }
   } else if (dns) {
     const d = latest?.dns
@@ -1193,7 +1496,15 @@ function SiteStats({ site: s, latest, day, month }) {
         icon={TILE_ICONS.uptime}
       />
       <StatTile
-        label={ping ? 'Round trip · latest' : dns ? 'Answer time · latest' : 'Response · latest'}
+        label={
+          ping
+            ? 'Round trip · latest'
+            : dns
+              ? 'Answer time · latest'
+              : mail
+                ? 'Session · latest'
+                : 'Response · latest'
+        }
         value={
           !latest ? blank : time == null ? '—' : ping ? rtt(time) : `${time.toLocaleString()} ms`
         }
@@ -1257,6 +1568,8 @@ export default function WebsiteDetail() {
   const s = site.data
   const ping = isPing(s)
   const dns = isDns(s)
+  const mail = isMail(s)
+  const noun = ping ? 'host' : dns ? 'DNS check' : mail ? 'mail check' : 'website'
 
   async function run(action) {
     setBusy(true)
@@ -1279,7 +1592,9 @@ export default function WebsiteDetail() {
       const c = result.check
       const detail = !c.is_up
         ? `down · ${c.error ?? `HTTP ${c.status_code}`}`
-        : c.ping
+        : c.mail
+          ? `up · ${c.mail.authenticated ? 'login accepted' : 'server answered'} in ${c.response_time_ms} ms`
+          : c.ping
           ? `up · ${packets(c.ping)}, ${rtt(c.ping.avg_ms)} average round trip`
           : c.dns
             ? `up · ${
@@ -1350,9 +1665,7 @@ export default function WebsiteDetail() {
 
       {editing && (
         <section className="card">
-          <h2>
-            {ping ? 'Edit host' : dns ? 'Edit DNS check' : 'Edit website'}
-          </h2>
+          <h2>Edit {noun}</h2>
           <WebsiteForm
             initial={s}
             project={project.data}
@@ -1370,12 +1683,14 @@ export default function WebsiteDetail() {
 
         {dns && !checks.loading && <Resolvers check={checks.data?.[0]} />}
 
-        <SiteHistory websiteId={s.id} ping={ping} dns={dns} />
+        {mail && <MailQuota site={s} />}
+
+        <SiteHistory websiteId={s.id} ping={ping} dns={dns} mail={mail} />
 
         <Registration site={s} />
 
         {/* Equal-height rows: the cards in a row share a top and a bottom edge. */}
-        {!ping && !dns && (
+        {!ping && !dns && !mail && (
           <>
             <div className="site-row site-pair">
               <ServerCard site={s} />
@@ -1446,6 +1761,49 @@ export default function WebsiteDetail() {
                         ? recordsText(s.dns_record_type, s.dns_records)
                         : 'not learned yet'}
                     </dd>
+                  </div>
+                </>
+              ) : mail ? (
+                <>
+                  <div>
+                    <dt>Check</dt>
+                    <dd>
+                      {s.mail_username ? `SMTP login as ${s.mail_username}` : 'SMTP greeting'}
+                      {s.mail_tls === 'none'
+                        ? ', no TLS'
+                        : s.mail_tls === 'implicit'
+                          ? ', implicit TLS'
+                          : ', STARTTLS'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Provider</dt>
+                    <dd>{mailProvider(s.mail_provider).label}</dd>
+                  </div>
+                  {s.mail_provider === 'ses' && (
+                    <div>
+                      <dt>Quota read with</dt>
+                      <dd>
+                        {s.mail_aws_account_id
+                          ? `AWS account #${s.mail_aws_account_id}`
+                          : s.mail_aws_access_key_id
+                            ? `access key ${s.mail_aws_access_key_id}`
+                            : 'Watchly’s own credentials'}
+                        {s.mail_region && ` · ${s.mail_region}`}
+                      </dd>
+                    </div>
+                  )}
+                  {s.mail_provider === 'resend' && (
+                    <div>
+                      <dt>Quota read with</dt>
+                      <dd>
+                        {s.mail_api_key_hint ? `API key ${s.mail_api_key_hint}` : 'the SMTP password'}
+                      </dd>
+                    </div>
+                  )}
+                  <div>
+                    <dt>Timeout</dt>
+                    <dd>{s.timeout_seconds}s a step</dd>
                   </div>
                 </>
               ) : (
@@ -1599,7 +1957,7 @@ export default function WebsiteDetail() {
 
         {canManage && (
           <section className="card card-danger">
-            <h2>Delete {ping ? 'host' : dns ? 'DNS check' : 'website'}</h2>
+            <h2>Delete {noun}</h2>
             <p className="muted small">
               Stops monitoring {s.name} and deletes its check history. This can&apos;t be
               undone.

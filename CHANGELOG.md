@@ -12,6 +12,18 @@ major version.
 
 ### Added
 
+- Mail checks (`check_type` `mail`): each check logs in to an SMTP server
+  (STARTTLS or implicit TLS, the certificate verified) and hangs up without
+  sending, so a provider outage, a blocked port or rotated SMTP credentials
+  is an outage like any other. For Amazon SES and Resend the check also reads
+  the sending quota from the provider's API every
+  `MAIL_QUOTA_CHECK_INTERVAL_SECONDS`, and the site's page shows each window
+  (SES's rolling 24 hours, Resend's day and month) as a meter.
+- Two notification kinds: `mail_quota`, as a quota window reaches each of
+  `MAIL_QUOTA_ALERT_PERCENT` (default 80% and 95%) and when it runs out, once
+  per window; and `mail_account`, when SES pauses an account's sending or puts
+  it on probation, and when it may send again.
+- Migration `0049_mail_checks`.
 - Docker monitoring, on by default (`DOCKER_ENABLED`): a new `docker` project
   type, a Docker page, and the `/api/v1/monitoring/docker` API. Each host runs
   the separate [Watchly Docker agent](https://github.com/TahjibNil75/watchly-docker-agent),

@@ -91,6 +91,31 @@ function describe(event) {
         detail: `Ends ${dateTime(event.ssl_expires_at)}`,
       }
     }
+    case 'mail_quota': {
+      // The summary is "Resend: 2,850 of 3,000 emails sent this month (95%)".
+      const out = Number(/\(([\d.]+)%\)$/.exec(event.summary)?.[1]) >= 100
+      return {
+        tone: out ? 'down' : 'pending',
+        sticky: out,
+        title: out ? `${name} has used up its sending quota` : `${name} is running out of sending quota`,
+        detail: event.summary,
+      }
+    }
+    case 'mail_account': {
+      // "Amazon SES (eu-west-1): sending paused, reputation probation".
+      const paused = /sending paused|shutdown/.test(event.summary)
+      const trouble = paused || /probation/.test(event.summary)
+      return {
+        tone: paused ? 'down' : trouble ? 'pending' : 'up',
+        sticky: paused,
+        title: paused
+          ? `Sending stopped for ${name}`
+          : trouble
+            ? `${name}'s sending account is on probation`
+            : `${name} can send again`,
+        detail: event.summary,
+      }
+    }
     case 'nameservers_changed':
       // Possibly a hijack: it stays until someone looks.
       return {

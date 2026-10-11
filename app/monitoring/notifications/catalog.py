@@ -13,9 +13,9 @@ _SITE = {
     "project": "Project name",
     "website": "Website name",
     "url": "Website URL, the host of a ping check, the domain of a DNS check, or the "
-    "host:port of a database check",
+    "host:port of a database or mail check",
     "status_code": "HTTP status of the latest check, “no response”, or “—” for a ping, "
-    "DNS or database check",
+    "DNS, database or mail check",
     "response_time": "Response time of the latest check, e.g. “212 ms”; for a ping check "
     "the average round trip, for a DNS check the resolvers’ average answer time, for a "
     "database check the time to the server’s answer",
@@ -83,6 +83,27 @@ _DNS_CHANGE = {
     "previous_records": "The records they returned before",
     "added": "Records that are new, or “—”",
     "removed": "Records that are gone, or “—”",
+}
+
+_MAIL_QUOTA = {
+    **_SITE,
+    "provider": "Amazon SES or Resend",
+    "period": "“in the last 24 hours” (SES), “today” or “this month” (Resend)",
+    "used": "Emails sent in that window, e.g. “2,850”",
+    "limit": "The window’s quota, e.g. “3,000”",
+    "remaining": "Emails left in it",
+    "percent": "Share of the quota used, e.g. “95%”",
+    "threshold": "The warning threshold crossed, e.g. “95%”; “100%” when it ran out",
+    "resets_at": "When the quota resets (UTC), or that SES’s window is rolling",
+}
+
+_MAIL_ACCOUNT = {
+    **_SITE,
+    "provider": "Amazon SES",
+    "region": "The AWS region read, e.g. “eu-west-1”",
+    "state": "e.g. “sending paused, reputation probation”",
+    "sending_enabled": "yes, no or unknown",
+    "reputation": "healthy, probation or shutdown, or “—”",
 }
 
 _REPORT = {
@@ -360,6 +381,37 @@ CATALOG: dict[NotificationKind, KindInfo] = {
                 "provider and registrar accounts."
             ),
             placeholders=_DNS_CHANGE,
+        ),
+        KindInfo(
+            kind=NotificationKind.MAIL_QUOTA,
+            label="Mail quota running out",
+            description="A mail check of Amazon SES or Resend: a sending quota (SES’s "
+            "rolling 24 hours, Resend’s day or month) is 80% and 95% used "
+            "(MAIL_QUOTA_ALERT_PERCENT), and once more if it runs out. Each warning is "
+            "sent once per window, and again after the quota resets.",
+            audience="Same as “Site down”.",
+            default_subject="[MAIL QUOTA] {{project}} / {{website}}: {{percent}} of the "
+            "{{provider}} quota used {{period}}",
+            default_body=(
+                "{{website}} has sent {{used}} of its {{limit}} emails {{period}} on "
+                "{{provider}} ({{percent}}); {{remaining}} remain. The quota resets: "
+                "{{resets_at}}."
+            ),
+            placeholders=_MAIL_QUOTA,
+        ),
+        KindInfo(
+            kind=NotificationKind.MAIL_ACCOUNT,
+            label="Mail sending paused",
+            description="A mail check of Amazon SES: AWS paused the account’s sending, put "
+            "it on probation or shut it down, usually over bounces or complaints, or "
+            "lets it send again.",
+            audience="Same as “Site down”.",
+            default_subject="[MAIL] {{project}} / {{website}}: {{provider}} {{state}}",
+            default_body=(
+                "{{provider}} ({{region}}) reports for {{website}}: {{state}}. Check the "
+                "account’s reputation dashboard."
+            ),
+            placeholders=_MAIL_ACCOUNT,
         ),
         KindInfo(
             kind=NotificationKind.MONTHLY_REPORT,

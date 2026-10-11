@@ -13,6 +13,7 @@ from app.monitoring.projects.service import (
     UnknownMembersError,
 )
 from app.monitoring.exports import csv_response, stats_csv
+from app.monitoring.infra.aws.models import AwsAccount
 from app.monitoring.service import MonitoringService
 from app.monitoring.websites.history import HistoryService
 from app.monitoring.websites.models import CheckType, WebsiteStatus
@@ -89,6 +90,24 @@ async def _assert_can_manage(
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
 
 
+async def _assert_can_use_aws_account(
+    service: WebsiteService, projects: ProjectService, account_id: int | None, actor: User
+) -> None:
+    """A mail check of SES reads its quota with an AWS account's credentials:
+    only someone who manages that account's project may lend them."""
+    if account_id is None:
+        return
+    account = await service.session.get(AwsAccount, account_id)
+    try:
+        if account is None:
+            raise ProjectNotFoundError(account_id)
+        await projects.get_for_write(account.project_id, actor)
+    except (ProjectNotFoundError, ProjectForbiddenError) as exc:
+        raise _unprocessable(
+            ValueError(f"mail_aws_account_id: no AWS account {account_id} that you manage.")
+        ) from exc
+
+
 def _not_found(exc: WebsiteNotFoundError) -> HTTPException:
     return HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
 
@@ -136,7 +155,7 @@ async def list_websites(
         ),
     ),
     check_type: CheckType | None = Query(
-        None, description="Only HTTP sites, pinged hosts, DNS checks or database checks."
+        None, description="Only HTTP sites, pinged hosts, DNS, database or mail checks."
     ),
     in_maintenance: bool | None = Query(
         None,
@@ -183,7 +202,7 @@ async def summarize_websites(
         None, max_length=200, description="Only sites whose name or URL contains this."
     ),
     check_type: CheckType | None = Query(
-        None, description="Only HTTP sites, pinged hosts, DNS checks or database checks."
+        None, description="Only HTTP sites, pinged hosts, DNS, database or mail checks."
     ),
     actor: User = Depends(get_current_user),
     service: WebsiteService = Depends(get_website_service),
@@ -272,7 +291,10 @@ async def create_website(
     to treat any other answer as an outage. With `check_type: "database"`,
     `url` is a database endpoint, `host:port`, and `db_engine` the protocol it
     speaks; each check opens a session as far as the server's first answer,
-    and never logs in, so it needs no user or password.
+    and never logs in, so it needs no user or password. With
+    `check_type: "mail"`, `url` is an SMTP server, `host:port`; each check
+    logs in as `mail_username` (over `mail_tls`) and hangs up without sending,
+    and for `mail_provider` `ses` or `resend` also reads the sending quota.
 
     The site emails its project's members and extra_emails, plus its own
     `recipient_ids` (users) and `alert_emails` (addresses). Set
@@ -288,6 +310,7 @@ async def create_website(
         raise _unprocessable(
             ValueError(f"{project.name} monitors {project.monitors.value}: add websites to a websites project.")
         )
+    await _assert_can_use_aws_account(service, projects, payload.mail_aws_account_id, actor)
     try:
         website = await service.create(payload, project, created_by_id=actor.id)
     except DuplicateWebsiteError as exc:
@@ -358,7 +381,12 @@ async def update_website(
     check's new `dns_record_type` clears its expected values unless new ones
     come with it. `request_headers` replaces the whole list; a header sent
     with `value: null` keeps the value stored under its name."""
-    await _get_for_write(service, projects, website_id, actor)
+    website = await _get_for_write(service, projects, website_id, actor)
+    if (
+        payload.mail_aws_account_id is not None
+        and payload.mail_aws_account_id != website.mail_aws_account_id
+    ):
+        await _assert_can_use_aws_account(service, projects, payload.mail_aws_account_id, actor)
     try:
         return WebsiteRead.model_validate(await service.update(website_id, payload))
     except DuplicateWebsiteError as exc:
@@ -582,7 +610,7 @@ async def website_stats(
             stats_csv(
                 stats,
                 packet_loss=website.check_type is CheckType.PING,
-                steps=website.check_type in (CheckType.HTTP, CheckType.DATABASE),
+                steps=website.check_type in (CheckType.HTTP, CheckType.DATABASE, CheckType.MAIL),
             ),
             f"watchly-site-{website_id}-{range_.value}.csv",
         )

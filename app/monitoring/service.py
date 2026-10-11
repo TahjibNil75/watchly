@@ -32,6 +32,11 @@ Softer signals ride on the same checks, none of which is an outage:
            last did -> one alert per change, once per project
     dns    a DNS check with nothing pinned: the resolvers agree on records
            other than the ones they last agreed on -> one alert per change
+    quota  a mail check's sending quota window crosses a
+           MAIL_QUOTA_ALERT_PERCENT threshold -> one alert per threshold,
+           and one if it runs out; a reset of the window re-arms them
+    mail   SES pauses an account's sending or puts it on probation -> one
+           alert, and one when it may send again
 
 A maintenance window (see `MaintenanceWindow`) silences all of it: the site
 is not checked while one is in effect, and a check made anyway, by hand, is
@@ -42,7 +47,9 @@ is DOWN, and goes through the same outage alerts as a website. A DNS check is
 DOWN when most resolvers cannot resolve its record, or any returns something
 other than its pinned values; see `dns_probe`. A database check is DOWN when
 nothing answers as its engine does, or the server says it cannot take
-connections; see `db_probe`.
+connections; see `db_probe`. A mail check is DOWN when the SMTP server does
+not greet, refuses TLS, or refuses the login; see `mail_probe`. Its quota
+never makes it DOWN, however full: that is what the quota alerts are for.
 """
 
 import asyncio
@@ -67,6 +74,8 @@ from app.monitoring.alerts.base import (
 from app.monitoring.alerts.events import (
     DnsChangeEvent,
     DomainExpiryEvent,
+    MailAccountEvent,
+    MailQuotaEvent,
     NameserverChangeEvent,
     OutageEvent,
     PacketLossEvent,
@@ -83,6 +92,7 @@ from app.monitoring.notifications.recipients import (
 )
 from app.monitoring.websites.checker import CheckResult, check_website, new_client
 from app.monitoring.websites.domain_lookup import DomainInfo
+from app.monitoring.websites.mail_quota import QuotaWindow
 from app.monitoring.websites.models import (
     Website,
     WebsiteCheck,
@@ -101,6 +111,7 @@ __all__ = [
     "default_alerters",
     "domain_alert_bucket",
     "feed_entry",
+    "mail_quota_bucket",
     "ssl_alert_bucket",
 ]
 
@@ -120,8 +131,16 @@ FEED_KINDS = frozenset(
         NotificationKind.SSL_EXPIRING,
         NotificationKind.DOMAIN_EXPIRING,
         NotificationKind.NAMESERVERS_CHANGED,
+        NotificationKind.MAIL_QUOTA,
+        NotificationKind.MAIL_ACCOUNT,
     }
 )
+
+#: A quota window's warnings re-arm once it falls this many points below the
+#: lowest threshold, so a rolling window hovering at one does not flap.
+_QUOTA_REARM_MARGIN = 5
+#: SES's reputation states in which an account is in trouble.
+_MAIL_TROUBLE = frozenset({"probation", "shutdown"})
 
 
 @dataclass(slots=True)
@@ -158,6 +177,22 @@ def domain_alert_bucket(expires_at: datetime, now: datetime) -> int | None:
     return _expiry_bucket(expires_at, now, settings.DOMAIN_EXPIRY_ALERT_DAYS)
 
 
+def mail_quota_bucket(window: QuotaWindow) -> int | None:
+    """The highest MAIL_QUOTA_ALERT_PERCENT threshold a quota window has
+    reached, 100 once it ran out, None below them all or without a limit."""
+    percent = window.percent
+    if percent is None:
+        return None
+    if percent >= 100:
+        return 100
+    reached = [p for p in settings.MAIL_QUOTA_ALERT_PERCENT if percent >= p]
+    return reached[-1] if reached else None
+
+
+def _mail_trouble(sending_enabled: bool | None, status: str | None) -> bool:
+    return sending_enabled is False or status in _MAIL_TROUBLE
+
+
 def feed_entry(event: SiteEvent) -> WebsiteEvent:
     """The row `event` leaves in the app's alert feed."""
     entry = WebsiteEvent(
@@ -171,6 +206,10 @@ def feed_entry(event: SiteEvent) -> WebsiteEvent:
             if isinstance(event, DnsChangeEvent | NameserverChangeEvent)
             else event.expiry_summary
             if isinstance(event, DomainExpiryEvent)
+            else event.quota_summary
+            if isinstance(event, MailQuotaEvent)
+            else event.account_summary
+            if isinstance(event, MailAccountEvent)
             else event.result.summary
         ),
         response_time_ms=event.result.response_time_ms,
@@ -267,6 +306,14 @@ class MonitoringService:
             ip_address=ping.address if ping else result.ip_address,
             dns=result.dns.as_dict() if result.dns else None,
             database=result.database.as_dict() if result.database else None,
+            mail=(
+                {
+                    **result.mail.as_dict(),
+                    "quota": result.mail_quota.as_dict() if result.mail_quota else None,
+                }
+                if result.mail
+                else None
+            ),
         )
         self.session.add(check)
 
@@ -352,6 +399,7 @@ class MonitoringService:
         self._track_dns_records(website, result, events)
         self._track_certificate(website, result, events)
         await self._track_domain(website, result, events)
+        self._track_mail_quota(website, result, events)
         # The app's own feed, in the same commit as the state it describes.
         for event in events:
             if isinstance(event, SiteEvent) and event.kind in FEED_KINDS:
@@ -645,6 +693,103 @@ class MonitoringService:
                     whatsapp=self.whatsapp_target_for(website),
                 )
             )
+
+    def _track_mail_quota(
+        self, website: Website, result: CheckResult, events: list[Notification]
+    ) -> None:
+        """Record a quota read, and warn as a window fills or the provider
+        stops the account sending.
+
+        Each window warns once per threshold, like a certificate: the highest
+        one warned about is kept per window in `mail_quota_alerts`, with when
+        the window resets. A new day or month (its reset time moves) starts
+        the warnings afresh, and so does a rolling window (SES's) falling
+        _QUOTA_REARM_MARGIN points below the lowest threshold. The account's
+        sending state is announced when it goes wrong, and when it comes right.
+        """
+        quota = result.mail_quota
+        if quota is None:
+            return
+        # Stamped even when the read failed, so it retries on the interval.
+        website.mail_quota_checked_at = result.checked_at
+        if not quota.ok:
+            if quota.error != website.mail_quota_error:
+                logger.warning("Mail quota of %s could not be read: %s", website.url, quota.error)
+            website.mail_quota_error = (quota.error or "")[:2000]
+            return
+        website.mail_quota_error = None
+        website.mail_quota = quota.as_dict()
+
+        alerts = {key: dict(entry) for key, entry in (website.mail_quota_alerts or {}).items()}
+        periods = {window.period for window in quota.windows}
+        floor = min(settings.MAIL_QUOTA_ALERT_PERCENT, default=100) - _QUOTA_REARM_MARGIN
+        for window in quota.windows:
+            entry = alerts.get(window.period, {})
+            resets_at = window.resets_at.isoformat() if window.resets_at else None
+            if entry and entry.get("resets_at") != resets_at:
+                # A new day or month: what was warned about was the last one's.
+                entry = {}
+            warned = entry.get("bucket", 0)
+            bucket = mail_quota_bucket(window)
+            if bucket is None:
+                percent = window.percent
+                if percent is None or percent < floor:
+                    alerts.pop(window.period, None)
+                elif entry:
+                    alerts[window.period] = entry
+                continue
+            if bucket > warned:
+                events.append(
+                    MailQuotaEvent(
+                        website=WebsiteSnapshot.of(website),
+                        result=result,
+                        provider=quota.provider.value,
+                        window=window.as_dict(),
+                        bucket=bucket,
+                        region=quota.region,
+                        sandbox=quota.sandbox,
+                        recipients=self.recipients_for(website),
+                        slack=self.slack_target_for(website),
+                        telegram=self.telegram_target_for(website),
+                        whatsapp=self.whatsapp_target_for(website),
+                    )
+                )
+            alerts[window.period] = {"bucket": max(bucket, warned), "resets_at": resets_at}
+        # A window the plan no longer has takes its warnings with it.
+        alerts = {key: entry for key, entry in alerts.items() if key in periods or key == "account"}
+
+        if quota.sending_enabled is not None or quota.status is not None:
+            state = {"sending_enabled": quota.sending_enabled, "status": quota.status}
+            before = alerts.get("account")
+            trouble = _mail_trouble(quota.sending_enabled, quota.status)
+            # The first read announces only trouble; later ones, any change
+            # into, out of or within it.
+            changed = before is not None and before != state
+            was_trouble = before is not None and _mail_trouble(
+                before.get("sending_enabled"), before.get("status")
+            )
+            if (before is None and trouble) or (changed and (trouble or was_trouble)):
+                events.append(
+                    MailAccountEvent(
+                        website=WebsiteSnapshot.of(website),
+                        result=result,
+                        provider=quota.provider.value,
+                        region=quota.region,
+                        sending_enabled=quota.sending_enabled,
+                        status=quota.status,
+                        previous_sending_enabled=before.get("sending_enabled") if before else None,
+                        previous_status=before.get("status") if before else None,
+                        recipients=self.recipients_for(website),
+                        slack=self.slack_target_for(website),
+                        telegram=self.telegram_target_for(website),
+                        whatsapp=self.whatsapp_target_for(website),
+                    )
+                )
+            alerts["account"] = state
+        else:
+            alerts.pop("account", None)
+        # A new dict, so the JSONB column is seen to change.
+        website.mail_quota_alerts = alerts
 
     async def _track_domain(
         self, website: Website, result: CheckResult, events: list[Notification]

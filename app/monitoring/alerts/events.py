@@ -47,6 +47,8 @@ _STEPS = (
 _REST = "Download & other"
 #: A database check's last step is the server answering, not a first byte.
 _DB_STEPS = (*_STEPS[:-1], ("first_byte_ms", "Server's answer"))
+#: A mail check's is the server's greeting.
+_MAIL_STEPS = (*_STEPS[:-1], ("first_byte_ms", "Greeting"))
 
 
 def _utc(value: datetime) -> str:
@@ -72,7 +74,13 @@ def _time_split(result: CheckResult) -> list[tuple[str, int]]:
     check it would be the time spent failing, not downloading.
     """
     t = result.timings
-    steps = _DB_STEPS if result.database is not None else _STEPS
+    steps = (
+        _DB_STEPS
+        if result.database is not None
+        else _MAIL_STEPS
+        if result.mail is not None
+        else _STEPS
+    )
     split = [
         (label, ms) for field, label in steps if (ms := getattr(t, field)) is not None
     ]
@@ -120,6 +128,12 @@ class SiteEvent(Notification):
 
     def _identity_facts(self) -> list[tuple[str, str]]:
         site = self.website
+        if site.is_mail:
+            rows = [("Project", site.project_name), ("Mail server", site.name), ("Endpoint", site.url)]
+            mail = self.result.mail
+            if mail is not None and mail.address and mail.address != split_endpoint(site.url)[0]:
+                rows.append(("Resolved to", mail.address))
+            return rows
         if site.is_database:
             rows = [("Project", site.project_name), ("Database", site.name), ("Endpoint", site.url)]
             db = self.result.database
@@ -198,6 +212,23 @@ class SiteEvent(Notification):
             rows.append(("TLS", (db.tls_version or "yes") if db.tls else "no"))
         return rows
 
+    def _mail_facts(self) -> list[tuple[str, str]]:
+        """How the SMTP session went."""
+        mail = self.result.mail
+        if mail is None:
+            return []
+        rows = []
+        if mail.banner:
+            rows.append(("Greeting", mail.banner))
+        if mail.tls is not None:
+            rows.append(("TLS", (mail.tls_version or "yes") if mail.tls else "no"))
+        if mail.authenticated is not None:
+            how = f" ({mail.auth_mechanism})" if mail.auth_mechanism else ""
+            rows.append(("Login", ("accepted" if mail.authenticated else "refused") + how))
+        if not mail.is_up and mail.message:
+            rows.append(("Server said", f"{mail.code} {mail.message}" if mail.code else mail.message))
+        return rows
+
     def _response_facts(self) -> list[tuple[str, str]]:
         r = self.result
         rows: list[tuple[str, str]] = []
@@ -218,7 +249,7 @@ class SiteEvent(Notification):
             status_code = "—"
             avg = r.ping.avg_ms if r.ping else None
             response_time = format_rtt(avg) if avg is not None else "—"
-        elif self.website.is_dns or self.website.is_database:
+        elif self.website.is_dns or self.website.is_database or self.website.is_mail:
             status_code = "—"
             response_time = (
                 f"{r.response_time_ms} ms" if r.response_time_ms is not None else "—"
@@ -288,6 +319,7 @@ class SiteEvent(Notification):
             ),
             "dns": r.dns.as_dict() if r.dns else None,
             "database": r.database.as_dict() if r.database else None,
+            "mail": r.mail.as_dict() if r.mail else None,
         }
 
 
@@ -326,7 +358,8 @@ class OutageEvent(SiteEvent):
     def facts(self) -> list[tuple[str, str]]:
         """Ordered diagnostic rows."""
         r = self.result
-        ping, dns, database = self.website.is_ping, self.website.is_dns, self.website.is_database
+        ping, dns = self.website.is_ping, self.website.is_dns
+        database = self.website.is_database or self.website.is_mail
         rows = self._identity_facts()
         rows.append(("Status", "UP" if r.is_up else "DOWN"))
         rows.append(("Checked at", _utc(r.checked_at)))
@@ -344,6 +377,7 @@ class OutageEvent(SiteEvent):
             rows.extend(self._dns_facts())
         elif database:
             rows.extend(self._database_facts())
+            rows.extend(self._mail_facts())
             if r.response_time_ms is not None:
                 rows.append(("Response time", f"{r.response_time_ms} ms"))
             if split := _time_split(r):
@@ -779,9 +813,10 @@ class SlowResponseEvent(SiteEvent):
         elif dns:
             rows.append(("Average answer time", f"{self.result.response_time_ms} ms"))
             rows.extend(self._dns_facts())
-        elif self.website.is_database:
+        elif self.website.is_database or self.website.is_mail:
             rows.append(("Response time", f"{self.result.response_time_ms} ms"))
             rows.extend(self._database_facts())
+            rows.extend(self._mail_facts())
         else:
             rows.extend(self._response_facts()[::-1])  # response time first
         if slowest := self._slowest():
@@ -801,6 +836,8 @@ class SlowResponseEvent(SiteEvent):
             kicker, title = "Slow DNS", f"{name} is resolving slowly"
         elif self.website.is_database:
             kicker, title = "Slow database", f"{name} is answering slowly"
+        elif self.website.is_mail:
+            kicker, title = "Slow mail server", f"{name} is answering slowly"
         else:
             kicker, title = "Slow response", f"{name} is responding slowly"
         return Message(
@@ -982,6 +1019,282 @@ class DnsChangeEvent(SiteEvent):
                 "current": self.current,
                 "added": self.added,
                 "removed": self.removed,
+            },
+        }
+
+
+#: What alerts call each mail provider.
+MAIL_PROVIDERS = {"smtp": "SMTP", "ses": "Amazon SES", "resend": "Resend"}
+
+
+def _count(value: int | None) -> str:
+    return "no limit" if value is None else f"{value:,}"
+
+
+def _quota_reminders(bucket: int) -> str:
+    """What further warnings follow the one for `bucket`, in words."""
+    later = [p for p in settings.MAIL_QUOTA_ALERT_PERCENT if p > bucket]
+    if not later:
+        return "You will be told once more if it runs out."
+    listed = ", ".join(f"{p}%" for p in later[:-1])
+    listed = f"{listed} and {later[-1]}%" if listed else f"{later[-1]}%"
+    return f"You will be warned again at {listed}, and once more if it runs out."
+
+
+@dataclass(kw_only=True)
+class MailQuotaEvent(SiteEvent):
+    """A mail check's provider: a sending quota window crossed a threshold."""
+
+    kind: ClassVar[NotificationKind] = NotificationKind.MAIL_QUOTA
+
+    #: `ses` or `resend`.
+    provider: str
+    #: The window, as `mail_quota.QuotaWindow.as_dict()` writes it.
+    window: dict
+    #: The threshold in percent this alert is for; 100 means it ran out.
+    bucket: int
+    #: SES: the region, and whether the account is still in the sandbox.
+    region: str | None = None
+    sandbox: bool | None = None
+
+    @property
+    def provider_name(self) -> str:
+        return MAIL_PROVIDERS.get(self.provider, self.provider)
+
+    @property
+    def exhausted(self) -> bool:
+        return self.bucket >= 100
+
+    @property
+    def period_label(self) -> str:
+        return {"24h": "in the last 24 hours", "day": "today", "month": "this month"}.get(
+            self.window["period"], self.window["period"]
+        )
+
+    @property
+    def resets_at(self) -> datetime | None:
+        value = self.window.get("resets_at")
+        return datetime.fromisoformat(value) if value else None
+
+    @property
+    def percent_text(self) -> str:
+        percent = self.window.get("percent")
+        return f"{percent:g}%" if percent is not None else "—"
+
+    @property
+    def quota_summary(self) -> str:
+        """One line for the feed, e.g. `Resend: 2,850 of 3,000 emails sent this
+        month (95%)`."""
+        return (
+            f"{self.provider_name}: {_count(self.window['used'])} of "
+            f"{_count(self.window['limit'])} emails sent {self.period_label} "
+            f"({self.percent_text})"
+        )
+
+    def _resets_text(self) -> str:
+        if self.resets_at is not None:
+            return _utc(self.resets_at)
+        return "rolling: each send counts for 24 hours"
+
+    def context(self) -> dict[str, str]:
+        return {
+            **super().context(),
+            "provider": self.provider_name,
+            "period": self.period_label,
+            "used": _count(self.window["used"]),
+            "limit": _count(self.window["limit"]),
+            "remaining": _count(self.window.get("remaining")),
+            "percent": self.percent_text,
+            "threshold": f"{self.bucket}%",
+            "resets_at": self._resets_text(),
+        }
+
+    def _note(self) -> str:
+        if self.exhausted:
+            if self.resets_at is not None:
+                return (
+                    f"{self.provider_name} refuses every message until the quota resets "
+                    f"({_utc(self.resets_at)}). Upgrade the plan to send sooner."
+                )
+            text = (
+                f"{self.provider_name} refuses every message until sends from the last 24 "
+                "hours fall out of the window. Ask AWS for a higher sending quota."
+            )
+            if self.sandbox:
+                text += " The account is still in the SES sandbox: request production access."
+            return text
+        text = _quota_reminders(self.bucket)
+        if self.sandbox:
+            text += (
+                " The account is still in the SES sandbox, which only sends to verified "
+                "addresses: request production access for a higher quota."
+            )
+        return text
+
+    def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
+        rows = self._identity_facts()
+        rows.append(("Provider", self.provider_name + (f" ({self.region})" if self.region else "")))
+        rows.append(("Window", self.period_label))
+        rows.append(("Sent", _count(self.window["used"])))
+        rows.append(("Quota", _count(self.window["limit"])))
+        rows.append(("Remaining", _count(self.window.get("remaining"))))
+        rows.append(("Used", self.percent_text))
+        rows.append(("Resets", self._resets_text()))
+        if self.sandbox is not None:
+            rows.append(("SES sandbox", "yes" if self.sandbox else "no"))
+        rows.append(("Checked at", _utc(self.result.checked_at)))
+        name = self.website.name
+        return Message(
+            kind=self.kind,
+            tone=Tone.CRITICAL if self.exhausted else Tone.WARNING,
+            kicker="Sending quota",
+            title=(
+                f"{name} has used up its sending quota"
+                if self.exhausted
+                else f"{name} has used {self.percent_text} of its sending quota"
+            ),
+            subject=subject,
+            body=body,
+            slack_body=slack_body,
+            facts=rows,
+            note=self._note(),
+            link=self._site_link(),
+        )
+
+    def payload(self, subject: str) -> dict:
+        return {
+            "event": self.kind.value,
+            "subject": subject,
+            "summary": self.quota_summary,
+            "website": self._website_payload(),
+            "quota": {
+                "provider": self.provider,
+                "region": self.region,
+                "threshold_percent": self.bucket,
+                "exhausted": self.exhausted,
+                "sandbox": self.sandbox,
+                **self.window,
+            },
+        }
+
+
+@dataclass(kw_only=True)
+class MailAccountEvent(SiteEvent):
+    """A mail check's provider stopped or resumed letting the account send:
+    SES's `SendingEnabled` and reputation status."""
+
+    kind: ClassVar[NotificationKind] = NotificationKind.MAIL_ACCOUNT
+
+    provider: str
+    region: str | None = None
+    sending_enabled: bool | None = None
+    #: `healthy`, `probation` or `shutdown`.
+    status: str | None = None
+    #: What was announced before; None the first time.
+    previous_sending_enabled: bool | None = None
+    previous_status: str | None = None
+
+    @property
+    def provider_name(self) -> str:
+        return MAIL_PROVIDERS.get(self.provider, self.provider)
+
+    @property
+    def paused(self) -> bool:
+        return self.sending_enabled is False or self.status == "shutdown"
+
+    @property
+    def problem(self) -> bool:
+        return self.paused or self.status == "probation"
+
+    @property
+    def state_text(self) -> str:
+        """`sending paused, reputation probation`."""
+        parts = []
+        if self.sending_enabled is not None:
+            parts.append("sending enabled" if self.sending_enabled else "sending paused")
+        if self.status:
+            parts.append(f"reputation {self.status}")
+        return ", ".join(parts) or "unknown"
+
+    @property
+    def account_summary(self) -> str:
+        """One line for the feed, e.g. `Amazon SES (eu-west-1): sending paused`."""
+        where = f" ({self.region})" if self.region else ""
+        return f"{self.provider_name}{where}: {self.state_text}"
+
+    def context(self) -> dict[str, str]:
+        return {
+            **super().context(),
+            "provider": self.provider_name,
+            "region": self.region or "—",
+            "state": self.state_text,
+            "sending_enabled": "unknown" if self.sending_enabled is None else ("yes" if self.sending_enabled else "no"),
+            "reputation": self.status or "—",
+        }
+
+    def _note(self) -> str:
+        if self.paused:
+            return (
+                f"{self.provider_name} refuses every message from this account. Check the "
+                "bounce and complaint rates in the SES console's reputation dashboard, fix "
+                "the cause, and ask AWS to resume sending."
+            )
+        if self.status == "probation":
+            return (
+                "AWS found a problem with the account's sending (usually bounces or "
+                "complaints) and will pause it unless the rates come down. See the SES "
+                "console's reputation dashboard."
+            )
+        return "The account may send again. You will be told if that changes."
+
+    def compose(self, *, subject: str, body: str, slack_body: str) -> Message:
+        rows = self._identity_facts()
+        rows.append(("Provider", self.provider_name + (f" ({self.region})" if self.region else "")))
+        rows.append(("Sending", self.context()["sending_enabled"]))
+        rows.append(("Reputation", self.status or "—"))
+        if self.previous_status or self.previous_sending_enabled is not None:
+            before = MailAccountEvent(
+                website=self.website,
+                result=self.result,
+                provider=self.provider,
+                sending_enabled=self.previous_sending_enabled,
+                status=self.previous_status,
+            )
+            rows.append(("Before", before.state_text))
+        rows.append(("Checked at", _utc(self.result.checked_at)))
+        name = self.website.name
+        if self.paused:
+            tone, title = Tone.CRITICAL, f"{self.provider_name} stopped sending for {name}"
+        elif self.problem:
+            tone, title = Tone.WARNING, f"{self.provider_name} put {name} on probation"
+        else:
+            tone, title = Tone.SUCCESS, f"{self.provider_name} sends for {name} again"
+        return Message(
+            kind=self.kind,
+            tone=tone,
+            kicker="Sending account",
+            title=title,
+            subject=subject,
+            body=body,
+            slack_body=slack_body,
+            facts=rows,
+            note=self._note(),
+            link=self._site_link(),
+        )
+
+    def payload(self, subject: str) -> dict:
+        return {
+            "event": self.kind.value,
+            "subject": subject,
+            "summary": self.account_summary,
+            "website": self._website_payload(),
+            "account": {
+                "provider": self.provider,
+                "region": self.region,
+                "sending_enabled": self.sending_enabled,
+                "status": self.status,
+                "previous_sending_enabled": self.previous_sending_enabled,
+                "previous_status": self.previous_status,
             },
         }
 

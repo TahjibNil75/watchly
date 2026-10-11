@@ -49,6 +49,8 @@ _EMOJI = {
     NotificationKind.SLOW_RESPONSE: ":hourglass_flowing_sand:",
     NotificationKind.PACKET_LOSS: ":signal_strength:",
     NotificationKind.DNS_CHANGED: ":globe_with_meridians:",
+    NotificationKind.MAIL_QUOTA: ":incoming_envelope:",
+    NotificationKind.MAIL_ACCOUNT: ":no_entry_sign:",
     NotificationKind.MONTHLY_REPORT: ":bar_chart:",
     NotificationKind.INFRA_DOWN: ":rotating_light:",
     NotificationKind.INFRA_STILL_DOWN: ":warning:",

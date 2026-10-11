@@ -22,6 +22,7 @@ from app.monitoring.websites.db_probe import TLS_FROM_START, split_endpoint
 from app.monitoring.websites.models import (
     CheckType,
     DnsRecordType,
+    MailProvider,
     MaintenanceWindow,
     Website,
     WebsiteCheck,
@@ -40,6 +41,7 @@ from app.monitoring.websites.schemas import (
     WebsiteSort,
     WebsiteSummary,
     WebsiteUpdate,
+    check_mail_settings,
     dns_values,
     monitor_target,
 )
@@ -189,6 +191,7 @@ def content_rule_problem(website: Website) -> WebsiteContentRuleError | None:
             CheckType.PING: "A ping",
             CheckType.DNS: "A DNS check",
             CheckType.DATABASE: "A database check",
+            CheckType.MAIL: "A mail check",
         }[website.check_type]
         return WebsiteContentRuleError(
             f"{what} has no response body to search: remove must_contain / "
@@ -231,6 +234,44 @@ _HOST_STATE = (
     "server",
     "server_checked_at",
 )
+
+
+#: A mail check's settings, which only a mail check keeps.
+_MAIL_FIELDS = (
+    "mail_provider",
+    "mail_tls",
+    "mail_username",
+    "mail_password",
+    "mail_api_key",
+    "mail_aws_account_id",
+    "mail_aws_access_key_id",
+    "mail_aws_secret_access_key",
+    "mail_region",
+)
+#: Those stored encrypted.
+_MAIL_SECRETS = ("mail_password", "mail_api_key", "mail_aws_secret_access_key")
+#: Those that change where the quota is read from, and so what was read.
+_MAIL_QUOTA_SOURCE = (
+    "url",
+    "mail_provider",
+    "mail_api_key",
+    "mail_aws_account_id",
+    "mail_aws_access_key_id",
+    "mail_aws_secret_access_key",
+    "mail_region",
+)
+
+
+def _seal(value: str | None) -> str | None:
+    return encrypt_secret(value) if value else None
+
+
+def forget_mail_quota(website: Website) -> None:
+    """Drop what the quota reads found and warned about. Not committed."""
+    website.mail_quota = None
+    website.mail_quota_checked_at = None
+    website.mail_quota_error = None
+    website.mail_quota_alerts = {}
 
 
 class WebsiteService:
@@ -430,8 +471,12 @@ class WebsiteService:
                     "slack_bot_token",
                     "telegram_bot_token",
                     "request_headers",
+                    *_MAIL_SECRETS,
                 }
             ),
+            mail_password=_seal(payload.mail_password),
+            mail_api_key=_seal(payload.mail_api_key),
+            mail_aws_secret_access_key=_seal(payload.mail_aws_secret_access_key),
             url=url,
             alert_emails=[str(email) for email in payload.alert_emails],
             request_headers=[
@@ -484,10 +529,18 @@ class WebsiteService:
             # which the payload cannot change.
             try:
                 changes["url"] = monitor_target(
-                    website.check_type, changes["url"], changes.get("db_engine", website.db_engine)
+                    website.check_type,
+                    changes["url"],
+                    changes.get("db_engine", website.db_engine),
+                    changes.get("mail_tls") or website.mail_tls,
                 )
             except ValueError as exc:
                 raise WebsiteTargetError(f"url: {exc}") from exc
+        if website.check_type is CheckType.MAIL:
+            self._mail_changes(website, changes)
+        else:
+            for field in _MAIL_FIELDS:
+                changes.pop(field, None)
         if website.check_type is CheckType.DNS:
             self._dns_changes(website, changes)
         else:
@@ -575,6 +628,59 @@ class WebsiteService:
             raise DuplicateWebsiteError(url, record_type) from exc
         await self.session.refresh(website)
         return website
+
+    @staticmethod
+    def _mail_changes(website: Website, changes: dict) -> None:
+        """Validate a mail check's settings together, in place, and encrypt
+        the secrets sent. A secret left out keeps the stored one."""
+        for field in ("mail_provider", "mail_tls"):
+            if changes.get(field) is None:
+                # NOT NULL for a mail check: null keeps it.
+                changes.pop(field, None)
+        provider = changes.get("mail_provider", website.mail_provider)
+        if "mail_username" in changes and not changes["mail_username"]:
+            # No login, so no password to log in with.
+            changes["mail_password"] = None
+        if "mail_aws_access_key_id" in changes and not changes["mail_aws_access_key_id"]:
+            changes["mail_aws_secret_access_key"] = None
+        if provider is not MailProvider.RESEND:
+            changes["mail_api_key"] = None
+        if provider is not MailProvider.SES:
+            for field in (
+                "mail_aws_account_id",
+                "mail_aws_access_key_id",
+                "mail_aws_secret_access_key",
+                "mail_region",
+            ):
+                changes[field] = None
+
+        def merged(field: str):
+            return changes[field] if field in changes else getattr(website, field)
+
+        try:
+            check_mail_settings(
+                url=merged("url"),
+                provider=provider,
+                tls=merged("mail_tls"),
+                username=merged("mail_username"),
+                has_password=bool(merged("mail_password")),
+                region=merged("mail_region"),
+                aws_account_id=merged("mail_aws_account_id"),
+                aws_access_key_id=merged("mail_aws_access_key_id"),
+                has_aws_secret=bool(merged("mail_aws_secret_access_key")),
+            )
+        except ValueError as exc:
+            raise WebsiteTargetError(str(exc)) from exc
+        for field in _MAIL_SECRETS:
+            if changes.get(field):
+                changes[field] = encrypt_secret(changes[field])
+        if any(
+            field in changes and changes[field] != getattr(website, field)
+            for field in _MAIL_QUOTA_SOURCE
+        ):
+            # Another account's quota, or another provider's: read it afresh,
+            # and warn about it afresh.
+            forget_mail_quota(website)
 
     @staticmethod
     def _dns_changes(website: Website, changes: dict) -> None:
@@ -834,7 +940,7 @@ class WebsiteService:
         return list(rows), total or 0
 
     async def blocked_by_egress(self) -> BlockedWebsites:
-        """Every HTTP, ping and database check whose host the egress policy
+        """Every HTTP, ping, database and mail check whose host the egress policy
         refuses now: resolved afresh, as the next check would. For finding the
         checks that WEBSITE_PRIVATE_TARGETS=block stops, before or after
         turning it on."""
@@ -843,7 +949,7 @@ class WebsiteService:
                 select(Website)
                 .where(
                     Website.check_type.in_(
-                        [CheckType.HTTP, CheckType.PING, CheckType.DATABASE]
+                        [CheckType.HTTP, CheckType.PING, CheckType.DATABASE, CheckType.MAIL]
                     )
                 )
                 .order_by(Website.id)
@@ -855,7 +961,7 @@ class WebsiteService:
         async def judge(website: Website) -> BlockedWebsite | None:
             if website.check_type is CheckType.HTTP:
                 host = urlsplit(website.url).hostname
-            elif website.check_type is CheckType.DATABASE:
+            elif website.check_type in (CheckType.DATABASE, CheckType.MAIL):
                 host = split_endpoint(website.url)[0]
             else:
                 host = website.url

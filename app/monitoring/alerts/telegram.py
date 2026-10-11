@@ -67,6 +67,8 @@ _EMOJI = {
     NotificationKind.SLOW_RESPONSE: "⏳",
     NotificationKind.PACKET_LOSS: "📶",
     NotificationKind.DNS_CHANGED: "🌐",
+    NotificationKind.MAIL_QUOTA: "📨",
+    NotificationKind.MAIL_ACCOUNT: "⛔",
     NotificationKind.MONTHLY_REPORT: "📊",
     NotificationKind.INFRA_DOWN: "🚨",
     NotificationKind.INFRA_STILL_DOWN: "⚠️",

@@ -12,6 +12,8 @@ from app.monitoring.alerts.base import Notification, NotificationKind, WebsiteSn
 from app.monitoring.alerts.events import (
     DnsChangeEvent,
     DomainExpiryEvent,
+    MailAccountEvent,
+    MailQuotaEvent,
     NameserverChangeEvent,
     OutageEvent,
     PacketLossEvent,
@@ -37,7 +39,8 @@ from app.monitoring.infra.aws.events import (
 from app.monitoring.infra.aws.models import ResourceKind
 from app.monitoring.websites.checker import CheckResult, Timings
 from app.monitoring.websites.dns_probe import DnsResult, ResolverAnswer
-from app.monitoring.websites.models import CheckType, DnsRecordType
+from app.monitoring.websites.mail_probe import MailResult
+from app.monitoring.websites.models import CheckType, DnsRecordType, MailTls
 from app.monitoring.websites.pinger import PingStats
 
 _PROJECT = "Acme Corp"
@@ -230,6 +233,63 @@ def sample_event(kind: NotificationKind) -> Notification:
                 result=changed,
                 previous=["203.0.113.10"],
                 current=now_serving,
+                recipients=recipients,
+            )
+        case NotificationKind.MAIL_QUOTA | NotificationKind.MAIL_ACCOUNT:
+            server = replace(
+                site,
+                name="Transactional mail",
+                url="email-smtp.eu-west-1.amazonaws.com:587",
+                timeout_seconds=15,
+                check_interval_seconds=300,
+                check_type=CheckType.MAIL,
+            )
+            logged_in = CheckResult(
+                is_up=True,
+                checked_at=now,
+                response_time_ms=412,
+                ip_address="198.51.100.25",
+                timings=Timings(dns_ms=6, connect_ms=74, tls_ms=118, first_byte_ms=81),
+                mail=MailResult(
+                    port=587,
+                    tls_mode=MailTls.STARTTLS,
+                    is_up=True,
+                    address="198.51.100.25",
+                    banner="email-smtp.amazonaws.com ESMTP SimpleEmailService",
+                    tls=True,
+                    tls_version="TLSv1.3",
+                    authenticated=True,
+                    auth_mechanism="PLAIN",
+                    response_time_ms=412,
+                ),
+            )
+            if kind is NotificationKind.MAIL_ACCOUNT:
+                return MailAccountEvent(
+                    website=server,
+                    result=logged_in,
+                    provider="ses",
+                    region="eu-west-1",
+                    sending_enabled=True,
+                    status="probation",
+                    previous_sending_enabled=True,
+                    previous_status="healthy",
+                    recipients=recipients,
+                )
+            return MailQuotaEvent(
+                website=server,
+                result=logged_in,
+                provider="ses",
+                region="eu-west-1",
+                window={
+                    "period": "24h",
+                    "used": 47_600,
+                    "limit": 50_000,
+                    "remaining": 2_400,
+                    "percent": 95.2,
+                    "resets_at": None,
+                },
+                bucket=95,
+                sandbox=False,
                 recipients=recipients,
             )
         case NotificationKind.MONTHLY_REPORT:

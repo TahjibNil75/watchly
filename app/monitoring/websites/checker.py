@@ -1,7 +1,9 @@
 """Performs a single probe of a website: an HTTP request, for a ping check a
 round of ICMP echo requests (see `pinger.py`), for a DNS check a record
 looked up at several resolvers (see `dns_probe.py`), or for a database check
-a session opened as far as the server's first answer (see `db_probe.py`).
+a session opened as far as the server's first answer (see `db_probe.py`), or
+for a mail check an SMTP login (see `mail_probe.py`) and, for SES and Resend,
+a read of the sending quota (see `mail_quota.py`).
 
 Every failure mode — DNS, TLS, connect, timeout, unexpected status, a silent
 host, a record that is missing or wrong — comes back as a :class:`CheckResult`. This module never raises for a
@@ -29,13 +31,17 @@ from cryptography import x509
 from cryptography.x509.oid import NameOID
 
 from app.core.config import settings
+from app.core.crypto import decrypt_secret
 from app.monitoring import egress
 from app.monitoring.websites.cdn import CdnInfo
 from app.monitoring.websites.cdn import detect as detect_cdn
 from app.monitoring.websites.db_probe import DbResult, split_endpoint
 from app.monitoring.websites.db_probe import probe as probe_database
 from app.monitoring.websites.dns_probe import DnsResult, configured_resolvers, lookup
-from app.monitoring.websites.models import CheckType, DnsRecordType, Website
+from app.monitoring.websites.mail_probe import MailResult
+from app.monitoring.websites.mail_probe import probe as probe_mail
+from app.monitoring.websites.mail_quota import MailQuota, mail_quota_due, read_quota
+from app.monitoring.websites.models import CheckType, DnsRecordType, MailTls, Website
 from app.monitoring.websites.pinger import PingStats, ping
 from app.monitoring.websites.server_info import ServerInfo
 from app.monitoring.websites.server_info import lookup as lookup_server
@@ -334,6 +340,11 @@ class CheckResult:
     dns: DnsResult | None = None
     #: Set on every database check: what the server said.
     database: DbResult | None = None
+    #: Set on every mail check: how the SMTP session went.
+    mail: MailResult | None = None
+    #: Set only on the mail checks that also read the quota; see
+    #: `mail_quota_due`. None means "not read this time".
+    mail_quota: MailQuota | None = None
 
     @property
     def summary(self) -> str:
@@ -344,6 +355,8 @@ class CheckResult:
             return self.dns.summary
         if self.database is not None:
             return self.database.summary
+        if self.mail is not None:
+            return self.mail.summary
         if self.is_up:
             return f"HTTP {self.status_code} in {self.response_time_ms} ms"
         if self.status_code is not None:
@@ -419,9 +432,10 @@ def certificate_check_due(website: Website, now: datetime | None = None) -> bool
 def domain_host(website: Website) -> str | None:
     """The host whose domain registration to look up: an HTTP check's host, a
     ping check's host name, a DNS check's domain. None for an IP address, and
-    for a database check, whose endpoint is often a cloud provider's name
-    (`….rds.amazonaws.com`) and whose site, if any, is watched already."""
-    if website.check_type is CheckType.DATABASE:
+    for a database or mail check, whose endpoint is often a cloud provider's
+    name (`….rds.amazonaws.com`, `smtp.resend.com`) and whose site, if any, is
+    watched already."""
+    if website.check_type in (CheckType.DATABASE, CheckType.MAIL):
         return None
     if website.check_type is CheckType.HTTP:
         return lookup_host(urlsplit(website.url).hostname)
@@ -614,6 +628,11 @@ async def probe_certificate(url: str, timeout: float) -> CertInfo:
         return CertInfo(error=f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__)
 
 
+#: Failures a retry would only repeat: a refused login stays refused, and
+#: trying it again only counts against the account with the server.
+NOT_RETRIED = frozenset({"auth_failed"})
+
+
 async def check_website(
     website: Website, client: httpx.AsyncClient | None = None
 ) -> CheckResult:
@@ -631,10 +650,12 @@ async def check_website(
     probe = _PROBES[website.check_type]
     result = await probe(website, client)
     for _ in range(website.retries_on_failure):
-        if result.is_up:
+        if result.is_up or result.error_type in NOT_RETRIED:
             break
         await asyncio.sleep(settings.CHECK_RETRY_DELAY_SECONDS)
         result = await probe(website, client)
+    if result.mail is not None and mail_quota_due(website, result.checked_at):
+        result.mail_quota = await read_quota(website, client)
     if certificate_check_due(website, result.checked_at):
         result.cert = await probe_certificate(website.url, website.timeout_seconds)
     if domain_check_due(website, result.checked_at):
@@ -750,6 +771,41 @@ async def _database_probe(
             first_byte_ms=outcome.answer_ms,
         ),
         database=outcome,
+    )
+
+
+async def _mail_probe(
+    website: Website, client: httpx.AsyncClient | None = None
+) -> CheckResult:
+    """Log in to the SMTP server at `website.url` and hang up, sending
+    nothing. See `mail_probe` for when that counts as up."""
+    checked_at = datetime.now(UTC)
+    host, port = split_endpoint(website.url)
+    outcome = await probe_mail(
+        host,
+        port,
+        website.mail_tls or MailTls.STARTTLS,
+        timeout=website.timeout_seconds,
+        scope=egress.website_scope(),
+        username=website.mail_username,
+        password=decrypt_secret(website.mail_password),
+    )
+    if not outcome.is_up:
+        logger.info("Mail check failed for %s: %s", website.url, outcome.error)
+    return CheckResult(
+        is_up=outcome.is_up,
+        checked_at=checked_at,
+        response_time_ms=outcome.response_time_ms,
+        error=outcome.error,
+        error_type=outcome.error_type,
+        ip_address=outcome.address,
+        timings=Timings(
+            dns_ms=outcome.dns_ms,
+            connect_ms=outcome.connect_ms,
+            tls_ms=outcome.tls_ms,
+            first_byte_ms=outcome.greeting_ms,
+        ),
+        mail=outcome,
     )
 
 
@@ -931,4 +987,5 @@ _PROBES = {
     CheckType.PING: _ping_probe,
     CheckType.DNS: _dns_probe,
     CheckType.DATABASE: _database_probe,
+    CheckType.MAIL: _mail_probe,
 }

@@ -48,6 +48,8 @@ Deleting a project deletes its websites, which deletes their check history.
 | `pinger.py`   | the ICMP probe — pings a host a few times and reports replies, round trips and packet loss |
 | `dns_probe.py` | the DNS probe — asks several resolvers for one record and judges whether they agree with each other and with the pinned values |
 | `db_probe.py` | the database probe — opens a session with a PostgreSQL, MySQL, Redis or MongoDB server as far as its first answer, without logging in |
+| `mail_probe.py` | the mail probe — logs in to an SMTP server (STARTTLS or implicit TLS) and hangs up, sending nothing |
+| `mail_quota.py` | how much of SES's or Resend's sending quota is used, over the provider's own API |
 | `service.py`  | CRUD, filtering, maintenance windows, and "which sites are due for a check" |
 | `history.py`  | hourly rollups, the stats read from them, and purging old checks |
 | `routes.py`   | the HTTP endpoints below                                          |
@@ -56,7 +58,7 @@ The pieces they talk to live one level up:
 
 | file                            | role                                        |
 | ------------------------------- | ------------------------------------------- |
-| `../service.py`                 | the outage state machine, plus slow-response, SSL-expiry and domain-expiry tracking |
+| `../service.py`                 | the outage state machine, plus slow-response, SSL-expiry, domain-expiry and mail-quota tracking |
 | `../scheduler.py`               | the background loop that drives everything, and the monthly reports |
 | `../projects/`                  | projects and membership                     |
 | `../alerts/`                    | what each notification looks like, per channel (email, Slack, webhook) |
@@ -279,6 +281,94 @@ alert and the monthly report work unchanged. The egress policy applies as for
 HTTP and ping checks: a database at a private address is refused under
 `WEBSITE_PRIVATE_TARGETS=block`, and is watched from an infrastructure
 project instead. No domain registration is looked up for an endpoint.
+
+### Mail checks
+
+A site with `check_type` `mail` watches the SMTP server Watchly (or anything
+else) sends through. `url` is `host:port` (`mail_endpoint()` in `schemas.py`,
+the port defaulting to 587, or 465 for implicit TLS), `mail_provider` says who
+runs it (`smtp`, `ses` or `resend`), and `mail_tls` how the session is
+encrypted (`starttls`, `implicit` or `none`; port 465 implies `implicit`).
+
+Each check, `mail_probe.probe()`:
+
+1. connects, with TLS from the first byte for `implicit`;
+2. reads the greeting, which must be `220`;
+3. sends `EHLO`, and for `starttls` switches to TLS and sends `EHLO` again;
+4. with a `mail_username`, logs in with `AUTH PLAIN` (or `LOGIN` where PLAIN is
+   not offered), which must answer `235`;
+5. sends `QUIT` and waits for the `221`, whatever happened before: a client
+   that hangs up mid-session looks like an attack to some servers (see the
+   MySQL note above).
+
+**No message is sent**, so a check uses no quota and touches no reputation.
+Up means the server greets and, with a user name, takes the login: the check
+catches a provider outage, a blocked port, and SMTP credentials that were
+rotated or revoked. Because a password goes over it, the probe verifies the
+server's certificate (unlike the database probe), and never logs in over a
+session that is not encrypted: the API refuses a user name with `mail_tls`
+`none`, which only greets the server. A refused login (`auth_failed`) is never
+retried within a check, so a wrong password does not count against the
+account three times a check. `timeout_seconds` (default 15) applies to each
+step: some servers pause before their greeting on purpose.
+
+| error_type      | meaning                                                   |
+| --------------- | --------------------------------------------------------- |
+| `connect_timeout`, `connect_refused`, `no_route` | as for a database check |
+| `tls_error`     | the handshake failed, or the certificate is not trusted (no password is sent then) |
+| `smtp_unavailable` | a `4xx` or `554` instead of the greeting, or a temporary refusal |
+| `starttls_unsupported` | `starttls`, but the server does not offer it      |
+| `auth_unsupported` | the server offers neither AUTH PLAIN nor LOGIN        |
+| `auth_failed`   | the login was refused (`535` and the like); the server's reply is kept |
+| `protocol_error` | something answered, but not as an SMTP server does (often an implicit-TLS port checked with STARTTLS) |
+
+Each `website_checks` row keeps the session in the `mail` JSONB column
+(`MailResult.as_dict()`: greeting, EHLO keywords, TLS version, the login
+mechanism and verdict, the server's code and text), the address in
+`ip_address`, and the steps in `dns_ms`, `connect_ms`, `tls_ms` and
+`first_byte_ms` (the time to the greeting), so the history chart, its time
+breakdown and the slow alert work unchanged.
+
+**The sending quota.** A login says the server is there; it cannot say the next
+message will be taken. Once a quota runs out the server still greets and takes
+the login, then refuses every message. So for SES and Resend a mail check also
+reads the quota every `MAIL_QUOTA_CHECK_INTERVAL_SECONDS` (default 15 minutes;
+`mail_quota_due()`), riding on the check like the certificate read:
+
+| provider | call | windows | also |
+| --- | --- | --- | --- |
+| Amazon SES | `sesv2:GetAccount` in `mail_region`, or the region the host names (`email-smtp.<region>.amazonaws.com`) | `24h`, rolling (`SentLast24Hours` of `Max24HourSend`) | sending enabled, reputation (`healthy`, `probation`, `shutdown`), sandbox, send rate |
+| Resend | `GET /usage` | `day` (free plan) and `month`, each with its reset time | — |
+
+SES is read with, in order: an AWS account registered for infrastructure
+(`mail_aws_account_id`; only someone who manages its project may pick it), an
+access key of the check's own (`mail_aws_access_key_id` and the encrypted
+`mail_aws_secret_access_key`), or Watchly's own credentials (the instance
+role on EC2). Each needs `ses:GetAccount`. Resend is read with `mail_api_key`,
+or else the SMTP password, which is an API key too; reading the usage needs a
+**full-access** key, so a check whose SMTP password is a sending-only key
+needs a full-access one in `mail_api_key`. Neither call sends anything.
+
+The last good read is kept on the site (`mail_quota`), and a failed one only
+sets `mail_quota_error` and keeps the figures: **a quota never makes a check
+DOWN**, however full. Instead:
+
+- `mail_quota` alerts once per threshold per window as it fills: at each of
+  `MAIL_QUOTA_ALERT_PERCENT` (default `80,95`, warning) and once more when it
+  runs out (100%, critical). What was warned about is kept per window in
+  `mail_quota_alerts`. A new day or month (the reset time moves) re-arms
+  them; SES's rolling window re-arms once it falls 5 points below the lowest
+  threshold, so usage hovering at 80% does not flap.
+- `mail_account` alerts when SES pauses the account's sending, puts it on
+  probation or shuts it down, and once more when it may send again. The first
+  read announces only trouble.
+
+Changing the provider, the endpoint or the quota credentials forgets what was
+read and warned about. The SMTP password, the Resend key and the AWS secret
+are encrypted at rest like a bot token and never returned: the API gives
+`mail_password_set`, `mail_api_key_hint` and `mail_aws_secret_hint` instead.
+As for a database, no domain registration is looked up for a mail server: it
+is usually the provider's.
 
 ---
 
@@ -877,6 +967,8 @@ curl -s "$BASE/monitoring/websites/$SID/checks?limit=10" \
 | `ALERTS_ENABLED` | `true` | master switch for all channels |
 | `ALERT_DEFAULT_EMAILS` | — | comma-separated, added to every alert |
 | `SMTP_HOST` … | — | any provider: SES, Resend, Mailgun, Postmark |
+| `MAIL_QUOTA_CHECK_INTERVAL_SECONDS` | `900` | how often a mail check of SES or Resend reads the sending quota |
+| `MAIL_QUOTA_ALERT_PERCENT` | `80,95` | warn as a quota window reaches each share; an exhausted quota always warns |
 
 Set `MONITORING_ENABLED=false` to run an API-only instance. With
 `uvicorn --workers N` the advisory lock keeps exactly one worker checking, so

@@ -37,6 +37,11 @@ class NotificationKind(str, enum.Enum):
     PACKET_LOSS = "packet_loss"
     #: A DNS check's records changed at every resolver.
     DNS_CHANGED = "dns_changed"
+    #: A mail check's provider: a sending quota crossed a threshold, or ran out.
+    MAIL_QUOTA = "mail_quota"
+    #: A mail check's provider paused sending, put the account on probation,
+    #: or let it send again (SES).
+    MAIL_ACCOUNT = "mail_account"
     #: Once a month, per project: how every site did.
     MONTHLY_REPORT = "monthly_report"
     #: Infrastructure: the first of an AWS resource's checks went down.
@@ -241,13 +246,19 @@ class WebsiteSnapshot:
         return self.check_type is CheckType.DATABASE
 
     @property
+    def is_mail(self) -> bool:
+        return self.check_type is CheckType.MAIL
+
+    @property
     def noun(self) -> str:
         """What alerts call it: a site, for a ping check a host, for a DNS
-        check the record, and for a database check the database."""
+        check the record, for a database check the database, and for a mail
+        check the mail server."""
         return {
             CheckType.PING: "host",
             CheckType.DNS: "record",
             CheckType.DATABASE: "database",
+            CheckType.MAIL: "mail server",
         }.get(self.check_type, "site")
 
     @classmethod

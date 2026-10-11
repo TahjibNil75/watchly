@@ -266,6 +266,18 @@ class Settings(BaseSettings):
     #: After a packet-loss alert, stay quiet at least this long for the same host.
     PACKET_LOSS_ALERT_COOLDOWN_SECONDS: int = 21_600
 
+    # --- Mail checks --------------------------------------------------------
+    #: How often a mail check of SES or Resend also asks the provider's API
+    #: how much of its sending quota is used. A failed read is retried on the
+    #: same interval.
+    MAIL_QUOTA_CHECK_INTERVAL_SECONDS: int = Field(default=900, ge=300)
+    #: Warn when a quota window (a day, a month, SES's rolling 24 hours) is
+    #: this share used, once per threshold per window; an exhausted quota
+    #: always warns. NoDecode: see ALERT_DEFAULT_EMAILS.
+    MAIL_QUOTA_ALERT_PERCENT: Annotated[list[int], NoDecode] = [80, 95]
+    #: Where Resend's API is; a stand-in for testing.
+    RESEND_API_URL: str = "https://api.resend.com"
+
     # --- Ping checks ------------------------------------------------------
     #: Ping over raw sockets, which need root or CAP_NET_RAW. Off, pings use
     #: unprivileged ICMP sockets, which Linux allows only to the groups in the
@@ -433,6 +445,23 @@ class Settings(BaseSettings):
             if any(day < 1 for day in days):
                 raise ValueError(f"{info.field_name} entries must be 1 or more")
             return days
+        return value
+
+    @field_validator("MAIL_QUOTA_ALERT_PERCENT", mode="before")
+    @classmethod
+    def _split_percents(cls, value: object) -> object:
+        """Accept `80,95` as well as a JSON list; returned ascending. 100 is
+        implied: an exhausted quota always warns."""
+        if isinstance(value, str):
+            if value.strip().startswith("["):
+                value = json.loads(value)
+            else:
+                value = [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            percents = sorted({int(item) for item in value})
+            if any(not 1 <= percent <= 99 for percent in percents):
+                raise ValueError("MAIL_QUOTA_ALERT_PERCENT entries must be from 1 to 99")
+            return percents
         return value
 
     @field_validator(

@@ -1,8 +1,20 @@
 import { useState } from 'react'
-import { CHECK_TYPES, RECORD_TYPES, recordType } from './checkTypes.js'
+import { api } from './api.js'
+import {
+  CHECK_TYPES,
+  MAIL_PROVIDERS,
+  MAIL_TLS,
+  RECORD_TYPES,
+  SES_REGIONS,
+  mailProvider,
+  recordType,
+  sesHostIn,
+  sesHostRegion,
+} from './checkTypes.js'
 import { ErrorBanner, UserChecklist } from './components.jsx'
 import { ENVIRONMENTS } from './environments.js'
 import { duration, parseEmails, parsePhoneNumbers } from './format.js'
+import { useApi } from './useApi.js'
 
 const NAME_MAX_WORDS = 25
 
@@ -10,9 +22,10 @@ const countWords = (text) => text.trim().split(/\s+/).filter(Boolean).length
 
 const METHODS = ['GET', 'HEAD', 'POST', 'OPTIONS']
 const INTERVALS = [30, 60, 120, 300, 600, 900, 1800, 3600, 21600, 86400]
-// Each type's default timeout: a ping waits for echo replies, not pages, and a
-// resolver may have to recurse on a cache miss.
-const TIMEOUTS = { http: 10, ping: 2, dns: 5 }
+// Each type's default timeout: a ping waits for echo replies, not pages, a
+// resolver may have to recurse on a cache miss, and an SMTP server may pause
+// before its greeting on purpose.
+const TIMEOUTS = { http: 10, ping: 2, dns: 5, mail: 15 }
 
 const BLANK = {
   project_id: '',
@@ -37,6 +50,18 @@ const BLANK = {
   dns_record_type: 'A',
   // One per line.
   dns_expected_values: '',
+  mail_provider: 'resend',
+  mail_tls: 'starttls',
+  mail_username: '',
+  // Secrets are never sent back to us; blank means "keep it" when editing.
+  mail_password: '',
+  mail_api_key: '',
+  // Whose credentials read SES's quota: 'own' (Watchly's), 'key' (this
+  // check's own access key) or 'account:<id>' (an infrastructure AWS account).
+  mail_quota_source: 'own',
+  mail_aws_access_key_id: '',
+  mail_aws_secret_access_key: '',
+  mail_region: '',
   alert_emails: '',
   inherit_project_recipients: true,
   slack_channel_id: '',
@@ -71,6 +96,19 @@ function fromSite(site) {
     dns_record_type: site.dns_record_type ?? 'A',
     dns_expected_values: (site.dns_expected_values ?? []).join('\n'),
     environment: site.environment ?? '',
+    mail_provider: site.mail_provider ?? 'smtp',
+    mail_tls: site.mail_tls ?? 'starttls',
+    mail_username: site.mail_username ?? '',
+    mail_password: '',
+    mail_api_key: '',
+    mail_quota_source: site.mail_aws_account_id
+      ? `account:${site.mail_aws_account_id}`
+      : site.mail_aws_access_key_id
+        ? 'key'
+        : 'own',
+    mail_aws_access_key_id: site.mail_aws_access_key_id ?? '',
+    mail_aws_secret_access_key: '',
+    mail_region: site.mail_region ?? '',
   }
 }
 
@@ -169,6 +207,216 @@ function whatsappHint(project) {
   )
 }
 
+// A mail check's part of the payload. Secrets left blank are left out, which
+// keeps the stored ones; the quota fields of other providers are dropped.
+function mailPayload(form) {
+  // Without TLS there is no login: the API refuses one.
+  const login = form.mail_tls !== 'none'
+  const payload = {
+    mail_provider: form.mail_provider,
+    mail_tls: form.mail_tls,
+    mail_username: (login && form.mail_username.trim()) || null,
+  }
+  if (login && form.mail_password) payload.mail_password = form.mail_password
+  if (form.mail_provider === 'resend' && form.mail_api_key.trim()) {
+    payload.mail_api_key = form.mail_api_key.trim()
+  }
+  if (form.mail_provider === 'ses') {
+    const source = form.mail_quota_source
+    payload.mail_region = form.mail_region.trim() || null
+    payload.mail_aws_account_id = source.startsWith('account:') ? Number(source.slice(8)) : null
+    payload.mail_aws_access_key_id = source === 'key' ? form.mail_aws_access_key_id.trim() : null
+    if (source === 'key' && form.mail_aws_secret_access_key.trim()) {
+      payload.mail_aws_secret_access_key = form.mail_aws_secret_access_key.trim()
+    }
+  }
+  return payload
+}
+
+// Who runs the SMTP server, how to log in to it, and how to read its quota.
+function MailFields({ form, set, initial, pickProvider, pickRegion, accounts, ses, resend }) {
+  const login = form.mail_tls !== 'none'
+  // An account picked before, which the user may no longer be able to list.
+  const linked = form.mail_quota_source.startsWith('account:')
+    ? Number(form.mail_quota_source.slice(8))
+    : null
+  const listed = accounts.some((a) => a.id === linked)
+  // What the host names, which the quota is read in when no region is chosen.
+  const hostRegion = sesHostRegion(form.url)
+  const knownRegion = SES_REGIONS.some(([value]) => value === form.mail_region)
+  const keyStored = Boolean(initial?.mail_aws_secret_hint) && Boolean(initial?.mail_aws_access_key_id)
+  return (
+    <>
+      <div className="row-2">
+        <label className="field">
+          <span>Provider</span>
+          <select value={form.mail_provider} onChange={pickProvider}>
+            {MAIL_PROVIDERS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+          <span className="muted small">
+            {ses || resend
+              ? 'Watchly logs in over SMTP and reads the sending quota from the provider’s API. No mail is sent.'
+              : 'Watchly logs in over SMTP and hangs up. No mail is sent.'}
+          </span>
+        </label>
+        <label className="field">
+          <span>Encryption</span>
+          <select value={form.mail_tls} onChange={set('mail_tls')}>
+            {MAIL_TLS.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+          {!login && (
+            <span className="muted small">
+              Without TLS Watchly only greets the server: it never sends a password unencrypted.
+            </span>
+          )}
+        </label>
+      </div>
+
+      {login && (
+        <div className="row-2">
+          <label className="field">
+            <span>SMTP user name</span>
+            <input
+              value={form.mail_username}
+              onChange={set('mail_username')}
+              placeholder={ses ? 'AKIA… (SMTP credentials)' : 'Blank to only greet the server'}
+              maxLength={255}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <label className="field">
+            <span>SMTP password</span>
+            <input
+              type="password"
+              value={form.mail_password}
+              onChange={set('mail_password')}
+              placeholder={
+                initial?.mail_password_set
+                  ? 'Stored: leave blank to keep it'
+                  : resend
+                    ? 're_… (an API key)'
+                    : ''
+              }
+              maxLength={1024}
+              autoComplete="new-password"
+              required={Boolean(form.mail_username.trim()) && !initial?.mail_password_set}
+            />
+            <span className="muted small">
+              {ses
+                ? 'SES’s SMTP credentials, not an IAM access key: create them under SES → SMTP settings.'
+                : 'Stored encrypted and never shown again.'}
+            </span>
+          </label>
+        </div>
+      )}
+
+      {resend && (
+        <label className="field">
+          <span>API key for the quota (optional)</span>
+          <input
+            type="password"
+            value={form.mail_api_key}
+            onChange={set('mail_api_key')}
+            placeholder={
+              initial?.mail_api_key_hint
+                ? `Stored: ${initial.mail_api_key_hint}`
+                : 'Blank: use the SMTP password'
+            }
+            maxLength={1024}
+            autoComplete="new-password"
+          />
+          <span className="muted small">
+            Reading the quota needs a full-access key. If the SMTP password is a sending-only key,
+            give a full-access one here.
+          </span>
+        </label>
+      )}
+
+      {ses && (
+        <div className="row-2">
+          <label className="field">
+            <span>Read the quota with</span>
+            <select value={form.mail_quota_source} onChange={set('mail_quota_source')}>
+              <option value="own">Watchly’s own AWS credentials</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={`account:${a.id}`}>
+                  AWS account: {a.name}
+                </option>
+              ))}
+              {linked && !listed && <option value={form.mail_quota_source}>AWS account #{linked}</option>}
+              <option value="key">An access key of this check’s own</option>
+            </select>
+            <span className="muted small">Needs the ses:GetAccount permission.</span>
+          </label>
+          <label className="field">
+            <span>SES region</span>
+            <select
+              value={form.mail_region}
+              onChange={pickRegion}
+              // A host that does not name a region leaves nothing to take it from.
+              required={!hostRegion}
+            >
+              <option value="">
+                {hostRegion ? `Same as the host (${hostRegion})` : 'Select a region…'}
+              </option>
+              {form.mail_region && !knownRegion && (
+                <option value={form.mail_region}>{form.mail_region}</option>
+              )}
+              {SES_REGIONS.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label} · {value}
+                </option>
+              ))}
+            </select>
+            <span className="muted small">Where the quota is read; keep it the same as the SMTP host's.</span>
+          </label>
+        </div>
+      )}
+
+      {ses && form.mail_quota_source === 'key' && (
+        <div className="row-2">
+          <label className="field">
+            <span>Access key id</span>
+            <input
+              value={form.mail_aws_access_key_id}
+              onChange={set('mail_aws_access_key_id')}
+              placeholder="AKIA…"
+              maxLength={128}
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+          </label>
+          <label className="field">
+            <span>Secret access key</span>
+            <input
+              type="password"
+              value={form.mail_aws_secret_access_key}
+              onChange={set('mail_aws_secret_access_key')}
+              placeholder={keyStored ? `Stored: ${initial.mail_aws_secret_hint}` : ''}
+              maxLength={1024}
+              autoComplete="new-password"
+              required={
+                !keyStored ||
+                form.mail_aws_access_key_id.trim() !== (initial?.mail_aws_access_key_id ?? '')
+              }
+            />
+          </label>
+        </div>
+      )}
+    </>
+  )
+}
+
 /**
  * Create mode when `projects` is passed (adds the project picker and
  * recipients); edit mode when `initial` is a website, with `project` its
@@ -214,18 +462,69 @@ export default function WebsiteForm({
 
   const ping = form.check_type === 'ping'
   const dns = form.check_type === 'dns'
-  const http = !ping && !dns
+  const mail = form.check_type === 'mail'
+  const http = !ping && !dns && !mail
+  const ses = mail && form.mail_provider === 'ses'
+  const resend = mail && form.mail_provider === 'resend'
+
+  // SES's quota can be read with an infrastructure project's AWS account.
+  const awsAccounts = useApi(
+    () => (ses ? api.listAwsAccounts().catch(() => null) : null),
+    [ses],
+  )
+
+  // A provider's SMTP host and user, filled in while the fields are blank or
+  // still hold another provider's.
+  const presetFor = (provider, current) => {
+    const from = mailProvider(current.mail_provider)
+    const to = mailProvider(provider)
+    const url =
+      !current.url.trim() || current.url.trim() === from.host(current.mail_region)
+        ? to.host(current.mail_region)
+        : current.url
+    const username =
+      !current.mail_username || current.mail_username === from.username
+        ? (to.username ?? '')
+        : current.mail_username
+    return { mail_provider: provider, url, mail_username: username }
+  }
 
   // Switching type swaps in its default timeout, unless one was typed in.
-  const pickType = (type) =>
-    setForm({
+  const pickType = (type) => {
+    const next = {
       ...form,
       check_type: type,
       timeout_seconds:
         Number(form.timeout_seconds) === TIMEOUTS[form.check_type]
           ? TIMEOUTS[type]
           : form.timeout_seconds,
-    })
+    }
+    if (type === 'mail' && !form.url.trim()) {
+      // A new mail check starts on its provider's server.
+      const provider = mailProvider(form.mail_provider)
+      next.url = provider.host(form.mail_region)
+      next.mail_username = form.mail_username || (provider.username ?? '')
+    }
+    setForm(next)
+  }
+
+  const pickProvider = (e) => setForm({ ...form, ...presetFor(e.target.value, form) })
+
+  // Choosing an SES region moves an SES host to it, so the two never disagree.
+  const pickRegion = (e) => {
+    const region = e.target.value
+    const url = (region && sesHostIn(form.url, region)) || form.url
+    setForm({ ...form, mail_region: region, url })
+  }
+
+  // Port 465 means implicit TLS and 587 STARTTLS, as the API assumes too.
+  const setMailUrl = (e) => {
+    const url = e.target.value
+    let tls = form.mail_tls
+    if (/:465\s*$/.test(url)) tls = 'implicit'
+    else if (/:587\s*$/.test(url) && tls === 'implicit') tls = 'starttls'
+    setForm({ ...form, url, mail_tls: tls })
+  }
 
   const project = creating
     ? projects.find((p) => String(p.id) === String(form.project_id))
@@ -260,7 +559,7 @@ export default function WebsiteForm({
     const payload = {
       name: form.name.trim(),
       environment: form.environment || null,
-      url: http ? withScheme(form.url) : hostOf(form.url),
+      url: http ? withScheme(form.url) : mail ? form.url.trim() : hostOf(form.url),
       method: form.method,
       expected_status: Number(form.expected_status),
       timeout_seconds: Number(form.timeout_seconds),
@@ -294,6 +593,7 @@ export default function WebsiteForm({
           value: h.value === '' && keepsStoredValue(h) ? null : h.value,
         }))
     }
+    if (mail) Object.assign(payload, mailPayload(form))
     if (slackToken) payload.slack_bot_token = slackToken
     if (tgToken) payload.telegram_bot_token = tgToken
     if (creating) {
@@ -378,27 +678,52 @@ export default function WebsiteForm({
               )
               set('name')(e)
             }}
-            placeholder={ping ? 'Core router' : dns ? 'Mail servers (MX)' : 'Marketing site'}
+            placeholder={
+              ping
+                ? 'Core router'
+                : dns
+                  ? 'Mail servers (MX)'
+                  : mail
+                    ? 'Transactional mail'
+                    : 'Marketing site'
+            }
             required
             maxLength={255}
           />
         </label>
         <label className="field">
-          <span>{ping ? 'Host or IP address' : dns ? 'Domain' : 'URL'}</span>
+          <span>
+            {ping ? 'Host or IP address' : dns ? 'Domain' : mail ? 'SMTP server' : 'URL'}
+          </span>
           <input
             value={form.url}
-            onChange={set('url')}
+            onChange={mail ? setMailUrl : set('url')}
             placeholder={
               ping
                 ? '203.0.113.10 or server.example.com'
                 : dns
                   ? 'example.com or _dmarc.example.com'
-                  : 'https://example.com/'
+                  : mail
+                    ? 'smtp.example.com:587'
+                    : 'https://example.com/'
             }
             required
           />
         </label>
       </div>
+
+      {mail && (
+        <MailFields
+          form={form}
+          set={set}
+          initial={initial}
+          pickProvider={pickProvider}
+          pickRegion={pickRegion}
+          accounts={awsAccounts.data?.items ?? []}
+          ses={ses}
+          resend={resend}
+        />
+      )}
 
       {dns && (
         <div className="row-2">
@@ -574,6 +899,43 @@ export default function WebsiteForm({
               <span className="muted small">
                 When the record fails or is wrong, look again a few seconds later before
                 alerting. 0 alerts at once.
+              </span>
+            </label>
+          </div>
+        </details>
+      )}
+
+      {mail && (
+        <details className="advanced">
+          <summary>Mail options</summary>
+          <div className="row-3">
+            <label className="field">
+              <span>Slow after (ms)</span>
+              <input
+                type="number"
+                min={1}
+                max={120000}
+                value={form.slow_threshold_ms}
+                onChange={set('slow_threshold_ms')}
+                placeholder="Server default"
+              />
+              <span className="muted small">
+                Alert when connecting, the greeting and the login together stay slower than this.
+              </span>
+            </label>
+            <label className="field">
+              <span>Retries before failing</span>
+              <input
+                type="number"
+                min={0}
+                max={3}
+                value={form.retries_on_failure}
+                onChange={set('retries_on_failure')}
+                required
+              />
+              <span className="muted small">
+                Try again a few seconds later before alerting. A refused login is never retried,
+                so a wrong password does not lock the account. 0 alerts at once.
               </span>
             </label>
           </div>

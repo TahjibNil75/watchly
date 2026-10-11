@@ -27,10 +27,14 @@ from app.monitoring.projects.schemas import (
     WhatsAppSettings,
 )
 from app.monitoring.websites.db_probe import DEFAULT_PORTS, TLS_FROM_START, join_endpoint
+from app.monitoring.websites.mail_probe import DEFAULT_PORTS as MAIL_PORTS
+from app.monitoring.websites.mail_quota import region_from_host
 from app.monitoring.websites.models import (
     CheckType,
     DbEngine,
     DnsRecordType,
+    MailProvider,
+    MailTls,
     WebsiteEnvironment,
     WebsiteStatus,
 )
@@ -44,12 +48,18 @@ PING_TIMEOUT_SECONDS = 2
 DNS_TIMEOUT_SECONDS = 5
 #: A database answers a new connection in milliseconds; seconds is trouble.
 DATABASE_TIMEOUT_SECONDS = 5
+#: An SMTP server may pause before its greeting on purpose, to catch
+#: spammers that talk first, so a mail check waits longer than for a page.
+MAIL_TIMEOUT_SECONDS = 15
 #: Each check type's timeout when none is given; HTTP keeps the field default.
 _DEFAULT_TIMEOUTS = {
     CheckType.PING: PING_TIMEOUT_SECONDS,
     CheckType.DNS: DNS_TIMEOUT_SECONDS,
     CheckType.DATABASE: DATABASE_TIMEOUT_SECONDS,
+    CheckType.MAIL: MAIL_TIMEOUT_SECONDS,
 }
+#: An AWS region's name, e.g. `eu-west-1` or `ap-southeast-1`.
+_AWS_REGION = re.compile(r"^[a-z]{2}(?:-[a-z]+)+-\d$")
 #: Connection URL schemes, and the engine each names. `mongodb+srv` names a
 #: cluster rather than a server, so it is not among them.
 DB_SCHEMES = {
@@ -76,6 +86,37 @@ _HTTP_URL = TypeAdapter(AnyHttpUrl)
 _HOST_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)$")
 #: A TXT value pasted as zone-file strings: `"v=spf1 …" "…"`.
 _QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+#: A mail check's settings, all None on every other check type.
+_MAIL_FIELDS = (
+    "mail_provider",
+    "mail_tls",
+    "mail_username",
+    "mail_password",
+    "mail_api_key",
+    "mail_aws_account_id",
+    "mail_aws_access_key_id",
+    "mail_aws_secret_access_key",
+    "mail_region",
+)
+#: Those that are text, where blank means none.
+_MAIL_TEXT_FIELDS = (
+    "mail_username",
+    "mail_password",
+    "mail_api_key",
+    "mail_aws_access_key_id",
+    "mail_aws_secret_access_key",
+    "mail_region",
+)
+
+
+def _stripped_or_none(cls, value):
+    """Blank is none, and the stray spaces around a pasted key go."""
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
 
 
 def _blank_to_none(cls, value):
@@ -300,14 +341,104 @@ def database_endpoint(value: str, engine: DbEngine | None = None) -> str:
     return join_endpoint(host, port)
 
 
+def _mail_error(message: str) -> PydanticCustomError:
+    return PydanticCustomError("mail_endpoint", message)
+
+
+def mail_endpoint(value: str, tls: MailTls | None = None) -> str:
+    """`host:port` for a mail check: lower case, an IPv6 address in
+    brackets, and the TLS mode's usual port when none is given (587 for
+    STARTTLS, 465 for implicit TLS, 25 without)."""
+    text = value.strip()
+    if "://" in text or "/" in text:
+        raise _mail_error("Enter the SMTP server as host:port, e.g. smtp.resend.com:587.")
+    if "@" in text:
+        raise _mail_error(
+            "Enter only the SMTP server, e.g. smtp.resend.com:587: the user name "
+            "and password have fields of their own."
+        )
+    try:
+        host, port_text = _split_host_port(text)
+    except PydanticCustomError as exc:
+        raise _mail_error(exc.message()) from exc
+    if (address := _ip_address(host)) is not None:
+        host = address.compressed
+    elif (name := _host_name(host)) is not None:
+        host = name
+    else:
+        raise _mail_error(
+            "Enter a valid host name or IP address, e.g. smtp.resend.com:587 or "
+            "email-smtp.eu-west-1.amazonaws.com:587."
+        )
+    if port_text is None:
+        port = MAIL_PORTS[tls or MailTls.STARTTLS]
+    elif port_text.isdigit() and 1 <= int(port_text) <= 65_535:
+        port = int(port_text)
+    else:
+        raise _mail_error(f"'{port_text}' is not a port: give a number from 1 to 65535.")
+    return join_endpoint(host, port)
+
+
+def mail_tls_for(url: object) -> MailTls:
+    """The TLS mode a mail endpoint's port implies, when none is given:
+    implicit TLS on 465, STARTTLS anywhere else."""
+    if isinstance(url, str) and url.strip().endswith(":465"):
+        return MailTls.IMPLICIT
+    return MailTls.STARTTLS
+
+
+def check_mail_settings(
+    *,
+    url: str,
+    provider: MailProvider,
+    tls: MailTls,
+    username: str | None,
+    has_password: bool,
+    region: str | None,
+    aws_account_id: int | None,
+    aws_access_key_id: str | None,
+    has_aws_secret: bool,
+) -> None:
+    """Raise ValueError when a mail check's settings do not go together."""
+    if username and tls is MailTls.NONE:
+        raise ValueError(
+            "A login needs TLS: Watchly will not send a password over a session that "
+            "is not encrypted. Use STARTTLS (587) or implicit TLS (465)."
+        )
+    if has_password and not username:
+        raise ValueError("A password needs a user name (mail_username).")
+    if provider is MailProvider.SES:
+        if region is not None and not _AWS_REGION.match(region):
+            raise ValueError(f"'{region}' is not an AWS region, e.g. eu-west-1.")
+        if region is None and region_from_host(url.rpartition(":")[0]) is None:
+            raise ValueError(
+                "Give mail_region: the SES region to read the quota in, as the host "
+                "does not name one (email-smtp.<region>.amazonaws.com)."
+            )
+        if aws_account_id is not None and aws_access_key_id:
+            raise ValueError(
+                "Read SES's quota with an AWS account or with an access key, not both."
+            )
+        if aws_access_key_id and not has_aws_secret:
+            raise ValueError("An access key needs its secret (mail_aws_secret_access_key).")
+
+
 _TARGETS = {CheckType.HTTP: http_url, CheckType.PING: ping_host, CheckType.DNS: dns_name}
 
 
-def monitor_target(check_type: CheckType, value: str, engine: DbEngine | None = None) -> str:
+def monitor_target(
+    check_type: CheckType,
+    value: str,
+    engine: DbEngine | None = None,
+    mail_tls: MailTls | None = None,
+) -> str:
     """What `url` holds for this kind of check, validated and normalized. A
-    database check's port defaults by `engine`."""
+    database check's port defaults by `engine`, and a mail check's by
+    `mail_tls`."""
     if check_type is CheckType.DATABASE:
         return database_endpoint(value, engine)
+    if check_type is CheckType.MAIL:
+        return mail_endpoint(value, mail_tls)
     return _TARGETS[check_type](value)
 
 
@@ -405,6 +536,74 @@ class WebsiteBase(BaseModel):
             "ElastiCache with in-transit encryption, DocumentDB and Atlas need. "
             "PostgreSQL and MySQL use TLS whenever the server offers it, so it "
             "stays false for them."
+        ),
+    )
+    # Before `url`, whose default port depends on it.
+    mail_tls: MailTls | None = Field(
+        default=None,
+        description=(
+            "Mail checks: `starttls` (submission, 587), `implicit` (SMTPS, 465) or "
+            "`none`. Defaults by the port: implicit on 465, else STARTTLS. Ignored "
+            "for other check types."
+        ),
+    )
+    mail_provider: MailProvider | None = Field(
+        default=None,
+        description=(
+            "Mail checks: who runs the server: `smtp` (any), `ses` or `resend`. SES "
+            "and Resend also have their sending quota read. Defaults to `smtp`."
+        ),
+    )
+    mail_username: str | None = Field(
+        default=None,
+        max_length=255,
+        description=(
+            "Mail checks: the SMTP user name to log in as (`resend` for Resend, the "
+            "SMTP credentials' user for SES). Null only greets the server."
+        ),
+    )
+    mail_password: str | None = Field(
+        default=None,
+        max_length=1024,
+        description="Mail checks: the SMTP password. Stored encrypted and never returned.",
+    )
+    mail_api_key: str | None = Field(
+        default=None,
+        max_length=1024,
+        description=(
+            "Mail checks of Resend: a full-access API key to read the quota with. "
+            "Null uses the SMTP password, which is an API key too (but a "
+            "sending-only one cannot read the quota). Stored encrypted and never "
+            "returned."
+        ),
+    )
+    mail_aws_account_id: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Mail checks of SES: an AWS account registered for infrastructure whose "
+            "credentials read the quota (they need ses:GetAccount)."
+        ),
+    )
+    mail_aws_access_key_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description=(
+            "Mail checks of SES: an access key of the check's own to read the quota "
+            "with, instead of an AWS account. Neither uses Watchly's own credentials."
+        ),
+    )
+    mail_aws_secret_access_key: str | None = Field(
+        default=None,
+        max_length=1024,
+        description="Its secret. Stored encrypted and never returned.",
+    )
+    mail_region: str | None = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "Mail checks of SES: the region to read the quota in. Null takes it "
+            "from the host, email-smtp.<region>.amazonaws.com."
         ),
     )
     name: str = Field(min_length=1, max_length=255)
@@ -599,12 +798,27 @@ class WebsiteBase(BaseModel):
             data = {**data, "db_tls": True}
         return data
 
+    @model_validator(mode="before")
+    @classmethod
+    def _mail_tls_from_port(cls, data):
+        """A mail check on 465 uses implicit TLS unless told otherwise."""
+        if (
+            isinstance(data, dict)
+            and data.get("check_type") == CheckType.MAIL.value
+            and data.get("mail_tls") is None
+        ):
+            data = {**data, "mail_tls": mail_tls_for(data.get("url")).value}
+        return data
+
     @field_validator("url")
     @classmethod
     def _valid_target(cls, value: str, info: ValidationInfo) -> str:
         # Missing when check_type itself failed validation; that error is reported.
         return monitor_target(
-            info.data.get("check_type", CheckType.HTTP), value, info.data.get("db_engine")
+            info.data.get("check_type", CheckType.HTTP),
+            value,
+            info.data.get("db_engine"),
+            info.data.get("mail_tls"),
         )
 
     @field_validator("method")
@@ -638,9 +852,39 @@ class WebsiteBase(BaseModel):
         else:
             self.db_engine = None
             self.db_tls = False
+        if self.check_type is CheckType.MAIL:
+            self._mail_settings()
+        else:
+            for field in _MAIL_FIELDS:
+                setattr(self, field, None)
         if self.check_type is not CheckType.HTTP:
             self.request_headers = []
         return self
+
+    def _mail_settings(self) -> None:
+        self.mail_provider = self.mail_provider or MailProvider.SMTP
+        self.mail_tls = self.mail_tls or mail_tls_for(self.url)
+        if self.mail_provider is not MailProvider.RESEND:
+            self.mail_api_key = None
+        if self.mail_provider is not MailProvider.SES:
+            self.mail_aws_account_id = None
+            self.mail_aws_access_key_id = None
+            self.mail_aws_secret_access_key = None
+            self.mail_region = None
+        try:
+            check_mail_settings(
+                url=self.url,
+                provider=self.mail_provider,
+                tls=self.mail_tls,
+                username=self.mail_username,
+                has_password=bool(self.mail_password),
+                region=self.mail_region,
+                aws_account_id=self.mail_aws_account_id,
+                aws_access_key_id=self.mail_aws_access_key_id,
+                has_aws_secret=bool(self.mail_aws_secret_access_key),
+            )
+        except ValueError as exc:
+            raise PydanticCustomError("mail_settings", str(exc)) from exc
 
     _bot_token = field_validator("slack_bot_token")(
         SlackSettings.looks_like_a_bot_token.__func__
@@ -659,6 +903,7 @@ class WebsiteBase(BaseModel):
     )
     _content_rules = field_validator("must_contain", "must_not_contain")(_blank_to_none)
     _header_names = field_validator("request_headers")(unique_header_names)
+    _mail_blanks = field_validator(*_MAIL_TEXT_FIELDS)(_stripped_or_none)
 
 
 class WebsiteCreate(WebsiteBase):
@@ -748,6 +993,46 @@ class WebsiteUpdate(BaseModel):
     db_tls: bool | None = Field(
         default=None, description="Database checks of Redis and MongoDB only."
     )
+    mail_provider: MailProvider | None = Field(default=None, description="Mail checks only.")
+    mail_tls: MailTls | None = Field(default=None, description="Mail checks only.")
+    mail_username: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Mail checks only. Send null to only greet the server, password included.",
+    )
+    mail_password: str | None = Field(
+        default=None,
+        max_length=1024,
+        description="Mail checks only. Leave it out to keep the stored one.",
+    )
+    mail_api_key: str | None = Field(
+        default=None,
+        max_length=1024,
+        description=(
+            "Mail checks of Resend only. Leave it out to keep the stored one; send "
+            "null to use the SMTP password instead."
+        ),
+    )
+    mail_aws_account_id: int | None = Field(
+        default=None,
+        ge=1,
+        description="Mail checks of SES only. Send null to stop using the account.",
+    )
+    mail_aws_access_key_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Mail checks of SES only. Send null to remove the key, secret included.",
+    )
+    mail_aws_secret_access_key: str | None = Field(
+        default=None,
+        max_length=1024,
+        description="Mail checks of SES only. Leave it out to keep the stored one.",
+    )
+    mail_region: str | None = Field(
+        default=None,
+        max_length=32,
+        description="Mail checks of SES only. Send null to take it from the host.",
+    )
     alert_emails: list[EmailStr] | None = Field(
         default=None, description="Replaces the whole list when supplied."
     )
@@ -802,6 +1087,7 @@ class WebsiteUpdate(BaseModel):
     _whatsapp_recipients = field_validator("whatsapp_recipients")(
         WhatsAppSettings.looks_like_phone_numbers.__func__
     )
+    _mail_blanks = field_validator(*_MAIL_TEXT_FIELDS)(_stripped_or_none)
 
 
 class WebsiteRecipientsUpdate(BaseModel):
@@ -913,6 +1199,84 @@ class DatabaseCheckRead(BaseModel):
     message: str | None = Field(default=None, description="The server's own message.")
 
 
+class MailQuotaWindowRead(BaseModel):
+    """One stretch a mail provider counts sends over."""
+
+    period: str = Field(
+        description="`24h` (SES, rolling), `day` or `month` (Resend)."
+    )
+    used: int = Field(description="Emails sent in it.")
+    limit: int | None = Field(
+        default=None, description="Its quota; null when the plan sets none."
+    )
+    remaining: int | None = None
+    percent: float | None = Field(default=None, description="Share of the quota used.")
+    resets_at: datetime | None = Field(
+        default=None, description="When it starts again; null for SES's rolling window."
+    )
+
+
+class MailQuotaRead(BaseModel):
+    """What a read of a mail provider's quota found."""
+
+    provider: MailProvider
+    read_at: datetime
+    windows: list[MailQuotaWindowRead] = Field(default_factory=list)
+    sending_enabled: bool | None = Field(
+        default=None, description="SES: whether the account may send at all."
+    )
+    status: str | None = Field(
+        default=None,
+        description="SES: the account's reputation status, `healthy`, `probation` or `shutdown`.",
+    )
+    sandbox: bool | None = Field(
+        default=None,
+        description="SES: still in the sandbox, which only sends to verified addresses.",
+    )
+    max_send_rate: float | None = Field(
+        default=None, description="SES: messages a second, at most."
+    )
+    region: str | None = Field(default=None, description="SES: the region read.")
+    error: str | None = Field(
+        default=None, description="Why the read failed; null when it worked."
+    )
+
+
+class MailCheckRead(BaseModel):
+    """How one mail check's SMTP session went."""
+
+    port: int
+    tls_mode: MailTls
+    banner: str | None = Field(
+        default=None,
+        description="The server's greeting, e.g. `email-smtp.amazonaws.com ESMTP SimpleEmailService`.",
+    )
+    extensions: list[str] = Field(
+        default_factory=list,
+        description="The EHLO keywords offered, e.g. `SIZE`, `AUTH`, `8BITMIME`.",
+    )
+    max_size: int | None = Field(
+        default=None, description="The largest message the server takes, in bytes."
+    )
+    auth_mechanisms: list[str] = Field(default_factory=list)
+    tls: bool | None = None
+    tls_version: str | None = None
+    authenticated: bool | None = Field(
+        default=None,
+        description="True once logged in; null when the check has no user name, or never got that far.",
+    )
+    auth_mechanism: str | None = None
+    code: str | None = Field(
+        default=None, description="The server's reply code where it refused something, e.g. `535`."
+    )
+    message: str | None = Field(default=None, description="And its text.")
+    greeting_ms: int | None = None
+    auth_ms: int | None = Field(default=None, description="From AUTH to the server's verdict.")
+    quota: MailQuotaRead | None = Field(
+        default=None, description="The quota read on this check, when one was due."
+    )
+
+
 class WebsiteCheckRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -928,9 +1292,11 @@ class WebsiteCheckRead(BaseModel):
         description=(
             "Why the check failed, e.g. `dns_error`, `connect_timeout`, `tls_error`, "
             "`unexpected_status`, for a ping `no_reply`, for a DNS check "
-            "`nxdomain` or `dns_mismatch`, or for a database check "
+            "`nxdomain` or `dns_mismatch`, for a database check "
             "`connect_refused`, `protocol_error`, `db_unavailable` or "
-            "`db_too_many_connections`; null when it succeeded."
+            "`db_too_many_connections`, or for a mail check `auth_failed`, "
+            "`smtp_unavailable`, `starttls_unsupported` or `tls_error`; null "
+            "when it succeeded."
         ),
     )
     final_url: str | None
@@ -984,6 +1350,13 @@ class WebsiteCheckRead(BaseModel):
             "Database checks: what the server said. `first_byte_ms` is then the "
             "time from the request to the server's answer (for MySQL, which "
             "speaks first, from the connection to its greeting)."
+        ),
+    )
+    mail: MailCheckRead | None = Field(
+        default=None,
+        description=(
+            "Mail checks: how the SMTP session went. `first_byte_ms` is then the "
+            "time to the server's greeting."
         ),
     )
 
@@ -1186,6 +1559,35 @@ class WebsiteRead(BaseModel):
     )
     db_engine: DbEngine | None = None
     db_tls: bool = False
+    mail_provider: MailProvider | None = None
+    mail_tls: MailTls | None = None
+    mail_username: str | None = None
+    mail_password_set: bool = Field(
+        default=False, description="Mail checks: a password is stored (it is never returned)."
+    )
+    mail_api_key_hint: str | None = Field(
+        default=None,
+        description="Mail checks of Resend: the masked API key; null when the SMTP password stands in.",
+    )
+    mail_aws_account_id: int | None = None
+    mail_aws_access_key_id: str | None = None
+    mail_aws_secret_hint: str | None = Field(
+        default=None, description="Mail checks of SES: the masked secret of the check's own access key."
+    )
+    mail_region: str | None = None
+    mail_quota: MailQuotaRead | None = Field(
+        default=None,
+        description=(
+            "Mail checks of SES and Resend: what the last good read of the sending "
+            "quota found; kept while later reads fail."
+        ),
+    )
+    mail_quota_checked_at: datetime | None = Field(
+        default=None, description="When the quota was last read, or tried to be."
+    )
+    mail_quota_error: str | None = Field(
+        default=None, description="Why the last read failed; null after one that worked."
+    )
     method: str
     expected_status: int
     timeout_seconds: int
@@ -1384,7 +1786,8 @@ class WebsiteEventRead(BaseModel):
     kind: str = Field(
         description=(
             "`down`, `recovered`, `slow_response`, `packet_loss`, `dns_changed`, "
-            "`ssl_expiring`, `domain_expiring` or `nameservers_changed`."
+            "`ssl_expiring`, `domain_expiring`, `nameservers_changed`, `mail_quota` "
+            "or `mail_account`."
         )
     )
     occurred_at: datetime
@@ -1558,6 +1961,6 @@ class CheckNowResponse(BaseModel):
         default=None, description=(
             "Which notification the check raised, if any: down, still_down, "
             "recovered, ssl_expiring, domain_expiring, nameservers_changed, "
-            "slow_response, packet_loss or dns_changed."
+            "slow_response, packet_loss, dns_changed, mail_quota or mail_account."
         )
     )

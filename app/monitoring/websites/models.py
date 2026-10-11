@@ -71,6 +71,9 @@ class CheckType(str, enum.Enum):
     #: Open a session with the database server at `url` (`host:port`) as far
     #: as its first answer, without logging in.
     DATABASE = "database"
+    #: Log in to the SMTP server at `url` (`host:port`) and hang up, sending
+    #: nothing; for SES and Resend, also read the sending quota.
+    MAIL = "mail"
 
 
 check_type_enum = SAEnum(
@@ -117,6 +120,46 @@ class DbEngine(str, enum.Enum):
 db_engine_enum = SAEnum(
     DbEngine,
     name="db_engine",
+    native_enum=True,
+    create_constraint=False,
+    validate_strings=True,
+    values_callable=lambda enum_cls: [member.value for member in enum_cls],
+)
+
+
+class MailProvider(str, enum.Enum):
+    """Who runs a mail check's SMTP server. SES and Resend also have their
+    sending quota read, over their own APIs."""
+
+    SMTP = "smtp"
+    SES = "ses"
+    RESEND = "resend"
+
+
+mail_provider_enum = SAEnum(
+    MailProvider,
+    name="mail_provider",
+    native_enum=True,
+    create_constraint=False,
+    validate_strings=True,
+    values_callable=lambda enum_cls: [member.value for member in enum_cls],
+)
+
+
+class MailTls(str, enum.Enum):
+    """How a mail check's session is encrypted."""
+
+    #: Plain, then STARTTLS (submission, 587).
+    STARTTLS = "starttls"
+    #: TLS from the first byte (SMTPS, 465).
+    IMPLICIT = "implicit"
+    #: Never; a server that needs no login, on a private network.
+    NONE = "none"
+
+
+mail_tls_enum = SAEnum(
+    MailTls,
+    name="mail_tls",
     native_enum=True,
     create_constraint=False,
     validate_strings=True,
@@ -185,8 +228,9 @@ class Website(Base, TimestampMixin):
 
     Also a host to ping (`check_type` ping), which keeps its host name or IP
     address in `url` and ignores the HTTP-only settings; one DNS record of a
-    domain (`check_type` dns), which keeps the domain in `url`; or a database
-    server (`check_type` database), which keeps `host:port` in `url`.
+    domain (`check_type` dns), which keeps the domain in `url`; a database
+    server (`check_type` database), which keeps `host:port` in `url`; or an
+    SMTP server (`check_type` mail), which does too.
     """
 
     __tablename__ = "websites"
@@ -209,8 +253,8 @@ class Website(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     #: The URL to request, for a ping check the host name or IP address, for
-    #: a DNS check the domain name, or for a database check `host:port`
-    #: (`[v6]:port` for an IPv6 address).
+    #: a DNS check the domain name, or for a database or mail check
+    #: `host:port` (`[v6]:port` for an IPv6 address).
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
 
     # --- how to check ---------------------------------------------------
@@ -243,6 +287,45 @@ class Website(Base, TimestampMixin):
     #: whenever the server offers it and this stays false.
     db_tls: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false"), nullable=False
+    )
+    #: Mail checks: who runs the server, and how the session is encrypted;
+    #: None for every other check type.
+    mail_provider: Mapped[MailProvider | None] = mapped_column(
+        mail_provider_enum, nullable=True
+    )
+    mail_tls: Mapped[MailTls | None] = mapped_column(mail_tls_enum, nullable=True)
+    #: Mail checks: the SMTP login. None logs in as nobody, only greeting the
+    #: server. The password is encrypted at rest, like a bot token.
+    mail_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mail_password: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Mail checks of Resend: a full-access API key, encrypted, to read the
+    #: quota with. None uses the SMTP password, which is an API key too.
+    mail_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Mail checks of SES: whose credentials read the quota. An AWS account
+    #: registered for infrastructure, else an access key of the check's own
+    #: (the secret encrypted), else Watchly's own credentials.
+    mail_aws_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("aws_accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    mail_aws_access_key_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    mail_aws_secret_access_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Mail checks of SES: the region the quota is read in. None takes it from
+    #: the host, `email-smtp.<region>.amazonaws.com`.
+    mail_region: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    #: Mail checks of SES and Resend: what the last good quota read found, as
+    #: `mail_quota.MailQuota.as_dict()` writes it. Kept while reads fail.
+    mail_quota: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    #: When the quota was last *attempted*, like `ssl_checked_at`.
+    mail_quota_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Why the last read failed; None after one that worked.
+    mail_quota_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: What has been warned about: per quota window, the highest threshold
+    #: (`{"day": {"bucket": 95, "resets_at": ...}}`), and the account's
+    #: sending state last announced (`{"account": {...}}`).
+    mail_quota_alerts: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
     )
     method: Mapped[str] = mapped_column(
         String(10), default="GET", server_default=text("'GET'"), nullable=False
@@ -519,6 +602,19 @@ class Website(Base, TimestampMixin):
         successful HTTP check, and for ping and DNS checks."""
         return grade_security_headers(self.security_headers)
 
+    @property
+    def mail_password_set(self) -> bool:
+        return self.mail_password is not None
+
+    @property
+    def mail_api_key_hint(self) -> str | None:
+        """Masked tail of the Resend API key; None when the password stands in."""
+        return mask_secret(decrypt_secret(self.mail_api_key))
+
+    @property
+    def mail_aws_secret_hint(self) -> str | None:
+        return mask_secret(decrypt_secret(self.mail_aws_secret_access_key))
+
     def outgoing_headers(self) -> dict[str, str]:
         """The request headers to send, decrypted. One that can no longer be
         read (the key changed; see `decrypt_secret`) is left out."""
@@ -689,6 +785,12 @@ class WebsiteCheck(Base):
     #: `ip_address` is the address connected to, and `first_byte_ms` the time
     #: from its request to the server's answer.
     database: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    #: Mail checks only: how the SMTP session went, as
+    #: `mail_probe.MailResult.as_dict()` writes it, with the quota read on
+    #: this check (if one was due) under `quota`. `first_byte_ms` is the time
+    #: to the server's greeting.
+    mail: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     website: Mapped[Website] = relationship(back_populates="checks")
 

@@ -25,6 +25,12 @@ const STEPS = [
   { key: 'avg_first_byte_ms', label: 'Waiting for first byte', className: 'stack-first_byte_ms' },
 ]
 
+// A mail check waits for the server's greeting instead of a first byte.
+const MAIL_STEPS = [
+  ...STEPS.slice(0, 3),
+  { key: 'avg_first_byte_ms', label: 'Waiting for the greeting', className: 'stack-first_byte_ms' },
+]
+
 const stepTotal = (b) => STEPS.reduce((sum, s) => sum + (b[s.key] ?? 0), 0)
 
 const UPTIME_TIERS = [
@@ -101,7 +107,7 @@ const MIN_TICK_GAP = 64
 
 // Response time as lines, with each bucket's uptime as a strip beneath them
 // on the same x positions; one crosshair and tooltip read both.
-function HistoryChart({ stats, ping, view }) {
+function HistoryChart({ stats, ping, view, labels = STEPS }) {
   const [ref, width] = useWidth()
   const [active, setActive] = useState(null)
   const series = stats.series
@@ -281,7 +287,7 @@ function HistoryChart({ stats, ping, view }) {
             </div>
           ))}
           {steps &&
-            [...STEPS].reverse().map((s) => (
+            [...labels].reverse().map((s) => (
               <div key={s.key} className="chart-tip-row">
                 <span className={`swatch ${s.className}`} />
                 <strong>{ms(b[s.key])}</strong>
@@ -309,7 +315,7 @@ function HistoryChart({ stats, ping, view }) {
   )
 }
 
-function HistoryTable({ stats, ping, http }) {
+function HistoryTable({ stats, ping, http, labels = STEPS }) {
   // Newest first, like the checks table.
   const rows = [...stats.series].reverse().filter((b) => b.checks > 0)
   return (
@@ -327,7 +333,7 @@ function HistoryTable({ stats, ping, http }) {
               <th>95th percentile</th>
               <th>99th percentile</th>
               <th>Slowest</th>
-              {http && STEPS.map((s) => <th key={s.key}>{s.label}</th>)}
+              {http && labels.map((s) => <th key={s.key}>{s.label}</th>)}
               {ping && <th>Packet loss</th>}
             </tr>
           </thead>
@@ -355,8 +361,9 @@ function HistoryTable({ stats, ping, http }) {
 
 // `ping`: the site is a pinged host, so its times are round trips and it has
 // packet loss to show. `dns`: a DNS check, whose times are the resolvers'
-// average answer time.
-export default function SiteHistory({ websiteId, ping = false, dns = false }) {
+// average answer time. `mail`: a mail check, whose times are its SMTP session
+// up to the login, broken down like a request's.
+export default function SiteHistory({ websiteId, ping = false, dns = false, mail = false }) {
   const [range, setRange] = useState('24h')
   // HTTP sites only: response time as lines, or where each check's time goes.
   const [view, setView] = useState('response')
@@ -407,7 +414,15 @@ export default function SiteHistory({ websiteId, ping = false, dns = false }) {
               <strong>{percent(s.uptime_percent)}</strong>
             </div>
             <div>
-              <span>{ping ? 'Avg round trip' : dns ? 'Avg answer time' : 'Avg response'}</span>
+              <span>
+                {ping
+                  ? 'Avg round trip'
+                  : dns
+                    ? 'Avg answer time'
+                    : mail
+                      ? 'Avg session'
+                      : 'Avg response'}
+              </span>
               <strong>{ms(s.avg_response_ms)}</strong>
             </div>
             <div>
@@ -447,7 +462,7 @@ export default function SiteHistory({ websiteId, ping = false, dns = false }) {
               {http && (
                 <div className="segmented" role="group" aria-label="What the chart shows">
                   {[
-                    ['response', 'Response time'],
+                    ['response', mail ? 'Session time' : 'Response time'],
                     ['steps', 'Time breakdown'],
                   ].map(([key, label]) => (
                     <button
@@ -464,7 +479,7 @@ export default function SiteHistory({ websiteId, ping = false, dns = false }) {
               )}
               <div className="chart-legend">
                 {http && view === 'steps'
-                  ? STEPS.map((step) => (
+                  ? (mail ? MAIL_STEPS : STEPS).map((step) => (
                       <span key={step.key}>
                         <span className={`swatch ${step.className}`} /> {step.label}
                       </span>
@@ -481,7 +496,12 @@ export default function SiteHistory({ websiteId, ping = false, dns = false }) {
                   </span>
                 ))}
               </div>
-              <HistoryChart stats={s} ping={ping} view={http ? view : 'response'} />
+              <HistoryChart
+                stats={s}
+                ping={ping}
+                view={http ? view : 'response'}
+                labels={mail ? MAIL_STEPS : STEPS}
+              />
               <p className="muted small">
                 {http && view === 'steps'
                   ? 'Times are UTC. Each step is its average over the successful checks that performed it: a reused connection skips the lookup, connect and handshake, and the time spent reading the body after the first byte is not drawn. Hours from before this was recorded show no breakdown.'
@@ -490,10 +510,12 @@ export default function SiteHistory({ websiteId, ping = false, dns = false }) {
                         ? 'Times are UTC. Round trips are each check’s average, over checks that got a reply, in whole milliseconds; '
                         : dns
                           ? 'Times are UTC. Answer times are each check’s average over its resolvers, for successful checks only; '
-                          : 'Times are UTC. Response times count successful checks only; '
+                          : mail
+                            ? 'Times are UTC. Session times run from connecting to the login being accepted, for successful checks only; '
+                            : 'Times are UTC. Response times count successful checks only; '
                     }the median and the 95th and 99th percentiles are read from response-time buckets, so they are accurate to within about 25%.`}
               </p>
-              <HistoryTable stats={s} ping={ping} http={http} />
+              <HistoryTable stats={s} ping={ping} http={http} labels={mail ? MAIL_STEPS : STEPS} />
             </>
           )}
         </div>

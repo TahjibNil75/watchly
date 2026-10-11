@@ -71,6 +71,26 @@ const KIND_META = {
       </>
     ),
   },
+  mail_quota: {
+    tone: 'pending',
+    group: 'warnings',
+    icon: (
+      <>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="m3.5 6.5 8.5 6.5 8.5-6.5M15 19v-4M19 19v-7" />
+      </>
+    ),
+  },
+  mail_account: {
+    tone: 'down',
+    group: 'warnings',
+    icon: (
+      <>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="m3.5 6.5 8.5 6.5 8.5-6.5M4.5 19.5l15-15" />
+      </>
+    ),
+  },
   monthly_report: { tone: 'info', group: 'reports', icon: <path d="M4 20h16M7 16v-5M12 16V7M17 16v-8" /> },
   infra_down: {
     tone: 'down',
