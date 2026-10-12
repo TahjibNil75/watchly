@@ -13,11 +13,16 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[Features](#features) · [AWS infrastructure](#aws-infrastructure-monitoring) · [Docker](#docker-monitoring) · [Alert channels](#alert-channels) · [Quick start](#quick-start) · [Email alerts](#set-up-email-alerts-smtp) · [Configuration](#configuration) · [Docs](#documentation)
+[Demo](#demo) · [Features](#features) · [AWS infrastructure](#aws-infrastructure-monitoring) · [Docker](#docker-monitoring) · [Alert channels](#alert-channels) · [Screenshots](#screenshots) · [Quick start](#quick-start) · [Email alerts](#set-up-email-alerts-smtp) · [Configuration](#configuration) · [Docs](#documentation)
 
 <br>
 
-<img src="doc/images/landing.png" alt="Watchly landing page with an example status dashboard" width="900">
+<a id="demo"></a>
+<a href="doc/video/watchly-demo.mp4">
+  <img src="doc/video/watchly-demo-preview.webp" alt="A 40-second Watchly demo: sign in, the overview, a website's uptime history, an outage alert, the AWS infrastructure map, Docker containers and the alert channels" width="900">
+</a>
+
+<sub>40-second tour. <a href="doc/video/watchly-demo.mp4">Watch it in full quality (MP4)</a>.</sub>
 
 </div>
 
@@ -272,18 +277,38 @@ own.
 ## Screenshots
 
 <p align="center">
-  <img src="doc/images/features.png" alt="Website, server and DNS checks, and the alerting features" width="900">
-  <br><em>Website, server and DNS checks, with alerts by email, Slack, Telegram, WhatsApp and webhook</em>
+  <img src="doc/images/landing.png" alt="Watchly landing page with the mascot, the live status readouts and the alert channels" width="900">
+  <br><em>The landing page</em>
 </p>
 
 <p align="center">
-  <img src="doc/images/site-history.png" alt="A website's page with its uptime history, response-time percentiles and the time-breakdown chart" width="900">
-  <br><em>A website's page: uptime history, median, 95th and 99th percentile, and where each check's time goes</em>
+  <img src="doc/images/overview.png" alt="The Overview page: websites, infrastructure and Docker totals, with everything that needs a look" width="900">
+  <br><em>Overview: websites, AWS infrastructure and Docker in one place, with what needs a look</em>
+</p>
+
+<p align="center">
+  <img src="doc/images/site-history.png" alt="A website's page with its last 60 checks, uptime, response time, SSL certificate and the response-time history" width="900">
+  <br><em>A website's page: last checks, uptime, response-time history with the 95th percentile</em>
 </p>
 
 <p align="center">
   <img src="doc/images/site-cards.png" alt="The Server, CDN and security headers cards, with maintenance, configuration and alerting settings below" width="900">
   <br><em>Server, CDN and security headers side by side, with maintenance, configuration and alerting underneath</em>
+</p>
+
+<p align="center">
+  <img src="doc/images/infra-map.png" alt="The AWS infrastructure map: VPCs with their subnets, load balancers, Auto Scaling groups, EC2 servers and RDS databases, and the paths between them" width="900">
+  <br><em>AWS infrastructure, mapped VPC by VPC: hover a resource to trace its path from the internet</em>
+</p>
+
+<p align="center">
+  <img src="doc/images/docker.png" alt="The Docker page: container totals, one card per host and every container's state, resource use and restarts" width="900">
+  <br><em>Docker: each host's containers, their health, restarts and resource use</em>
+</p>
+
+<p align="center">
+  <img src="doc/images/features.png" alt="Website, server and DNS checks, and the alerting features" width="900">
+  <br><em>Website, server and DNS checks, with alerts by email, Slack, Telegram, WhatsApp and webhook</em>
 </p>
 
 <p align="center">
