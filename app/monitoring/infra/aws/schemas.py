@@ -1176,6 +1176,56 @@ class Overview(BaseModel):
     attention: list[AttentionItem]
 
 
+# --- setup checklist ------------------------------------------------------------
+
+
+class ReadinessStatus(str, enum.Enum):
+    DONE = "done"
+    #: Watchly cannot watch it (fully) until someone does this.
+    TODO = "todo"
+    #: Watchly cannot tell: a prefix list, groups it may not read, not checked yet.
+    UNKNOWN = "unknown"
+    #: Worth doing, not needed.
+    OPTIONAL = "optional"
+
+
+class ReadinessStep(BaseModel):
+    #: What it is about: `watchly`, `account`, `vpc`, `checks`, `network`,
+    #: `service`, `permission` or `agent`.
+    area: str
+    status: ReadinessStatus
+    title: str
+    detail: str | None = None
+    #: What to do, for a step not done.
+    fix: str | None = None
+    check_id: int | None = None
+    #: An AWS id to look up: a security group, a subnet, a VPC.
+    aws_ref: str | None = None
+    #: The VPC a `vpc` step is about; the checklist lists it under that VPC.
+    vpc_id: int | None = None
+
+
+class ReadinessResource(BaseModel):
+    resource: AttentionResource
+    state: ResourceState
+    #: Steps left to do; 0 means Watchly can watch it.
+    todo: int
+    steps: list[ReadinessStep]
+
+
+class Readiness(BaseModel):
+    checked_at: datetime
+    total: int
+    #: Resources with nothing left to do.
+    ready: int
+    #: Whether security groups were read; only for Admin and DevOps.
+    security_groups_read: bool
+    #: About Watchly, the AWS accounts and the VPCs, before any one resource.
+    general: list[ReadinessStep]
+    #: Resources with something to do first.
+    resources: list[ReadinessResource]
+
+
 class SecurityGroupRead(BaseModel):
     id: str
     name: str

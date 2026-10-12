@@ -239,7 +239,7 @@ def _first(response, key: str, field: str):
     return items[0].get(field) if items else None
 
 
-def _can_ping() -> bool:
+def can_ping() -> bool:
     from icmplib import ICMPv4Socket
 
     try:
@@ -472,7 +472,7 @@ async def self_report() -> SelfRead:
         caller_error = "No AWS region: set AWS_REGION, or run Watchly on EC2."
 
     probe_support = {
-        "ping": _can_ping(),
+        "ping": can_ping(),
         "tcp": True,
         "http": True,
         "target_health": True,

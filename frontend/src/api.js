@@ -258,6 +258,7 @@ export const api = {
   // call answers 404 while the API has INFRA_AWS_ENABLED off; health() says which.
   infraOverview: (query) => v1('/monitoring/infra/aws/overview', { query }),
   infraSelf: () => v1('/monitoring/infra/aws/self'),
+  infraReadiness: (query) => v1('/monitoring/infra/aws/readiness', { query }),
   infraEvents: (query) => v1('/monitoring/infra/aws/resources/events', { query }),
   listDeployments: (query) => v1('/monitoring/infra/aws/deployments', { query }),
   infraDiagnose: (payload) => v1('/monitoring/infra/aws/diagnose', { method: 'POST', body: payload }),

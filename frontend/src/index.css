@@ -654,8 +654,23 @@ a:hover {
   .sidebar-brand {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 8px;
+  }
+  /* The toggle is a small square tab on the card's right border, level with
+     the brand. It rides the border in both widths, so it never moves. */
+  .side-toggle {
+    position: absolute;
+    top: 42px;
+    right: -13px;
+    z-index: 2;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+  }
+  .side-toggle:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
   }
 
   .sidebar.collapsed {
@@ -663,8 +678,7 @@ a:hover {
     padding-inline: 10px;
   }
   .sidebar.collapsed .sidebar-brand {
-    flex-direction: column;
-    gap: 12px;
+    justify-content: center;
     padding: 4px 0 16px;
   }
   .sidebar.collapsed .sidebar-brand .brand-mark {
@@ -7527,6 +7541,209 @@ textarea {
   .step-time,
   .step-detail {
     grid-column: 2;
+  }
+}
+
+/* The setup checklist (InfraReadiness.jsx): what each resource still needs
+   before Watchly can watch it, one mark per step. */
+.ready-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ready-button svg {
+  width: 16px;
+  height: 16px;
+}
+.ready-badge {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+/* On the themed button, so the badge is a pill in the button's own text colour. */
+.ready-badge {
+  color: var(--maintenance);
+  background: var(--action-text);
+}
+.ready-close {
+  color: var(--maintenance);
+  border-color: color-mix(in srgb, var(--maintenance) 45%, var(--border));
+}
+.ready-close:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--maintenance) 10%, var(--surface));
+  border-color: var(--maintenance);
+}
+.ready-vpc + .ready-vpc {
+  margin-top: 16px;
+}
+.ready-vpc-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  border-left: 3px solid var(--maintenance);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--maintenance) 8%, var(--surface));
+}
+.ready-vpc-head .strong-link {
+  font-weight: 700;
+}
+.ready-modal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 32px);
+  border-color: var(--border);
+}
+.ready-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ready-head-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.ready-meter {
+  flex: none;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.ready-meter i {
+  display: block;
+  height: 100%;
+  background: var(--up);
+}
+.ready-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.ready-intro {
+  margin: 0 0 12px;
+}
+.ready-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ready-general {
+  margin-bottom: 12px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.ready-step {
+  display: flex;
+  gap: 10px;
+  padding: 6px 0;
+}
+.ready-step + .ready-step {
+  border-top: 1px solid var(--border);
+}
+.ready-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.ready-step.is-done .ready-mark {
+  color: var(--up);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+.ready-step.is-todo .ready-mark {
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 14%, transparent);
+}
+.ready-step.is-unknown .ready-mark {
+  color: var(--pending);
+  background: color-mix(in srgb, var(--pending) 14%, transparent);
+}
+.ready-step-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ready-step.is-done .ready-step-text strong {
+  font-weight: 500;
+}
+.ready-area {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.ready-ref {
+  margin-left: 6px;
+  font-size: 0.8rem;
+}
+.ready-fix {
+  margin-top: 3px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.ready-resources {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ready-resource {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.ready-resource.has-todo {
+  border-color: color-mix(in srgb, var(--down) 30%, var(--border));
+}
+.ready-resource > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.ready-resource > .ready-steps {
+  padding: 0 12px 8px 36px;
+}
+.ready-kind {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+}
+.ready-count {
+  margin-left: auto;
+  font-weight: 600;
+}
+.ready-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .ready-resource > .ready-steps {
+    padding-left: 12px;
   }
 }
 

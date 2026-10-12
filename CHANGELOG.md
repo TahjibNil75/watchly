@@ -12,6 +12,14 @@ major version.
 
 ### Added
 
+- A setup checklist on the Infrastructure page (`GET
+  /monitoring/infra/aws/readiness`): for each resource, what is in place and
+  what is left before Watchly can watch it. For Admin and DevOps, with
+  Watchly on EC2, its security groups are read and compared with each ping,
+  tcp and http check, naming the group and the inbound rule to add; for
+  everyone, a port that refuses, an AWS call refused for want of an IAM
+  permission, a missing CloudWatch agent, and checks worth adding, with the
+  VPCs' reachability, Watchly's placement and the accounts' credentials above.
 - `GET /users` takes `q`, a search on username, full name and email, so a
   directory too large for one page can still be searched.
 

@@ -5,6 +5,7 @@ import { useAuth } from '../auth.jsx'
 import { Empty, ErrorBanner, Loading, PageHeader } from '../components.jsx'
 import { ENVIRONMENTS } from '../environments.js'
 import { KindIcon, ResourceTable } from '../Infra.jsx'
+import SetupChecklist from '../InfraReadiness.jsx'
 import { InfraMap } from '../NetworkMap.jsx'
 import { KINDS, STATES, kindInfo, loadAllResources, useInfraEnabled } from '../infra.js'
 import { canCreateProjects, canViewAllProjects } from '../roles.js'
@@ -227,8 +228,9 @@ export default function Infrastructure() {
         title="Infrastructure"
         subtitle="AWS resources: EC2 servers in public and private subnets, Auto Scaling groups, and Application and Network Load Balancers."
       >
+        {ov && !nothingYet && <SetupChecklist scope={scope} enabled={enabled} />}
         {manager && (
-          <Link to="/infra/settings" className="btn">
+          <Link to="/infra/settings" className="btn btn-warn">
             AWS &amp; access
           </Link>
         )}

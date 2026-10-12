@@ -53,7 +53,7 @@ class _Failure:
 
 
 @dataclass(slots=True)
-class _Traffic:
+class Traffic:
     protocol: str  # "tcp" or "icmp"
     port: int | None
 
@@ -62,16 +62,16 @@ class _Traffic:
         return ICMP_RULE if self.protocol == "icmp" else f"TCP {self.port}"
 
 
-def _traffic(check: AwsCheck) -> _Traffic | None:
+def traffic_of(check: AwsCheck) -> Traffic | None:
     """What the check sends, or None for a type that sends nothing to a port."""
     settings = check.settings or {}
     match check.check_type:
         case InfraCheckType.PING:
-            return _Traffic("icmp", None)
+            return Traffic("icmp", None)
         case InfraCheckType.TCP if settings.get("port"):
-            return _Traffic("tcp", int(settings["port"]))
+            return Traffic("tcp", int(settings["port"]))
         case InfraCheckType.HTTP:
-            return _Traffic("tcp", int(settings.get("port") or (443 if settings.get("scheme") == "https" else 80)))
+            return Traffic("tcp", int(settings.get("port") or (443 if settings.get("scheme") == "https" else 80)))
     return None
 
 
@@ -98,7 +98,7 @@ def _is_ip(value: str | None) -> bool:
     return True
 
 
-def _covers(rule: dict, traffic: _Traffic) -> bool:
+def _covers(rule: dict, traffic: Traffic) -> bool:
     """Whether a security group rule's protocol and ports include the traffic."""
     protocol = str(rule.get("IpProtocol"))
     if protocol in {"-1", "all"}:
@@ -111,8 +111,8 @@ def _covers(rule: dict, traffic: _Traffic) -> bool:
     return rule["FromPort"] <= traffic.port <= rule.get("ToPort", rule["FromPort"])
 
 
-def _inbound_allows(
-    groups: list[dict], traffic: _Traffic, watchly_groups: set[str], watchly_ip: str | None
+def inbound_allows(
+    groups: list[dict], traffic: Traffic, watchly_groups: set[str], watchly_ip: str | None
 ) -> bool | None:
     """Whether the groups let Watchly in. None when a prefix list might: its
     members are not read."""
@@ -127,7 +127,7 @@ def _inbound_allows(
     return None if unresolved else False
 
 
-def _outbound_allows(groups: list[dict], traffic: _Traffic, address: str, target_groups: set[str]) -> bool:
+def _outbound_allows(groups: list[dict], traffic: Traffic, address: str, target_groups: set[str]) -> bool:
     """Whether the groups let Watchly's connections out to `address`. Prefix
     lists are given the benefit of the doubt."""
     ip = ipaddress.ip_address(address)
@@ -147,7 +147,7 @@ class _Context:
     resource: AwsResource
     vpc: AwsVpc
     target: ProbeTarget
-    traffic: _Traffic
+    traffic: Traffic
     watchly: InstanceMetadata | None
     region: client.Region
     #: Whether the connection leaves Watchly for the internet, so the target
@@ -259,7 +259,7 @@ async def _dropped(ctx: _Context, failure: _Failure) -> list[DiagnoseHint]:
             )
     allowed = None
     if groups and source:
-        allowed = _inbound_allows(
+        allowed = inbound_allows(
             list(groups.values()), traffic, {g for g, _ in ctx.watchly_groups}, ctx.watchly_ip
         )
 
@@ -331,20 +331,25 @@ async def _dropped(ctx: _Context, failure: _Failure) -> list[DiagnoseHint]:
     ]
 
 
+def refused_fix(resource: AwsResource, port: int | None) -> str:
+    """What to do when `port` refuses: the ports the resource is known to
+    listen on, or to start what should."""
+    detail = resource.aws_detail or {}
+    known = sorted({row["port"] for row in detail.get("listeners") or [] if row.get("port")})
+    if resource.kind is ResourceKind.LOAD_BALANCER and known:
+        return f"The load balancer listens on {', '.join(map(str, known))}: use one of those ports, or add a listener for {port}."
+    if resource.kind is ResourceKind.DATABASE and detail.get("port"):
+        return f"RDS says this database listens on {detail['port']}: use that port."
+    return (
+        f"Start the service, and make it listen on 0.0.0.0:{port} (or the private IP), not 127.0.0.1; "
+        "or change the check's port to the one it does listen on."
+    )
+
+
 def _refused(ctx: _Context, failure: _Failure) -> DiagnoseHint:
     """The host answered with a refusal: reachable, so not a security group."""
-    detail = ctx.resource.aws_detail or {}
     port = ctx.traffic.port
-    known = sorted({row["port"] for row in detail.get("listeners") or [] if row.get("port")})
-    if ctx.resource.kind is ResourceKind.LOAD_BALANCER and known:
-        fix = f"The load balancer listens on {', '.join(map(str, known))}: use one of those ports, or add a listener for {port}."
-    elif ctx.resource.kind is ResourceKind.DATABASE and detail.get("port"):
-        fix = f"RDS says this database listens on {detail['port']}: use that port."
-    else:
-        fix = (
-            f"Start the service, and make it listen on 0.0.0.0:{port} (or the private IP), not 127.0.0.1; "
-            "or change the check's port to the one it does listen on."
-        )
+    fix = refused_fix(ctx.resource, port)
     where = f"{failure.address}:{port}" if failure.address else f"port {port}"
     return DiagnoseHint(
         kind="port",
@@ -369,7 +374,7 @@ async def hints_for(
 ) -> list[DiagnoseHint]:
     """Hints for a failed run of `check`; none when it passed, sends nothing
     to a port, or no hint applies. Never raises."""
-    traffic = _traffic(check)
+    traffic = traffic_of(check)
     if traffic is None:
         return []
     failures = _failures(resource, result, target)[:MAX_TARGETS]

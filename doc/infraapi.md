@@ -720,6 +720,7 @@ everywhere else. Every endpoint answers `404` while `INFRA_AWS_ENABLED=false`.
 | | | **Diagnose, overview, self** | |
 | D1 | `POST` | `/diagnose` | Dry-run a check step by step (resolve → policy → connect → TLS → response). Saves nothing. |
 | D2 | `GET` | `/overview` | Dashboard data: counts by state, per VPC and per kind, and what needs attention. |
+| D4 | `GET` | `/readiness` | The setup checklist: per resource, what is in place and what is left before Watchly can watch it (security group rule, listening port, IAM permission, CloudWatch agent, a check to add). |
 | D3 | `GET` | `/self` | Where Watchly runs, IMDS settings, the egress guard, and which permissions Watchly's own role has. |
 | | | **Websites (phase 0)** | |
 | W1 | `GET` | `/api/v1/monitoring/websites/blocked` | Existing website checks the egress policy refuses (Admin/DevOps). |
@@ -1536,6 +1537,57 @@ what the caller can see. Query: `vpc_id`, `project_id`, `environment`.
 ```
 `attention` lists down resources first, then degraded and missing ones, oldest
 first, at most 20. The table under it is the ordinary `GET /resources`.
+`200`
+
+### `GET /readiness`
+The setup checklist on the Infrastructure page: for every resource the caller
+can see, what is in place and what is left before Watchly can watch it, worst
+first. Query: `vpc_id`, `project_id`, `kind`, `environment`, `q`, as for
+`GET /resources`; at most 500 resources. Nothing in AWS is changed.
+
+Each step has an `area` (`watchly`, `account`, `vpc`, `checks`, `network`,
+`service`, `permission`, `agent`), a `status` (`done`, `todo`, `unknown`,
+`optional`), a `title`, a `detail` and, unless done, a `fix`. A resource's
+`todo` counts its `todo` steps; `ready` counts resources with none.
+
+- **network**: each enabled `ping`, `tcp` and `http` check. For an Admin or
+  DevOps caller, with Watchly on EC2, the resource's security groups (an Auto
+  Scaling group's: those of its instances in service) are read from AWS,
+  cached a minute, and compared with where Watchly connects from, its
+  security group inside its own VPC, else its address, as `POST /diagnose`'s
+  hints do. A missing rule is a `todo` naming the group and the rule to add.
+  Groups that allow it while the check still times out point at the network
+  ACLs, the host's firewall and, across VPCs, the routes.
+- **service**: a port that refuses (nothing listens) or does not speak TLS.
+- **permission**: a check that asks AWS and was refused (`AccessDenied`),
+  naming the IAM action to allow.
+- **agent**: a `ec2_metrics` check with a disk threshold and no CloudWatch
+  agent disk metrics.
+- **checks**: a resource with no enabled check, none over the network, or
+  without the AWS-side check its kind is best watched with.
+- `general` holds the VPCs' reachability and last test for everyone; for
+  Admin and DevOps also where Watchly runs, whether it can send pings, and
+  each AWS account's credentials. A VPC's step has `vpc_id` (the others
+  `null`), so the page can list it with that VPC's resources.
+
+```json
+{
+  "checked_at": "2026-10-12T07:10:00Z", "total": 14, "ready": 12, "security_groups_read": true,
+  "general": [
+    {"area": "vpc", "status": "done", "title": "prod-vpc: Watchly reaches into it", "detail": "Its last test passed.", "fix": null, "check_id": null, "aws_ref": "vpc-0a1b2c3d4e5f60718", "vpc_id": 1}
+  ],
+  "resources": [
+    {"resource": {"id": 15, "name": "report-runner", "kind": "server", "vpc": {"id": 1, "name": "prod-vpc"}},
+     "state": "down", "todo": 1,
+     "steps": [
+       {"area": "network", "status": "todo", "title": "tcp 22: TCP 22 from Watchly inside the VPC",
+        "detail": "The security groups of report-runner (sg-0f1e2d3c) have no inbound rule for TCP 22 from sg-0a9b8c7d (watchly).",
+        "fix": "Add an inbound rule to sg-0f1e2d3c (report-runner): TCP 22, source sg-0a9b8c7d (watchly).",
+        "check_id": 41, "aws_ref": "sg-0f1e2d3c"}
+     ]}
+  ]
+}
+```
 `200`
 
 ### `GET /self`

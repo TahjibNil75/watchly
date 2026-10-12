@@ -82,6 +82,8 @@ infra/
     ├── diagnose.py       step-by-step dry run of a check; what an account's credentials may do
     ├── hints.py          where to look when a check cannot connect: the security group and rule to add,
     │                     or the ACL, route, host firewall or port to check (Admin and DevOps only)
+    ├── readiness.py      the setup checklist: per resource, the security group rules, listening ports,
+    │                     IAM permissions, agent and checks still missing before it can be watched
     └── probes/           one module per check type; each returns a ProbeResult and never raises
         ├── ping.py
         ├── tcp.py

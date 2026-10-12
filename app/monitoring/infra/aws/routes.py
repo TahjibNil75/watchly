@@ -21,7 +21,7 @@ from app.core.rate_limit import RATE_LIMITED, _count
 from app.db.models.user import User
 from app.db.session import get_db
 from app.monitoring.exports import csv_response, infra_stats_csv
-from app.monitoring.infra.aws import client, diagnose as diagnose_module
+from app.monitoring.infra.aws import client, diagnose as diagnose_module, readiness as readiness_module
 from app.monitoring.infra.aws.capacity import capacity_regions
 from app.monitoring.infra.aws.client import AwsError
 from app.monitoring.infra.aws.history import InfraHistoryService
@@ -65,6 +65,7 @@ from app.monitoring.infra.aws.schemas import (
     Overview,
     OverviewVpc,
     ProjectBrief,
+    Readiness,
     ResourceCreate,
     ResourceList,
     ResourceRead,
@@ -1134,6 +1135,36 @@ async def overview(
         by_kind=[KindCounts(**row) for row in data["by_kind"]],
         attention=attention,
     )
+
+
+#: Resources a setup checklist covers, at most.
+READINESS_LIMIT = 500
+
+
+@router.get("/readiness", response_model=Readiness, summary="What each resource still needs to be watched")
+async def resource_readiness(
+    vpc_id: int | None = Query(None, ge=1),
+    project_id: int | None = Query(None, ge=1),
+    kind: ResourceKind | None = Query(None),
+    environment: WebsiteEnvironment | None = Query(None),
+    q: str | None = Query(None, max_length=200),
+    actor: User = Depends(get_current_user),
+    service: InfraService = Depends(get_service),
+) -> Readiness:
+    """The setup checklist: for each resource, what is in place and what is
+    left before Watchly can watch it (a security group rule, a listening
+    port, an IAM permission, the CloudWatch agent, a check to add), worst
+    first. For an Admin or DevOps caller the resources' security groups are
+    read from AWS (cached a minute) and compared with where Watchly connects
+    from, and Watchly's placement and the AWS accounts are covered too.
+    Nothing is changed in AWS."""
+    resources, _ = await service.list_resources(
+        actor,
+        limit=READINESS_LIMIT,
+        sort=ResourceSort.NAME,
+        **_scope(vpc_id, project_id, kind, environment, q),
+    )
+    return await readiness_module.readiness(resources, manager=actor.role in ROLE_MANAGERS)
 
 
 @router.get(
