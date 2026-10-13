@@ -133,6 +133,10 @@ class DockerContainerEvent(Notification):
             raise ValueError(f"{self.kind} is not a container kind")
 
     @property
+    def project_id(self) -> int:
+        return self.container.project_id
+
+    @property
     def path(self) -> str:
         return f"/docker/containers/{self.container.id}"
 
@@ -265,6 +269,10 @@ class DockerHostEvent(Notification):
     def __post_init__(self) -> None:
         if self.kind not in HOST_KINDS:
             raise ValueError(f"{self.kind} is not a host kind")
+
+    @property
+    def project_id(self) -> int:
+        return self.host.project_id
 
     @property
     def is_recovery(self) -> bool:

@@ -1174,6 +1174,8 @@ a:hover {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  /* Stay on the right even when a long subtitle pushes the buttons onto their own row. */
+  margin-left: auto;
 }
 .crumbs {
   margin: 0 0 8px;
@@ -1304,20 +1306,6 @@ a:hover {
 /* A failed submit remounts the banner, so it shakes again each time. */
 .auth-card > .banner-error {
   animation: auth-shake 0.4s ease-in-out;
-}
-.auth-card .btn-primary {
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease,
-    background-color 0.15s ease;
-}
-.auth-card .btn-primary:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--action) 70%, transparent);
-}
-.auth-card .btn-primary:active:not(:disabled) {
-  transform: none;
-  box-shadow: none;
 }
 
 /* BusyRing (components.jsx): an arc turns while a request runs, then fills
@@ -1712,7 +1700,6 @@ a:hover {
 @media (prefers-reduced-motion: reduce) {
   .auth-card,
   .auth-card > *,
-  .auth-card .btn-primary,
   .auth-aside::before,
   .auth-aside *,
   .auth-aside *::after {
@@ -1905,8 +1892,10 @@ a:hover {
 }
 /* No colour transitions of its own: they'd trail the page's fade. */
 .night-card .btn-primary {
-  box-shadow: 0 0 24px -6px var(--glow);
-  transition: transform 0.15s ease;
+  --btn-shadow: var(--glow);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .night-card a {
   color: var(--glow);
@@ -2117,17 +2106,6 @@ html:has(.landing) {
 .landing-relay.is-sending .live-channels-label {
   color: var(--glow);
   font-weight: 600;
-}
-.landing-actions .btn-primary {
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease,
-    background-color 0.15s ease;
-}
-.landing-actions .btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--action) 70%, transparent);
-  text-decoration: none;
 }
 .landing-note {
   margin: 14px 0 0;
@@ -3377,9 +3355,6 @@ html:has(.landing) {
     position: relative;
     overflow: hidden;
   }
-  .landing-actions .btn:active {
-    scale: 0.97;
-  }
   .landing-actions .btn-primary::after {
     content: '';
     position: absolute;
@@ -3630,28 +3605,41 @@ a.toast-body:hover strong {
 
 /* ---------- Buttons ---------- */
 
+/* Offset block: a hard, un-blurred shadow that the button presses into. The
+   shadow colour (--btn-shadow) and the edge (--btn-edge) are per variant;
+   --btn-off is the travel, so a small button moves less. */
 .btn {
+  --btn-edge: var(--text);
+  --btn-shadow: var(--action);
+  --btn-off: 3px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 18px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
+  padding: 7px 18px;
+  border-radius: 4px;
+  border: 2px solid var(--btn-edge);
   background: var(--surface);
   color: var(--text);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: var(--btn-off) var(--btn-off) 0 var(--btn-shadow);
   transition:
     background-color 0.15s ease,
-    border-color 0.15s ease;
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .btn:hover:not(:disabled) {
   background: var(--surface-2);
-  border-color: color-mix(in srgb, var(--text) 18%, var(--border));
   text-decoration: none;
+  transform: translate(calc(var(--btn-off) / 2), calc(var(--btn-off) / 2));
+  box-shadow: calc(var(--btn-off) / 2) calc(var(--btn-off) / 2) 0 var(--btn-shadow);
+}
+.btn:active:not(:disabled) {
+  transform: translate(var(--btn-off), var(--btn-off));
+  box-shadow: 0 0 0 var(--btn-shadow);
 }
 .btn:focus-visible {
   outline: 2px solid var(--action);
@@ -3660,66 +3648,72 @@ a.toast-body:hover strong {
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
+  box-shadow: none;
 }
 .btn-primary {
+  --btn-shadow: var(--text);
   background: var(--action);
-  border-color: var(--action);
   color: var(--action-text);
 }
 .btn-primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--action) 86%, black);
-  border-color: color-mix(in srgb, var(--action) 86%, black);
 }
 .btn-danger {
+  --btn-edge: var(--down);
+  --btn-shadow: var(--down);
   color: var(--down);
-  border-color: color-mix(in srgb, var(--down) 35%, var(--border));
 }
 .btn-danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--down) 10%, var(--surface));
-  border-color: color-mix(in srgb, var(--down) 55%, var(--border));
 }
 .btn-danger-solid {
+  --btn-shadow: var(--text);
   background: var(--down);
-  border-color: var(--down);
   color: var(--action-text);
 }
 .btn-danger-solid:hover:not(:disabled) {
   background: color-mix(in srgb, var(--down) 86%, black);
-  border-color: color-mix(in srgb, var(--down) 86%, black);
 }
 .btn-warn {
+  --btn-shadow: var(--text);
   background: var(--warn);
-  border-color: var(--warn);
   color: var(--warn-text);
 }
 .btn-warn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--warn) 86%, black);
-  border-color: color-mix(in srgb, var(--warn) 86%, black);
 }
 .btn-purple {
+  --btn-shadow: var(--text);
   background: var(--maintenance);
-  border-color: var(--maintenance);
   color: var(--action-text);
 }
 .btn-purple:hover:not(:disabled) {
   background: color-mix(in srgb, var(--maintenance) 86%, black);
-  border-color: color-mix(in srgb, var(--maintenance) 86%, black);
 }
+/* Flat on purpose: no edge, no shadow, nothing to press. */
 .btn-ghost {
-  border-color: transparent;
+  --btn-edge: transparent;
+  --btn-off: 0px;
   background: transparent;
 }
 .btn-sm {
-  padding: 4px 12px;
+  --btn-off: 2px;
+  padding: 3px 12px;
   font-size: 0.85rem;
 }
 .btn-lg {
-  padding: 11px 24px;
+  --btn-off: 4px;
+  padding: 10px 24px;
   font-size: 1rem;
 }
 .btn-block {
   width: 100%;
-  padding: 10px;
+  padding: 9px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn {
+    transition: none;
+  }
 }
 
 /* ---------- Badges & banners ---------- */
@@ -7397,8 +7391,9 @@ textarea {
   gap: 6px;
 }
 .view-toggle .btn.is-active {
-  border-color: var(--primary);
-  box-shadow: inset 0 0 0 1px var(--primary);
+  --btn-edge: var(--primary);
+  transform: translate(var(--btn-off), var(--btn-off));
+  box-shadow: none;
   color: var(--primary);
   font-weight: 600;
 }
@@ -8904,12 +8899,10 @@ a.map-node:hover {
 }
 .wizard .btn-primary {
   background: var(--mode-solid);
-  border-color: var(--mode-solid);
   color: var(--mode-solid-text);
 }
 .wizard .btn-primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--mode-solid) 86%, black);
-  border-color: color-mix(in srgb, var(--mode-solid) 86%, black);
 }
 .wizard :is(input, select, textarea):focus {
   outline-color: color-mix(in srgb, var(--mode) 45%, transparent);
