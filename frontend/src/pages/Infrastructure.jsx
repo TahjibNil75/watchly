@@ -228,7 +228,7 @@ export default function Infrastructure() {
         title="Infrastructure"
         subtitle="AWS resources: EC2 servers in public and private subnets, Auto Scaling groups, and Application and Network Load Balancers."
       >
-        {ov && !nothingYet && <SetupChecklist scope={scope} enabled={enabled} />}
+        {!nothingYet && <SetupChecklist scope={scope} enabled={enabled} />}
         {manager && (
           <Link to="/infra/settings" className="btn btn-warn">
             AWS &amp; access

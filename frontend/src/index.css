@@ -8881,8 +8881,8 @@ a.map-node:hover {
 
 /* ---------- New project wizard (ProjectForm.jsx) ---------- */
 
-/* Green for a website project, blue for infrastructure: the step rail, the
-   chosen type and the main button all follow it. */
+/* Green for a website project, yellow for infrastructure, blue for Docker: the
+   step rail, the chosen type and the main button all follow it. */
 .wizard {
   --mode: var(--up);
   --mode-solid: var(--action);
@@ -8893,9 +8893,9 @@ a.map-node:hover {
   align-items: start;
 }
 .wizard[data-monitors='infrastructure'] {
-  --mode: var(--primary);
-  --mode-solid: var(--primary);
-  --mode-solid-text: var(--primary-text);
+  --mode: var(--warn);
+  --mode-solid: var(--warn);
+  --mode-solid-text: var(--warn-text);
 }
 .wizard .btn-primary {
   background: var(--mode-solid);
@@ -9073,7 +9073,7 @@ a.map-node:hover {
     background-color 0.18s ease;
 }
 .wizard-mode.is-infrastructure {
-  --c: var(--primary);
+  --c: var(--warn);
 }
 .wizard-mode:hover {
   border-color: color-mix(in srgb, var(--c) 55%, var(--border));

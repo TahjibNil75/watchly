@@ -146,6 +146,13 @@ function ResourceRow({ row }) {
   )
 }
 
+const ChecklistIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 11l3 3 8-8" />
+    <path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" />
+  </svg>
+)
+
 export default function SetupChecklist({ scope, enabled }) {
   const [open, setOpen] = useState(false)
   const [showReady, setShowReadyState] = useState(() => remembered(false))
@@ -168,7 +175,19 @@ export default function SetupChecklist({ scope, enabled }) {
   }, [open])
 
   const data = readiness.data
-  if (!data || (data.total === 0 && !data.general.some((s) => s.status === 'todo'))) return null
+  // The answer reads security groups from AWS and can take a while, so the
+  // button is there at once, waiting, rather than popping in and shoving the
+  // buttons beside it along. It goes only if there turns out to be nothing to set up.
+  if (!data) {
+    return readiness.error ? null : (
+      <button type="button" className="btn btn-purple ready-button" disabled aria-busy="true">
+        <ChecklistIcon />
+        Setup checklist
+        <span className="ready-badge">…</span>
+      </button>
+    )
+  }
+  if (data.total === 0 && !data.general.some((s) => s.status === 'todo')) return null
 
   const generalTodo = data.general.filter((s) => s.status === 'todo').length
   const stepsLeft = generalTodo + data.resources.reduce((n, row) => n + row.todo, 0)
@@ -185,10 +204,7 @@ export default function SetupChecklist({ scope, enabled }) {
         aria-haspopup="dialog"
         title={`${data.ready} of ${data.total} resources ready to watch`}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M9 11l3 3 8-8" />
-          <path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" />
-        </svg>
+        <ChecklistIcon />
         Setup checklist
         <span className={`ready-badge ${allSet ? 'is-ready' : 'has-todo'}`}>{allSet ? '✓' : stepsLeft}</span>
       </button>
