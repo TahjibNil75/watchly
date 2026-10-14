@@ -248,7 +248,7 @@ erDiagram
         string whatsapp_phone_number_id "the sending number's id"
         text_array whatsapp_recipients
         bool whatsapp_enabled
-        bool is_active
+        bool is_active "false means paused: not checked, no alerts"
     }
     project_members {
         int project_id PK
@@ -663,11 +663,14 @@ makes lockout impossible through the API: the actor is always an active
 administrator and never the target, so no action can leave you with zero
 administrators.
 
-**Too many wrong passwords suspend the account.** `MAX_FAILED_LOGIN_ATTEMPTS`
-(default 5) in a row at sign-in set `is_active = false` and revoke its sessions,
-exactly like a suspension from the API, so only a role that may reinstate it can
-lift it. That can leave nobody — the only admin locked out — so
-`python -m app.db.reactivate <username>` reinstates an account from the server.
+**Too many wrong passwords lock sign-in, not the account.**
+`MAX_FAILED_LOGIN_ATTEMPTS` (default 5) in a row at sign-in lock sign-in for
+`LOGIN_LOCKOUT_MINUTES` (default 15). The account stays active and its sessions
+stay valid, so a stranger who knows a username cannot sign its owner out or
+shut them out for good. The lock lifts on its own; reactivating the account
+through the API, or `python -m app.db.reactivate <username>` from the server,
+clears it early. That command is also the way back in when no one is left who
+may reinstate a suspended account.
 
 **Project ownership.** Admin and DevOps manage every project; a project manager
 manages only the ones they created, and the sites under them.

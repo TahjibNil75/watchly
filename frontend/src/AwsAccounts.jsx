@@ -396,9 +396,9 @@ export function AwsAccountsCard({ projectId }) {
             </tbody>
           </table>
         </div>
-      ) : (
+      ) : accounts.data ? (
         <Empty>No AWS account yet.</Empty>
-      )}
+      ) : null}
 
       {Object.entries(tests).map(([id, t]) => {
         const a = items.find((x) => String(x.id) === id)

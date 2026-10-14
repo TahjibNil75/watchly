@@ -89,7 +89,7 @@ export default function NewDockerHost() {
       <ErrorBanner error={projects.error} />
       {created ? (
         <Waiting created={created} />
-      ) : manageable.length === 0 ? (
+      ) : !projects.data ? null : manageable.length === 0 ? (
         <Empty>
           Docker hosts live under a Docker project, and you don&apos;t manage one yet.{' '}
           <Link to="/projects">Create a project</Link> that monitors Docker first.

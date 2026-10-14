@@ -15,17 +15,6 @@ import { useApi } from '../useApi.js'
 const SPLIT = ['up', 'down', 'unknown', 'maintenance', 'paused']
 const MAX_FACES = 4
 
-// An infrastructure resource's state, in the bar's terms.
-const RESOURCE_SPLIT = {
-  healthy: 'up',
-  degraded: 'up',
-  down: 'down',
-  unknown: 'unknown',
-  missing: 'unknown',
-  maintenance: 'maintenance',
-  paused: 'paused',
-}
-
 // A Docker container's condition, in the bar's terms.
 const CONTAINER_SPLIT = {
   running: 'up',
@@ -71,14 +60,6 @@ const KINDS = [
 ]
 // Past this many projects the page offers a search.
 const SEARCH_FROM = 6
-
-// Which part of the bar a site belongs to. As on the dashboard, a site in
-// maintenance counts there, not under its status.
-function siteState(site) {
-  if (!site.is_enabled) return 'paused'
-  if (site.maintenance) return 'maintenance'
-  return site.status
-}
 
 // The card's colour and its one-line verdict on the project's sites.
 function health(project, c, nouns) {
@@ -216,27 +197,16 @@ export default function Projects() {
   const [query, setQuery] = useState('')
   const [closedKinds, setClosedKinds] = useState([])
 
-  const projects = useApi(() => api.listProjects(), [])
-  const sites = useApi(() => api.listWebsites(), [], { pollMs: 30000 })
-  // Answers 404 while infrastructure monitoring is off: no resources then.
-  const resources = useApi(() => api.listResources({ limit: 200 }).catch(() => null), [], { pollMs: 30000 })
-  // Answers 404 while Docker monitoring is off: no containers then.
+  const projects = useApi(() => api.listAllProjects(), [])
+  // Counted by the API over every site and resource, not over one page of them.
+  const summary = useApi(() => api.projectSummary(), [], { pollMs: 30000 })
+  // Answers 404 while Docker monitoring is off: no containers then. The list
+  // is not paged.
   const containers = useApi(() => api.listContainers().catch(() => null), [], { pollMs: 30000 })
   const users = useApi(() => (creating ? api.listUsers({ is_active: true }) : null), [creating])
 
   const counts = {}
-  for (const site of sites.data?.items ?? []) {
-    const c = (counts[site.project_id] ??= { total: 0 })
-    const state = siteState(site)
-    c.total++
-    c[state] = (c[state] ?? 0) + 1
-  }
-  for (const resource of resources.data?.items ?? []) {
-    const c = (counts[resource.project.id] ??= { total: 0 })
-    const state = RESOURCE_SPLIT[resource.state] ?? 'unknown'
-    c.total++
-    c[state] = (c[state] ?? 0) + 1
-  }
+  for (const entry of summary.data?.items ?? []) counts[entry.project_id] = entry
   for (const container of containers.data?.items ?? []) {
     const c = (counts[container.project.id] ??= { total: 0 })
     const state = CONTAINER_SPLIT[container.condition] ?? 'unknown'
@@ -284,10 +254,10 @@ export default function Projects() {
         )
       ) : (
         <>
-          <ErrorBanner error={projects.error} />
+          <ErrorBanner error={projects.error ?? summary.error} />
           {projects.loading ? (
             <Loading />
-          ) : items.length === 0 ? (
+          ) : !projects.data ? null : items.length === 0 ? (
             <Empty>
               <svg
                 className="empty-icon"

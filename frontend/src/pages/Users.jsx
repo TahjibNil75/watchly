@@ -139,7 +139,7 @@ export default function Users() {
 
       {users.loading ? (
         <Loading />
-      ) : items.length === 0 ? (
+      ) : !users.data ? null : items.length === 0 ? (
         <Empty>No users match these filters.</Empty>
       ) : (
         <div className="table-wrap">

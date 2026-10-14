@@ -453,3 +453,24 @@ class ProjectListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class ProjectCounts(BaseModel):
+    """What one project's sites or resources are doing. Up, down, unknown,
+    maintenance and paused add up to `total`."""
+
+    project_id: int
+    total: int = 0
+    up: int = Field(default=0, description="Websites that are up; resources healthy or degraded.")
+    down: int = 0
+    unknown: int = Field(
+        default=0, description="Not checked yet; for a resource, also one gone missing from AWS."
+    )
+    maintenance: int = 0
+    paused: int = 0
+
+
+class ProjectCountsResponse(BaseModel):
+    items: list[ProjectCounts] = Field(
+        description="One entry per project the caller can see that has any sites or resources."
+    )

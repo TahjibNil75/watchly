@@ -72,6 +72,9 @@ DIAGNOSTIC_HEADERS = (
 MAX_REDIRECT_HOPS = 20
 MAX_CHAIN_CERTS = 6
 
+#: Length of `WebsiteCheck.final_url`; a longer redirect target is cut to fit.
+MAX_FINAL_URL = 2048
+
 #: Wait this long on one address before also trying the next, as anyio does.
 HAPPY_EYEBALLS_DELAY = 0.25
 
@@ -1021,7 +1024,7 @@ async def _http_probe(
             error_type=(
                 None if is_up else problem[0] if problem else "unexpected_status"
             ),
-            final_url=str(response.url),
+            final_url=str(response.url)[:MAX_FINAL_URL],
             redirected=str(response.url) != website.url,
             content_length=body_length(response, body),
             redirects=redirect_chain(response),

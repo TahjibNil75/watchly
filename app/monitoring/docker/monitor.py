@@ -36,6 +36,7 @@ from app.monitoring.notifications.recipients import (
     telegram_target,
     whatsapp_target,
 )
+from app.monitoring.projects.models import active_project_ids
 from app.monitoring.websites.history import DAY, HOUR, truncate
 from app.monitoring.websites.schemas import StatsRange
 
@@ -92,7 +93,8 @@ class DockerMonitor:
 
     async def mark_offline(self, now: datetime | None = None) -> int:
         """Hosts whose agent went quiet become offline; those that were online
-        alert. Returns how many changed."""
+        alert. Hosts of an inactive project are left as they are. Returns how
+        many changed."""
         now = now or datetime.now(UTC)
         floor = now - timedelta(seconds=settings.DOCKER_OFFLINE_AFTER_SECONDS)
         hosts = list(
@@ -101,6 +103,7 @@ class DockerMonitor:
                 .where(
                     DockerHost.status.in_([HostStatus.ONLINE.value, HostStatus.DOCKER_DOWN.value]),
                     DockerHost.last_seen_at < floor,
+                    DockerHost.project_id.in_(active_project_ids()),
                 )
                 .order_by(DockerHost.id)
                 # A host mid-push holds its lock; it is not offline.

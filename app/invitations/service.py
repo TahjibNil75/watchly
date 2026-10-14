@@ -319,10 +319,13 @@ class InvitationService:
         """
         # Locked, so two clicks on the same link cannot both create an account.
         invitation = await self._get_usable(payload.token, lock=True)
+        # Held in a local: rollback expires the ORM instance, and reading
+        # invitation.email afterwards would raise MissingGreenlet.
+        email = invitation.email
         check_password(
             payload.password,
             username=payload.username,
-            email=invitation.email,
+            email=email,
             full_name=payload.full_name,
         )
 
@@ -330,12 +333,12 @@ class InvitationService:
             select(User.id).where(User.username == payload.username)
         ):
             raise UserAlreadyExistsError("username", payload.username)
-        if await self._email_taken(invitation.email):
-            raise UserAlreadyExistsError("email", invitation.email)
+        if await self._email_taken(email):
+            raise UserAlreadyExistsError("email", email)
 
         user = User(
             username=payload.username,
-            email=invitation.email,
+            email=email,
             full_name=payload.full_name,
             password_hash=generate_hash_password(payload.password),
             role=invitation.role,
@@ -351,7 +354,7 @@ class InvitationService:
             await self.session.rollback()
             constraint = str(getattr(exc.orig, "constraint_name", "") or exc.orig)
             field = "username" if "username" in constraint else "email"
-            value = payload.username if field == "username" else invitation.email
+            value = payload.username if field == "username" else email
             raise UserAlreadyExistsError(field, value) from exc
 
         await self.session.refresh(user)

@@ -258,3 +258,13 @@ def visible_project_ids(user_id: int) -> Select:
     return select(Project.id).where(
         or_(Project.owner_id == user_id, Project.id.in_(member_of))
     )
+
+
+def active_project_ids() -> Select:
+    """Subquery of the ids of projects that are switched on.
+
+    An inactive project is paused: its sites, resources and Docker hosts are
+    not probed and none of its alerts are sent. Every scheduled read of what to
+    check filters on this.
+    """
+    return select(Project.id).where(Project.is_active.is_(True))

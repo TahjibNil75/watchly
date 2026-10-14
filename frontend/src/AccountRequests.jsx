@@ -105,7 +105,7 @@ export function AccountRequestList({ onNotice, onApproved }) {
 
       {requests.loading ? (
         <Loading />
-      ) : items.length === 0 ? (
+      ) : !requests.data ? null : items.length === 0 ? (
         <Empty>No {status} account requests.</Empty>
       ) : (
         <div className="table-wrap">

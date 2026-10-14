@@ -31,7 +31,7 @@ export default function NewWebsite() {
         subtitle="Watchly will request this URL, ping this host, look up this DNS record or log in to this mail server on its interval, and alert the project when it stops answering or changes."
       />
       <ErrorBanner error={projects.error} />
-      {manageable.length === 0 ? (
+      {!projects.data ? null : manageable.length === 0 ? (
         <Empty>
           Websites live under a project, and you don't manage any yet.{' '}
           <Link to="/projects">Create a project</Link> first.

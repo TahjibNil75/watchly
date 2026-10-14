@@ -106,7 +106,7 @@ together, see [`hld.md`](hld.md).
 | 21c | `PATCH` | `/account-requests/{request_id}/approve` | Approve a request: email the address an invitation to join as a `Viewer`. |
 | 21d | `PATCH` | `/account-requests/{request_id}/reject` | Reject a request and email the address to say so. |
 | 21e | `PATCH` | `/account-requests/{request_id}/unblock` | Undo a rejection, so that address may ask again. |
-| 22 | `GET` | `/monitoring/projects` | List projects the caller is allowed to see; `monitors` filters websites or infrastructure projects. |
+| 22 | `GET` | `/monitoring/projects` | List projects the caller is allowed to see; `monitors` filters websites or infrastructure projects. `GET /monitoring/projects/summary` counts each project's sites (or AWS resources) by state over all of them, in one query, for the project cards. |
 | 23 | `POST` | `/monitoring/projects` | Create a websites or infrastructure project (with its AWS accounts) and name the members responsible for it. |
 | 24 | `GET` | `/monitoring/projects/{project_id}` | Return one project with its members. |
 | 25 | `PATCH` | `/monitoring/projects/{project_id}` | Update a project's name, description, active flag or extra alert emails. |
@@ -495,7 +495,9 @@ Return one project with its member list.
 `200` · `404` missing **or** not visible to the caller
 
 ### `PATCH /api/v1/monitoring/projects/{project_id}`
-Update `name`, `description`, `is_active`, `extra_emails`, the Slack
+Update `name`, `description`, `is_active` (`false` pauses the project: its
+sites, resources and Docker hosts are not checked and none of its alerts are
+sent), `extra_emails`, the Slack
 settings (`slack_bot_token`, `slack_channel_id`, `slack_enabled`) or the
 Telegram settings (`telegram_bot_token`, `telegram_chat_id`,
 `telegram_enabled`) or the WhatsApp settings (`whatsapp_access_token`,
@@ -650,7 +652,10 @@ removes it, token included; `slack_bot_token: null` goes back to the project's
 token), the site's Telegram (`telegram_chat_id` and `telegram_bot_token`, the
 same way), the site's WhatsApp numbers (`whatsapp_recipients`, replacing the
 list; `[]` goes back to the project's), `retries_on_failure`, the content rules
-(`null` removes one), or disable the site without deleting it. A change that would leave the site with no alert
+(`null` removes one), or disable the site without deleting it. Pausing or
+resuming a site ends any outage it was in, quietly: its status goes back to
+`unknown` and the next check starts fresh, so a resumed site never announces a
+recovery from the time it was paused. A change that would leave the site with no alert
 channel is refused. `check_type` cannot change, and a new `url` must suit it.
 A DNS check's `dns_expected_values` replaces the whole list (`[]` unpins); a new
 `dns_record_type` or domain forgets the records learned so far, and a new

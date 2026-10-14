@@ -7,7 +7,7 @@
 // refresh token is an httpOnly cookie that this code never sees: on a 401 we
 // trade it for a new access token at /auth/refresh and retry once.
 const API_ORIGIN = import.meta.env.VITE_API_URL ?? ''
-const TOKEN_KEY = 'watchly.accessToken'
+export const TOKEN_KEY = 'watchly.accessToken'
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -107,7 +107,9 @@ async function request(path, { method = 'GET', body, query, text = false } = {})
     }
   }
 
+  let sent = null
   const call = (token) => {
+    sent = token
     const headers = {}
     if (token) headers.Authorization = `Bearer ${token}`
     if (body !== undefined) headers['Content-Type'] = 'application/json'
@@ -130,7 +132,9 @@ async function request(path, { method = 'GET', body, query, text = false } = {})
   if (text && res.ok) return res.text()
   const data = await res.json().catch(() => null)
   if (!res.ok) {
-    if (res.status === 401 && token) onUnauthorized()
+    // A 401 without a token means another tab signed out and took it from
+    // storage. Skip it if a token has appeared since (a sign-in raced this call).
+    if (res.status === 401 && (getToken() ?? null) === (sent ?? null)) onUnauthorized()
     throw new ApiError(res.status, describeError(data?.detail) || `${res.status} ${res.statusText}`)
   }
   return data
@@ -187,6 +191,20 @@ export const api = {
   unblockAccountRequest: (id) => v1(`/account-requests/${id}/unblock`, { method: 'PATCH' }),
 
   listProjects: (query) => v1('/monitoring/projects', { query: { limit: 100, ...query } }),
+  // Every project the caller can see, however many pages that takes.
+  listAllProjects: async (query) => {
+    const limit = 100
+    const first = await v1('/monitoring/projects', { query: { limit, ...query } })
+    const items = [...first.items]
+    while (items.length < first.total) {
+      const next = await v1('/monitoring/projects', { query: { limit, ...query, offset: items.length } })
+      if (!next.items.length) break
+      items.push(...next.items)
+    }
+    return { ...first, items }
+  },
+  // Each project's websites or resources by state, counted over all of them.
+  projectSummary: () => v1('/monitoring/projects/summary'),
   getProject: (id) => v1(`/monitoring/projects/${id}`),
   createProject: (payload) => v1('/monitoring/projects', { method: 'POST', body: payload }),
   updateProject: (id, payload) =>

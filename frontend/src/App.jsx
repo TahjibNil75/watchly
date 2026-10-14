@@ -1,7 +1,7 @@
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth.jsx'
 import AuthLayout from './AuthLayout.jsx'
-import { Empty, Loading } from './components.jsx'
+import { Empty, ErrorBanner, Loading } from './components.jsx'
 import Layout from './Layout.jsx'
 import AcceptInvite from './pages/AcceptInvite.jsx'
 import ChoosePassword from './pages/ChoosePassword.jsx'
@@ -39,13 +39,34 @@ function NotFound() {
 }
 
 export default function App() {
-  const { user, checking } = useAuth()
+  const { user, checking, checkError, retryCheck, logout } = useAuth()
   const location = useLocation()
 
   if (checking) {
     return (
       <div className="auth-screen">
         <Loading />
+      </div>
+    )
+  }
+
+  // The API couldn't be asked who is signed in. The session is still stored,
+  // so offer a retry rather than sending the user to sign in again.
+  if (checkError && !user) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <ErrorBanner error={checkError} />
+          <p className="muted">Your session is still saved. Try again once Watchly is reachable.</p>
+          <div className="actions">
+            <button type="button" className="btn btn-primary" onClick={retryCheck}>
+              Retry
+            </button>
+            <button type="button" className="btn" onClick={logout}>
+              Sign out
+            </button>
+          </div>
+        </div>
       </div>
     )
   }

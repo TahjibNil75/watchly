@@ -2,10 +2,11 @@
 
 import logging
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.monitoring.alerts.base import Alerter, Message, Notification
+from app.monitoring.alerts.base import Alerter, Message, Notification, NotificationKind
 from app.monitoring.alerts.email import EmailAlerter
 from app.monitoring.alerts.slack import SlackAlerter
 from app.monitoring.alerts.telegram import TelegramAlerter
@@ -17,6 +18,7 @@ from app.monitoring.notifications.service import (
     default_setting,
 )
 from app.monitoring.notifications.templating import compose_message
+from app.monitoring.projects.models import Project
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,19 @@ class Notifier:
             await self.session.rollback()
             return default_setting(event.kind)
 
+    async def project_is_active(self, project_id: int) -> bool:
+        """Whether the project is switched on. A failed lookup must not swallow
+        the notification, so it counts as active."""
+        try:
+            active = await self.session.scalar(
+                select(Project.is_active).where(Project.id == project_id)
+            )
+        except Exception:
+            logger.exception("Could not check whether project %s is active.", project_id)
+            await self.session.rollback()
+            return True
+        return active is not False
+
     @staticmethod
     def render(event: Notification, setting: EffectiveSetting) -> Message:
         """Compose with the configured templates; if they somehow fail, with the
@@ -66,9 +81,18 @@ class Notifier:
 
     async def dispatch(self, event: Notification) -> tuple[str, ...]:
         """Send `event` on every channel that is both configured and switched on
-        for its project. Returns the channels that delivered. Never raises."""
+        for its project. Returns the channels that delivered. Never raises.
+
+        An inactive project is paused and sends nothing, except a report asked
+        for by hand (the scheduled ones skip inactive projects themselves)."""
         if not settings.ALERTS_ENABLED:
             logger.info("ALERTS_ENABLED is false; suppressing %s", event.describe())
+            return ()
+
+        if event.kind is not NotificationKind.MONTHLY_REPORT and not await self.project_is_active(
+            event.project_id
+        ):
+            logger.info("Its project is inactive; not sent: %s", event.describe())
             return ()
 
         setting = await self.settings_for(event)

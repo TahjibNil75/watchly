@@ -958,7 +958,7 @@ class MonitoringService:
                 *(check_website(site, client=client) for site in due),
                 return_exceptions=True,
             )
-            for website, result in zip(due, results, strict=True):
+            for index, (website, result) in enumerate(zip(due, results, strict=True)):
                 if isinstance(result, IcmpUnavailableError):
                     # A problem with this server, not the host: recording the
                     # host as down would alert its people about the wrong thing.
@@ -969,15 +969,35 @@ class MonitoringService:
                         "Unexpected error checking %s", website.url, exc_info=result
                     )
                     continue
-                if await self._changed_since_loaded(website):
-                    # Edited, checked by hand or deleted while this probe ran:
-                    # the result is of settings the site no longer has (a DNS
-                    # check's old pins or record type, say), and recording it
-                    # would alert about them. The next check uses the new ones.
-                    logger.info("%s changed during its check; result dropped.", website.url)
-                    continue
-                outcomes.append(await self.record_result(website, result))
+                try:
+                    if await self._changed_since_loaded(website):
+                        # Edited, checked by hand or deleted while this probe
+                        # ran: the result is of settings the site no longer
+                        # has (a DNS check's old pins or record type, say),
+                        # and recording it would alert about them. The next
+                        # check uses the new ones.
+                        logger.info(
+                            "%s changed during its check; result dropped.", website.url
+                        )
+                        continue
+                    outcomes.append(await self.record_result(website, result))
+                except Exception:
+                    # One result that cannot be stored must not drop the
+                    # sites after it, nor the tick's other jobs.
+                    logger.exception("Could not record the check of %s", website.url)
+                    await self.session.rollback()
+                    await self._reload(due[index + 1 :])
         return outcomes
+
+    async def _reload(self, websites: list[Website]) -> None:
+        """Refresh `websites` after a rollback expired them, so the rest of
+        the tick can still read them."""
+        for website in websites:
+            try:
+                await self.session.refresh(website)
+            except Exception:
+                # Deleted meanwhile; its turn in the loop fails and is skipped.
+                await self.session.rollback()
 
     async def _changed_since_loaded(self, website: Website) -> bool:
         """Whether the row was updated or deleted since `website` was read.

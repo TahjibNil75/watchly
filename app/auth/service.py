@@ -109,7 +109,9 @@ class AuthService:
         return await self.session.get(User, user_id)
 
     async def get_user_by_email(self, email: str) -> User | None:
-        return await self.session.scalar(select(User).where(User.email == email))
+        return await self.session.scalar(
+            select(User).where(func.lower(User.email) == email.lower())
+        )
 
     async def get_user_by_username(self, username: str) -> User | None:
         return await self.session.scalar(select(User).where(User.username == username))
@@ -118,7 +120,10 @@ class AuthService:
         """Look a user up by username *or* email — whichever the client sent."""
         return await self.session.scalar(
             select(User).where(
-                or_(User.username == identifier, User.email == identifier)
+                or_(
+                    User.username == identifier,
+                    func.lower(User.email) == identifier.lower(),
+                )
             )
         )
 
@@ -307,8 +312,10 @@ class AuthService:
             logger.info("Sign-up refused: an account already exists.")
             raise SignupClosedError
 
-        if await self.user_exists_by_email(payload.email):
-            raise UserAlreadyExistsError("email", payload.email)
+        # Emails are stored and compared in lower case everywhere.
+        email = payload.email.lower()
+        if await self.user_exists_by_email(email):
+            raise UserAlreadyExistsError("email", email)
 
         # username is unique too, so check it up front rather than letting the
         # insert blow up with an IntegrityError.
@@ -317,7 +324,7 @@ class AuthService:
 
         user = User(
             username=payload.username,
-            email=payload.email,
+            email=email,
             full_name=payload.full_name,
             password_hash=generate_hash_password(payload.password),
             role=UserRole.ADMIN,
@@ -332,7 +339,8 @@ class AuthService:
             await self.session.rollback()
             constraint = str(getattr(exc.orig, "constraint_name", "") or exc.orig)
             field = "username" if "username" in constraint else "email"
-            raise UserAlreadyExistsError(field, getattr(payload, field)) from exc
+            value = payload.username if field == "username" else email
+            raise UserAlreadyExistsError(field, value) from exc
 
         await self.session.refresh(user)
         logger.info("First account %r signed up and is the admin.", user.username)

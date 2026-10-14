@@ -70,7 +70,7 @@ from app.monitoring.infra.aws.schemas import (
     default_timeout,
     validate_settings,
 )
-from app.monitoring.projects.models import Project, ProjectMonitors, visible_project_ids
+from app.monitoring.projects.models import Project, ProjectMonitors, active_project_ids, visible_project_ids
 from app.monitoring.projects.service import (
     ProjectForbiddenError,
     ProjectNotFoundError,
@@ -437,13 +437,15 @@ class InfraService:
             raise InfraForbiddenError("Requires admin/DevOps, or ownership of the project.")
         return vpc
 
-    async def _state_counts(self, actor: User, *filters) -> dict[int, StateCounts]:
-        """Resource counts per VPC, over what `actor` can see."""
+    async def _state_counts(
+        self, actor: User, *filters, by=AwsResource.vpc_id
+    ) -> dict[int, StateCounts]:
+        """Resource counts per VPC (or per `by` column), over what `actor` can see."""
         state = resource_state_sql()
         rows = await self.session.execute(
-            select(AwsResource.vpc_id, state.label("state"), func.count())
+            select(by, state.label("state"), func.count())
             .where(*self._visible_resource_filters(actor), *filters)
-            .group_by(AwsResource.vpc_id, state)
+            .group_by(by, state)
         )
         counts: dict[int, StateCounts] = {}
         for vpc_id, state_value, n in rows:
@@ -451,6 +453,10 @@ class InfraService:
             setattr(entry, state_value, getattr(entry, state_value) + n)
             entry.total += n
         return counts
+
+    async def summary_by_project(self, actor: User) -> dict[int, StateCounts]:
+        """Resource counts for each project that has a resource `actor` may see."""
+        return await self._state_counts(actor, by=AwsResource.project_id)
 
     async def _tested(self, vpc_ids: list[int]) -> set[int]:
         """VPCs with at least one checked resource."""
@@ -1360,7 +1366,8 @@ class InfraService:
 
     async def due_resources(self, now: datetime | None = None) -> list[tuple[AwsResource, list[AwsCheck]]]:
         """Resources with at least one check due, and those checks. Paused,
-        missing and in-maintenance resources wait."""
+        missing and in-maintenance resources wait, as do those of an inactive
+        project."""
         now = now or datetime.now(UTC)
         next_due = AwsCheck.last_checked_at + (
             literal_column("interval '1 second'") * AwsCheck.check_interval_seconds
@@ -1368,6 +1375,7 @@ class InfraService:
         due_ids = select(AwsCheck.id).join(AwsResource, AwsResource.id == AwsCheck.resource_id).where(
             AwsCheck.is_enabled.is_(True),
             AwsResource.is_enabled.is_(True),
+            AwsResource.project_id.in_(active_project_ids()),
             AwsResource.missing_since.is_(None),
             ~maintenance_in_effect(now),
             or_(AwsCheck.last_checked_at.is_(None), next_due <= now),

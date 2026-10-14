@@ -9,6 +9,7 @@ import {
   ErrorBanner,
   Loading,
   PageHeader,
+  Pager,
   PersonList,
   WebsiteTable,
 } from '../components.jsx'
@@ -22,6 +23,9 @@ import { canManageProject } from '../roles.js'
 import { useApi } from '../useApi.js'
 import PeoplePicker from '../PeoplePicker.jsx'
 
+// Sites and resources are listed this many to a page.
+const PAGE_SIZE = 50
+
 export default function ProjectDetail() {
   const { id } = useParams()
   const { user } = useAuth()
@@ -33,14 +37,24 @@ export default function ProjectDetail() {
   const [reportResult, setReportResult] = useState(null)
   const [busy, setBusy] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  // Which page of each list is showing, for the project it was picked in: another
+  // project starts at its first page.
+  const [paging, setPaging] = useState({ id, sites: 0, resources: 0 })
+  const sitePage = paging.id === id ? paging.sites : 0
+  const resourcePage = paging.id === id ? paging.resources : 0
+  const setSitePage = (sites) => setPaging({ id, sites, resources: resourcePage })
+  const setResourcePage = (resources) => setPaging({ id, sites: sitePage, resources })
 
   const project = useApi(() => api.getProject(id), [id])
   const infra = project.data?.monitors === 'infrastructure'
   const docker = project.data?.monitors === 'docker'
   const websites = project.data && !infra && !docker
   const sites = useApi(
-    () => (websites ? api.listWebsites({ project_id: id }) : null),
-    [id, websites],
+    () =>
+      websites
+        ? api.listWebsites({ project_id: id, sort: 'status', limit: PAGE_SIZE, offset: sitePage * PAGE_SIZE })
+        : null,
+    [id, websites, sitePage],
     { pollMs: 30000 },
   )
   const hosts = useApi(() => (docker ? api.listDockerHosts({ project_id: id }) : null), [id, docker], {
@@ -50,10 +64,17 @@ export default function ProjectDetail() {
     pollMs: 30000,
   })
   const resources = useApi(
-    () => (infra ? api.listResources({ project_id: id, sort: 'name', limit: 200 }) : null),
-    [id, infra],
+    () =>
+      infra
+        ? api.listResources({ project_id: id, sort: 'name', limit: PAGE_SIZE, offset: resourcePage * PAGE_SIZE })
+        : null,
+    [id, infra, resourcePage],
     { pollMs: 30000 },
   )
+  // Rows deleted since can leave the page past the end.
+  const lastOf = (total) => Math.max(Math.ceil((total ?? 0) / PAGE_SIZE) - 1, 0)
+  if (sites.data && sitePage > lastOf(sites.data.total)) setSitePage(lastOf(sites.data.total))
+  if (resources.data && resourcePage > lastOf(resources.data.total)) setResourcePage(lastOf(resources.data.total))
   const canManage = canManageProject(user, project.data)
   const users = useApi(() => (canManage ? api.listUsers({ is_active: true }) : null), [canManage])
 
@@ -242,7 +263,7 @@ export default function ProjectDetail() {
             <ErrorBanner error={hosts.error} />
             {hosts.loading ? (
               <Loading />
-            ) : (hosts.data?.items ?? []).length === 0 ? (
+            ) : !hosts.data ? null : hosts.data.items.length === 0 ? (
               <p className="muted small">
                 No hosts yet.{' '}
                 {canManage && (
@@ -294,7 +315,7 @@ export default function ProjectDetail() {
               <ErrorBanner error={containers.error} />
               {containers.loading ? (
                 <Loading />
-              ) : (
+              ) : !containers.data ? null : (
                 <ContainerTable
                   containers={containers.data?.items ?? []}
                   hosts={Object.fromEntries((hosts.data?.items ?? []).map((h) => [h.id, h]))}
@@ -311,7 +332,7 @@ export default function ProjectDetail() {
             <ErrorBanner error={resources.error} />
             {resources.loading ? (
               <Loading />
-            ) : (
+            ) : !resources.data ? null : (
               <ResourceTable
                 resources={resources.data?.items ?? []}
                 emptyLabel={
@@ -326,6 +347,7 @@ export default function ProjectDetail() {
                 }
               />
             )}
+            <Pager page={resourcePage} pageSize={PAGE_SIZE} total={resources.data?.total ?? 0} onPage={setResourcePage} />
           </section>
           <DeploymentsSection projectId={p.id} canManage={canManage} />
           {canManage && <AwsAccountsCard projectId={p.id} />}
@@ -336,7 +358,7 @@ export default function ProjectDetail() {
           <ErrorBanner error={sites.error} />
           {sites.loading ? (
             <Loading />
-          ) : (
+          ) : !sites.data ? null : (
             <WebsiteTable
               sites={sites.data?.items ?? []}
               emptyLabel={
@@ -351,6 +373,7 @@ export default function ProjectDetail() {
               }
             />
           )}
+          <Pager page={sitePage} pageSize={PAGE_SIZE} total={sites.data?.total ?? 0} onPage={setSitePage} />
         </section>
       )}
 

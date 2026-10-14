@@ -823,7 +823,10 @@ class WebsiteBase(BaseModel):
 
     @field_validator("method")
     @classmethod
-    def known_method(cls, value: str) -> str:
+    def known_method(cls, value: str | None) -> str | None:
+        if value is None:
+            # WebsiteUpdate lets a PATCH send null; the service leaves it alone.
+            return None
         upper = value.upper()
         if upper not in HTTP_METHODS:
             raise ValueError(f"method must be one of {sorted(HTTP_METHODS)}")

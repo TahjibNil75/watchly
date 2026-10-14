@@ -357,7 +357,7 @@ export default function NewInfraResource() {
       />
       <ErrorBanner error={error ?? projects.error ?? accounts.error ?? available.error} />
 
-      {!manageable.length ? (
+      {!projects.data ? null : !manageable.length ? (
         <Empty>
           You manage no infrastructure project yet. <Link to="/projects">Create one</Link>, choosing
           &ldquo;Infrastructure&rdquo; and adding its AWS account.

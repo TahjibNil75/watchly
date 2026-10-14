@@ -16,7 +16,7 @@ from app.core.crypto import encrypt_secret
 from app.core.permissions import can_view_all_projects
 from app.db.models.user import User
 from app.monitoring import egress
-from app.monitoring.projects.models import Project, visible_project_ids
+from app.monitoring.projects.models import Project, active_project_ids, visible_project_ids
 from app.monitoring.projects.service import resolve_users
 from app.monitoring.websites.db_probe import TLS_FROM_START, split_endpoint
 from app.monitoring.websites.models import (
@@ -262,6 +262,11 @@ _MAIL_QUOTA_SOURCE = (
 )
 
 
+# The unique constraint on (url, check_type, dns_record_type); any other
+# IntegrityError is not a duplicate site.
+_UNIQUE_TARGET = "uq_websites_target"
+
+
 def _seal(value: str | None) -> str | None:
     return encrypt_secret(value) if value else None
 
@@ -403,6 +408,26 @@ class WebsiteService:
         )
         return list(rows), total or 0
 
+    @staticmethod
+    def _state_columns() -> tuple:
+        """The columns of a summary: total, then up, down, unknown,
+        maintenance and paused."""
+        under = maintenance_in_effect(func.now())
+
+        def enabled_with(status: WebsiteStatus):
+            return func.count().filter(
+                Website.is_enabled.is_(True), Website.status == status, ~under
+            )
+
+        return (
+            func.count(),
+            enabled_with(WebsiteStatus.UP),
+            enabled_with(WebsiteStatus.DOWN),
+            enabled_with(WebsiteStatus.UNKNOWN),
+            func.count().filter(Website.is_enabled.is_(True), under),
+            func.count().filter(Website.is_enabled.is_(False)),
+        )
+
     async def summary(
         self,
         actor: User,
@@ -413,23 +438,9 @@ class WebsiteService:
         """Counts by state of the sites `actor` may see, in one query. A site
         in maintenance counts there whatever its status; a paused one is
         paused whatever else."""
-        under = maintenance_in_effect(func.now())
-
-        def enabled_with(status: WebsiteStatus):
-            return func.count().filter(
-                Website.is_enabled.is_(True), Website.status == status, ~under
-            )
-
         row = (
             await self.session.execute(
-                select(
-                    func.count(),
-                    enabled_with(WebsiteStatus.UP),
-                    enabled_with(WebsiteStatus.DOWN),
-                    enabled_with(WebsiteStatus.UNKNOWN),
-                    func.count().filter(Website.is_enabled.is_(True), under),
-                    func.count().filter(Website.is_enabled.is_(False)),
-                )
+                select(*self._state_columns())
                 .select_from(Website)
                 .where(*self._visible_filters(actor, project_id, q, check_type))
             )
@@ -442,6 +453,21 @@ class WebsiteService:
             maintenance=row[4],
             paused=row[5],
         )
+
+    async def summary_by_project(self, actor: User) -> dict[int, WebsiteSummary]:
+        """The same counts for each project that has a site `actor` may see,
+        in one query."""
+        rows = await self.session.execute(
+            select(Website.project_id, *self._state_columns())
+            .where(*self._visible_filters(actor))
+            .group_by(Website.project_id)
+        )
+        return {
+            project_id: WebsiteSummary(
+                total=total, up=up, down=down, unknown=unknown, maintenance=maintenance, paused=paused
+            )
+            for project_id, total, up, down, unknown, maintenance, paused in rows
+        }
 
     async def create(
         self, payload: WebsiteCreate, project: Project, created_by_id: int | None
@@ -504,6 +530,8 @@ class WebsiteService:
             )
         except IntegrityError as exc:
             await self.session.rollback()
+            if _UNIQUE_TARGET not in str(exc.orig):
+                raise
             raise DuplicateWebsiteError(url, record_type) from exc
         await self.session.refresh(website)
         return website
@@ -553,6 +581,15 @@ class WebsiteService:
         if "alert_emails" in changes and changes["alert_emails"] is not None:
             changes["alert_emails"] = [str(e) for e in changes["alert_emails"]]
         for not_null in (
+            "name",
+            "url",
+            "method",
+            "expected_status",
+            "timeout_seconds",
+            "check_interval_seconds",
+            "max_down_alerts",
+            "is_enabled",
+            "alert_emails",
             "inherit_project_recipients",
             "retries_on_failure",
             "ping_count",
@@ -611,8 +648,26 @@ class WebsiteService:
             # afresh rather than report the difference as a change.
             website.dns_records = None
 
+        toggled = (
+            "is_enabled" in changes and changes["is_enabled"] != website.is_enabled
+        )
+
         for field, value in changes.items():
             setattr(website, field, value)
+
+        if toggled:
+            # Nobody checks a paused site, so an outage it was in when paused
+            # says nothing about it when resumed. Left alone, the first check
+            # back would announce a recovery and count the whole pause as
+            # downtime. Whatever the next check finds is then a fresh start.
+            website.status = WebsiteStatus.UNKNOWN
+            website.down_since = None
+            website.down_alerts_sent = 0
+            website.consecutive_failures = 0
+            website.slack_thread_ts = None
+            website.slack_thread_channel = None
+            website.telegram_thread_message_id = None
+            website.telegram_thread_chat = None
 
         # Read before a rollback expires them.
         url, record_type = website.url, website.dns_record_type
@@ -625,6 +680,8 @@ class WebsiteService:
             )
         except IntegrityError as exc:
             await self.session.rollback()
+            if _UNIQUE_TARGET not in str(exc.orig):
+                raise
             raise DuplicateWebsiteError(url, record_type) from exc
         await self.session.refresh(website)
         return website
@@ -747,7 +804,7 @@ class WebsiteService:
 
     async def due_for_check(self, now: datetime | None = None) -> list[Website]:
         """Enabled websites whose interval has elapsed since the last check,
-        and that are not in maintenance.
+        and that are not in maintenance. Sites of an inactive project wait.
 
         The interval is per-row, so the deadline is computed in SQL:
         `last_checked_at + interval '1 second' * check_interval_seconds <= now`.
@@ -762,6 +819,7 @@ class WebsiteService:
             select(Website)
             .where(
                 Website.is_enabled.is_(True),
+                Website.project_id.in_(active_project_ids()),
                 ~maintenance_in_effect(now),
                 or_(
                     Website.last_checked_at.is_(None),  # never checked

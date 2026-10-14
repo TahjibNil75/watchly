@@ -387,10 +387,12 @@ Suspension and role changes have different rules, so they are two tables.
 | **project manager** | ❌    | ✅     | ❌              | ✅        | ✅     | ❌   |
 | developer, viewer   | ❌    | ❌     | ❌              | ❌        | ❌     | ❌   |
 
-The same table decides who may unlock an account suspended for
-`MAX_FAILED_LOGIN_ATTEMPTS` (default 5) wrong passwords in a row: reactivating
-it clears the count. If nobody may — the only admin locked themselves out —
-reinstate it from the server with `python -m app.db.reactivate <username>`.
+The same table decides who may reactivate an account, which also clears a
+sign-in lockout early. `MAX_FAILED_LOGIN_ATTEMPTS` (default 5) wrong passwords
+in a row lock sign-in for `LOGIN_LOCKOUT_MINUTES` (default 15), but never
+suspend the account or end its sessions, and the lock lifts on its own. If no
+one may reinstate a suspended account — the only admin was suspended — do it
+from the server with `python -m app.db.reactivate <username>`.
 
 This is a table, not a hierarchy — DevOps and project managers can each suspend
 the other. Note a project manager cannot suspend a fellow project manager.

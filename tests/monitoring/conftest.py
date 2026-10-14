@@ -50,6 +50,7 @@ async def server() -> AsyncIterator[Server]:
         # 3 MB, over the cap, with its length declared.
         "/large": ({}, b"y" * 3_000_000),
         "/empty": ({}, b""),
+        "/landing": ({}, PAGE),
     }
 
     async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -63,7 +64,16 @@ async def server() -> AsyncIterator[Server]:
                     writer.write(b"x" * 65536)
                     state.endless_sent += 65536
                     await writer.drain()
-            headers, body = state.routes[path]
+            if path == "/long-redirect":
+                # Answers with a Location far past what `final_url` can hold.
+                location = f"/landing?pad={'x' * 3000}"
+                writer.write(
+                    f"HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".encode()
+                )
+                await writer.drain()
+                await reader.read()
+                return
+            headers, body = state.routes[path.split("?")[0]]
             lines = [b"HTTP/1.1 200 OK", b"Content-Length: %d" % len(body)]
             lines += [f"{k}: {v}".encode() for k, v in headers.items()]
             writer.write(b"\r\n".join(lines) + b"\r\n\r\n" + body)

@@ -276,6 +276,26 @@ export function WebsiteTable({ sites, projectNames, emptyLabel }) {
   )
 }
 
+// "1–50 of 106" with Previous and Next, for a list the API serves a page at a
+// time. Draws nothing while everything fits on one page.
+export function Pager({ page, pageSize, total, onPage }) {
+  if (total <= pageSize) return null
+  const lastPage = Math.max(Math.ceil(total / pageSize) - 1, 0)
+  return (
+    <div className="pager">
+      <span className="muted small">
+        {page * pageSize + 1}–{Math.min((page + 1) * pageSize, total)} of {total}
+      </span>
+      <button type="button" className="btn btn-sm" onClick={() => onPage(page - 1)} disabled={page === 0}>
+        Previous
+      </button>
+      <button type="button" className="btn btn-sm" onClick={() => onPage(page + 1)} disabled={page >= lastPage}>
+        Next
+      </button>
+    </div>
+  )
+}
+
 // Under a new password: each rule, ticked as soon as the password meets it.
 // `identity` is what is known of the account: { username, email, fullName }.
 export function PasswordChecklist({ password, identity, id }) {

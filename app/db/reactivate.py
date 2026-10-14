@@ -15,7 +15,7 @@ import asyncio
 import logging
 import sys
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from app.db.models.user import User
 from app.db.session import AsyncSessionLocal, engine
@@ -28,7 +28,10 @@ async def reactivate(identifier: str) -> bool:
     async with AsyncSessionLocal() as session:
         user = await session.scalar(
             select(User).where(
-                or_(User.username == identifier, User.email == identifier)
+                or_(
+                    User.username == identifier,
+                    func.lower(User.email) == identifier.lower(),
+                )
             )
         )
         if user is None:

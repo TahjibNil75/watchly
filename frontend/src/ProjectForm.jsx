@@ -446,7 +446,7 @@ export default function ProjectForm({ initial, users = [], onSubmit, onCancel, s
 
         <label className="check">
           <input type="checkbox" checked={form.is_active} onChange={set('is_active')} />
-          <span>Project is active</span>
+          <span>Project is active (untick to pause it: nothing is checked and no alerts are sent)</span>
         </label>
 
         <div className="form-actions">

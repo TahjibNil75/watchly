@@ -202,7 +202,11 @@ class ProjectService:
     ) -> Project:
         project = await self.get_for_write(project_id, actor)
         changes = payload.model_dump(exclude_unset=True)
-        if changes.get("extra_emails") is not None:
+        for required in ("name", "is_active", "extra_emails"):
+            if changes.get(required) is None:
+                # NOT NULL in the table, so an explicit null means "leave it".
+                changes.pop(required, None)
+        if "extra_emails" in changes:
             changes["extra_emails"] = [str(e) for e in changes["extra_emails"]]
         for token_field in (
             "slack_bot_token",
@@ -242,11 +246,14 @@ class ProjectService:
             await self.session.rollback()
             raise
 
+        # Read before the rollback: it expires the instance, and a lazy load
+        # on an async session raises MissingGreenlet.
+        name = project.name
         try:
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
-            raise DuplicateProjectError(payload.name or project.name) from exc
+            raise DuplicateProjectError(name) from exc
         await self.session.refresh(project)
         return project
 

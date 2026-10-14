@@ -152,7 +152,7 @@ export function InvitationList({ me, version, onNotice }) {
 
       {invitations.loading ? (
         <Loading />
-      ) : items.length === 0 ? (
+      ) : !invitations.data ? null : items.length === 0 ? (
         <Empty>No {status} invitations.</Empty>
       ) : (
         <div className="table-wrap">

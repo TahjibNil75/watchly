@@ -64,8 +64,13 @@ async def run_tick() -> int:
 
     Returns how many websites were probed.
     """
-    async with AsyncSessionLocal() as session:
-        outcomes = await MonitoringService(session).run_due_checks()
+    probed = 0
+
+    async def check_websites(session: AsyncSession) -> None:
+        nonlocal probed
+        probed = len(await MonitoringService(session).run_due_checks())
+
+    await _run_guarded("Website checks", check_websites)
     if settings.INFRA_AWS_ENABLED:
         # First, so a deployment that just started silences its resources
         # before their checks run.
@@ -95,7 +100,7 @@ async def run_tick() -> int:
         "Account request purge", lambda s: AccountRequestService(s).purge()
     )
     await _run_guarded("Rate limit purge", purge_closed_windows)
-    return len(outcomes)
+    return probed
 
 
 async def run_tick_locked() -> int:

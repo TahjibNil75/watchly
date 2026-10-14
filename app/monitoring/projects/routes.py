@@ -6,9 +6,16 @@ from app.core.config import settings
 from app.core.permissions import PROJECT_CREATORS
 from app.db.models.user import User
 from app.db.session import get_db
-from app.monitoring.infra.aws.service import InfraConflictError, InfraInvalidError, new_project_accounts
+from app.monitoring.infra.aws.service import (
+    InfraConflictError,
+    InfraInvalidError,
+    InfraService,
+    new_project_accounts,
+)
 from app.monitoring.projects.models import ProjectMonitors
 from app.monitoring.projects.schemas import (
+    ProjectCounts,
+    ProjectCountsResponse,
     ProjectCreate,
     ProjectListResponse,
     ProjectMembersUpdate,
@@ -23,6 +30,7 @@ from app.monitoring.projects.service import (
     ProjectService,
     UnknownMembersError,
 )
+from app.monitoring.websites.service import WebsiteService
 
 router = APIRouter(prefix="/monitoring/projects", tags=["monitoring: projects"])
 
@@ -77,6 +85,39 @@ async def list_projects(
         limit=limit,
         offset=offset,
     )
+
+
+# Declared before "/{project_id}", which would otherwise claim the path.
+@router.get(
+    "/summary",
+    response_model=ProjectCountsResponse,
+    summary="Count each project's sites or resources by state",
+)
+async def summarize_projects(
+    actor: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> ProjectCountsResponse:
+    """What each project's websites, or AWS resources, are doing, counted over
+    all of them rather than one page of a list. Docker containers are not
+    counted here: their list is not paged."""
+    items = [
+        ProjectCounts(project_id=project_id, **counts.model_dump())
+        for project_id, counts in (await WebsiteService(session).summary_by_project(actor)).items()
+    ]
+    if settings.INFRA_AWS_ENABLED:
+        for project_id, counts in (await InfraService(session).summary_by_project(actor)).items():
+            items.append(
+                ProjectCounts(
+                    project_id=project_id,
+                    total=counts.total,
+                    up=counts.healthy + counts.degraded,
+                    down=counts.down,
+                    unknown=counts.unknown + counts.missing,
+                    maintenance=counts.maintenance,
+                    paused=counts.paused,
+                )
+            )
+    return ProjectCountsResponse(items=sorted(items, key=lambda c: c.project_id))
 
 
 @router.post(
