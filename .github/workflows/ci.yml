@@ -107,4 +107,8 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Build the api and web images
+        # .env is not in the checkout, and compose refuses to read the file
+        # without a password. Nothing is run, so a placeholder will do.
+        env:
+          POSTGRES_PASSWORD: ci-build-only
         run: docker compose build
