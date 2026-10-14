@@ -47,13 +47,16 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Compile
         run: python -m compileall -q app alembic
 
       - name: Import the app
         run: python -c "import app.main"
+
+      - name: Run the tests
+        run: pytest
 
       - name: Apply every migration
         run: alembic upgrade head

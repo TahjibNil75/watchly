@@ -48,6 +48,44 @@ def temporary_password_email(user: User, password: str) -> mail.LinkEmail:
     )
 
 
+def temporary_password_reminder_email(user: User) -> mail.LinkEmail:
+    """Sent when asked again while a temporary password is still live. Says that
+    one is waiting but not what it is: only its hash is kept."""
+    assert user.temp_password_expires_at
+    expires = user.temp_password_expires_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    facts = [("Username", user.username), ("Works until", expires)]
+    url = mail.app_url("/login")
+    intro = (
+        f"Someone asked again to reset the password for your {settings.PROJECT_NAME} "
+        "account. A temporary password was already emailed to you and still works, "
+        "so no new one was made. Look for the earlier email titled "
+        f"\"Your temporary {settings.PROJECT_NAME} password\"."
+    )
+    note = (
+        "If you did not ask for this, ignore this email: your current password "
+        "still works. If you cannot find the earlier email, ask again after the "
+        "time above and a new password will be sent."
+    )
+    text = (
+        f"{intro}\n\n"
+        + "\n".join(f"{label}: {value}" for label, value in facts)
+        + (f"\n\nSign in: {url}" if url else "")
+        + f"\n\n{note}\n"
+    )
+    return mail.LinkEmail(
+        to=user.email,
+        subject=f"Your {settings.PROJECT_NAME} temporary password is still waiting",
+        kicker="Password reset",
+        title="Your temporary password is still valid",
+        intro=intro,
+        facts=facts,
+        button="Sign in",
+        url=url,
+        note=note,
+        text=text,
+    )
+
+
 async def send_temporary_password(email: mail.LinkEmail, user_id: int) -> None:
     """Send it, without needing a link: the password is the point, and it works
     without one. Never raises."""

@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_roles
 from app.core.permissions import PROJECT_CREATORS, ROLE_MANAGERS
+from app.core.rate_limit import RATE_LIMITED, user_rate_limit
 from app.db.models.user import User
 from app.db.session import get_db
 from app.monitoring.projects.models import Project, ProjectMonitors
@@ -621,9 +622,11 @@ async def website_stats(
     "/{website_id}/check",
     response_model=CheckNowResponse,
     summary="Check a website right now",
+    dependencies=[user_rate_limit("check_now")],
     responses={
         **NOT_FOUND,
         **NEEDS_MANAGER,
+        **RATE_LIMITED,
         503: {"description": "A ping check, and this server is not allowed to send pings"},
     },
 )

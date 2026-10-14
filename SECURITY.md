@@ -34,12 +34,15 @@ Most problems in a self-hosted deployment come from its settings:
   reachable by others: the first account on an empty database becomes the
   admin. After that signup is closed and people join only by invitation.
 - **Serve it over HTTPS** behind a reverse proxy, and keep PostgreSQL off the
-  public internet: the Compose file publishes it on `POSTGRES_PORT` for local
-  development.
+  public internet: the Compose file publishes it on `127.0.0.1:POSTGRES_PORT`
+  only, for local development, and refuses to start without a
+  `POSTGRES_PASSWORD`. Use a long random one (`openssl rand -hex 24`).
 - **Tell the API which proxy to trust.** Sign-in, signup, forgot password and
   the emailed-link endpoints are rate-limited per client address. Behind a
   proxy that is not the Compose file's own Caddy, set `FORWARDED_ALLOW_IPS` to
-  its address; otherwise every visitor shares the proxy's limit, and one
+  its address, and only that: never a whole Docker subnet, which includes the
+  bridge gateway that a client of a published port appears as. Compose trusts
+  only the web container and publishes the API on `127.0.0.1` only. Otherwise every visitor shares the proxy's limit, and one
   attacker can use it up for everyone.
 - **Keep `.env` out of version control.** It holds your SMTP password and API
   tokens; `.env.example` is the template to commit.

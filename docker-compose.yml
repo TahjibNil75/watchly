@@ -5,10 +5,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-watchly}
+    # Loopback only: for running the API on the host. Never publish it on
+    # 0.0.0.0, Docker's port publishing bypasses ufw/firewalld.
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - watchly_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -31,9 +33,20 @@ services:
       # whatever .env says for running the API on the host.
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       ALERT_DASHBOARD_URL: ${ALERT_DASHBOARD_URL:-http://localhost:${WEB_PORT:-8080}}
+      # The one address whose X-Forwarded-For uvicorn believes: the web
+      # container's, pinned below. Never a whole subnet: that includes the
+      # bridge gateway, which is what a client of the published port looks like
+      # on Docker Desktop or through userland-proxy, and it could then forge
+      # its own address to dodge the rate limits.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-${WEB_IP:-172.29.88.10}}
+    # Loopback only, for /docs and curl from the host. Caddy reaches the API
+    # over the Compose network, so nothing needs this port from outside, and
+    # going around Caddy would skip its headers (see COUNTRY_HEADER). Never
+    # publish it on 0.0.0.0, Docker's port publishing bypasses ufw/firewalld.
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     # Per-module log files (auth.log, errors.log, ...), readable from the host.
     volumes:
       - ./logs:/srv/watchly/logs
@@ -52,9 +65,29 @@ services:
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-8080}:80"
+    environment:
+      # Caddy deletes this header from every request whose direct peer is not
+      # in COUNTRY_TRUSTED_PROXIES (space-separated addresses or CIDRs: the
+      # load balancer or CDN that sets the header). The default trusts no one
+      # outside the container, so the header is always stripped, which is right
+      # when nothing in front of Watchly sets it.
+      COUNTRY_HEADER: ${COUNTRY_HEADER:-x-client-country}
+      COUNTRY_TRUSTED_PROXIES: ${COUNTRY_TRUSTED_PROXIES:-127.0.0.1/32}
+    # A fixed address, so the api can trust exactly this container's
+    # X-Forwarded-For (FORWARDED_ALLOW_IPS above).
+    networks:
+      default:
+        ipv4_address: ${WEB_IP:-172.29.88.10}
     depends_on:
       api:
         condition: service_healthy
+
+networks:
+  default:
+    ipam:
+      config:
+        # Change WEB_SUBNET and WEB_IP together if this overlaps a network you use.
+        - subnet: ${WEB_SUBNET:-172.29.88.0/24}
 
 volumes:
   watchly_pgdata:

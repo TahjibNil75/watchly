@@ -32,7 +32,9 @@ from app.user.service import (
     EmailUnchangedError,
     IncorrectPasswordError,
     InsufficientRankError,
+    RoleNotAssignableError,
     SamePasswordError,
+    TooManyAttemptsError,
     UserNotFoundError,
     UserService,
 )
@@ -106,7 +108,8 @@ async def update_me(
         400: {
             "description": "The current password is incorrect, or the new one is "
             "the same, too weak, or holds the username, email or name"
-        }
+        },
+        429: {"description": "Too many wrong passwords; the account is locked for a while"},
     },
 )
 async def change_my_password(
@@ -128,6 +131,8 @@ async def change_my_password(
         user = await service.change_password(
             current_user, payload.current_password, payload.new_password
         )
+    except TooManyAttemptsError as exc:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(exc)) from exc
     except (IncorrectPasswordError, SamePasswordError, WeakPasswordError) as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     set_refresh_cookie(response, await AuthService(service.session).start_session(user))
@@ -142,6 +147,7 @@ async def change_my_password(
     responses={
         400: {"description": "The current password is incorrect, or the address is already yours"},
         409: {"description": "Another account uses that address"},
+        429: {"description": "Too many wrong passwords; the account is locked for a while"},
     },
 )
 async def request_email_change(
@@ -161,6 +167,8 @@ async def request_email_change(
         token = await service.request_email_change(
             current_user, payload.new_email, payload.current_password
         )
+    except TooManyAttemptsError as exc:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(exc)) from exc
     except (IncorrectPasswordError, EmailUnchangedError) as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except UserAlreadyExistsError as exc:
@@ -239,7 +247,10 @@ async def read_user(
     summary="Change a user's role",
     responses={
         **NOT_FOUND,
-        403: {"description": "Requires admin/DevOps, or the target is yourself"},
+        403: {
+            "description": "Requires admin/DevOps, the target is yourself, or the "
+            "caller may not grant that role (only an admin grants Admin)"
+        },
     },
 )
 async def change_user_role(
@@ -248,7 +259,8 @@ async def change_user_role(
     actor: User = Depends(require_role_manager),
     service: UserService = Depends(get_user_service),
 ) -> UserRead:
-    """Assign a role to a user. Admin and DevOps have equal authority here.
+    """Assign a role to a user. Only an admin may make someone an admin or
+    change an admin or DevOps user's role; DevOps may assign any other role.
 
     Takes effect on the target's next request: authorization reads the role from
     the database, not from their existing access token.
@@ -257,7 +269,11 @@ async def change_user_role(
         user = await service.change_role(actor, user_id, payload.role)
     except UserNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except (CannotChangeOwnRoleError, InsufficientRankError) as exc:
+    except (
+        CannotChangeOwnRoleError,
+        InsufficientRankError,
+        RoleNotAssignableError,
+    ) as exc:
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
     return UserRead.model_validate(user)
 

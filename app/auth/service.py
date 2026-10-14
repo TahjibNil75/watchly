@@ -43,6 +43,7 @@ _DUMMY_PASSWORD_HASH = generate_hash_password("timing-attack-placeholder")
 
 #: A second "forgot password" this soon after the first is ignored, so the form
 #: cannot be used to flood someone's inbox. The first password still works.
+#: Later requests, while it is still live, only remind the owner it exists.
 _RESEND_COOLDOWN = timedelta(minutes=1)
 
 #: Arbitrary but fixed application-wide key for the lock that lets only one
@@ -69,10 +70,19 @@ class SignupClosedError(AuthError):
 
 
 class InvalidCredentialsError(AuthError):
-    """Wrong password, or no such user — deliberately indistinguishable."""
+    """Wrong password, no such user, or a locked account — deliberately
+    indistinguishable, so no answer says which identifiers have accounts.
+
+    The text tells everyone about the lock, and so tells no one anything: it is
+    the same for an unknown identifier as for a real, locked account.
+    """
 
     def __init__(self) -> None:
-        super().__init__("Incorrect username/email or password.")
+        super().__init__(
+            "Incorrect username/email or password. After repeated failed "
+            "sign-ins, sign-in is paused for a while; use forgot password to "
+            "get a temporary password."
+        )
 
 
 class InactiveUserError(AuthError):
@@ -80,17 +90,6 @@ class InactiveUserError(AuthError):
 
     def __init__(self) -> None:
         super().__init__("This account has been suspended.")
-
-
-class AccountLockedError(AuthError):
-    """Too many wrong passwords in a row: sign-in is refused until `until`."""
-
-    def __init__(self, until: datetime) -> None:
-        self.until = until
-        super().__init__(
-            "Too many failed sign-ins. Try again later, or use forgot password "
-            "to get a temporary password."
-        )
 
 
 class InvalidRefreshTokenError(AuthError):
@@ -141,10 +140,13 @@ class AuthService:
         to the account's mailbox, so the owner has a way in even while someone
         else keeps tripping the lock.
 
+        A locked account is refused with the same InvalidCredentialsError as an
+        unknown identifier: a different answer after MAX_FAILED_LOGIN_ATTEMPTS
+        guesses would tell anyone which usernames and emails have accounts.
+
         Raises:
-            InvalidCredentialsError: no such user, or the password is wrong.
-            AccountLockedError: sign-in is locked, and no temporary password
-                was used.
+            InvalidCredentialsError: no such user, the password is wrong, or
+                sign-in is locked and no temporary password was used.
             InactiveUserError: credentials are valid but the account is suspended.
         """
         user = await self.get_user_by_identifier(identifier)
@@ -164,15 +166,16 @@ class AuthService:
             logger.info("Sign-in refused: no account matches the identifier given.")
             raise InvalidCredentialsError
         # Refused whether or not the password is right, and without counting,
-        # so a locked account is no oracle for guessing its password.
+        # so a locked account is no oracle for guessing its password. Answered
+        # as any wrong password is, so it is no oracle for which accounts exist.
         if user.locked_until is not None and user.locked_until > now and not used_temporary:
             logger.warning(
                 "Sign-in refused for user %s: locked until %s.", user.id, user.locked_until
             )
-            raise AccountLockedError(user.locked_until)
+            raise InvalidCredentialsError
         if not (password_ok or used_temporary):
             logger.info("Sign-in refused for user %s: wrong password.", user.id)
-            await self._record_failed_login(user)
+            await self.record_failed_login(user)
             raise InvalidCredentialsError
 
         # A suspended user (is_active=False) is refused a token here, and
@@ -203,8 +206,9 @@ class AuthService:
         logger.info("User %s signed in.", user.id)
         return user
 
-    async def _record_failed_login(self, user: User) -> None:
-        """Count a wrong password against `user`, locking sign-in for
+    async def record_failed_login(self, user: User) -> None:
+        """Count a wrong password against `user` — at sign-in, or wherever else
+        a password is asked for again — locking sign-in for
         LOGIN_LOCKOUT_MINUTES once MAX_FAILED_LOGIN_ATTEMPTS are in a row, and
         starting the count again. Commits.
 
@@ -238,7 +242,7 @@ class AuthService:
             )
         await self.session.commit()
 
-    async def issue_temporary_password(self, email: str) -> tuple[User, str] | None:
+    async def issue_temporary_password(self, email: str) -> tuple[User, str | None] | None:
         """Give the account at `email` a temporary password, for "forgot password".
 
         Returns the user and the password to email them, or None when nothing
@@ -247,8 +251,15 @@ class AuthService:
         the form does not reveal which addresses have accounts; the bcrypt work
         happens every time for the same reason.
 
+        While a temporary password is still live it is kept, never replaced:
+        anyone who knows the address could otherwise ask again every minute and
+        void the password the owner was just emailed. Only a hash is stored, so
+        it cannot be sent again; the returned password is then None and the
+        caller sends a reminder that one is waiting. A new one is issued once
+        it has expired or been used.
+
         The account's current password keeps working, so a stranger asking
-        cannot lock anyone out. Asking again replaces the temporary password.
+        cannot lock anyone out.
         """
         password = generate_temporary_password()
         password_hash = generate_hash_password(password)
@@ -262,8 +273,10 @@ class AuthService:
         now = datetime.now(UTC)
         lifetime = timedelta(minutes=settings.TEMP_PASSWORD_EXPIRE_MINUTES)
         expires = user.temp_password_expires_at
-        if expires is not None and expires - now > lifetime - _RESEND_COOLDOWN:
-            return None
+        if user.temp_password_hash is not None and expires is not None and expires > now:
+            if expires - now > lifetime - _RESEND_COOLDOWN:
+                return None
+            return user, None
 
         user.temp_password_hash = password_hash
         user.temp_password_expires_at = now + lifetime

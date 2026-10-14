@@ -20,6 +20,14 @@ succeeds or not. Past a limit they answer `429` with `Retry-After` in seconds:
 | `RATE_LIMIT_EMAIL_LINKS` | `20/minute` | `POST /auth/confirm-email`, `/invitations/preview` and `/invitations/accept`, together |
 | `RATE_LIMIT_ACCOUNT_REQUESTS` | `5/hour` | `POST /account-requests` |
 
+Two actions that cost more than the request itself are limited per signed-in
+user instead, with the same `429`:
+
+| setting | default | counts |
+| ------- | ------- | ------ |
+| `RATE_LIMIT_CHECK_NOW` | `10/minute` | `POST /monitoring/websites/{id}/check` and `POST /monitoring/infra/aws/resources/{id}/check`, together |
+| `RATE_LIMIT_SEND_REPORT` | `5/hour` | `POST /monitoring/projects/{id}/report` |
+
 `RATE_LIMIT_ENABLED=false` turns them off. `POST /auth/refresh` and
 `/auth/logout` are not limited: their token cannot be guessed, and a refused
 refresh would sign people out.
@@ -44,7 +52,12 @@ country, and Watchly will:
   (no header, or `XX`/`ZZ`) is let through.
 
 It is off while `COUNTRY_HEADER` is empty. The header is the proxy's word, so
-the proxy must overwrite it and the API must not be reachable around the proxy.
+the proxy must overwrite it. Caddy enforces the other half: it deletes the
+header from every request whose connection is not from an address in
+`COUNTRY_TRUSTED_PROXIES` (space-separated addresses or CIDRs, default none), so
+set that to your load balancer's or CDN's address, or no country will ever
+reach the API. The API's own port is published on loopback only, so nothing
+else goes around Caddy.
 The country is the address's, so a VPN shows as its own. Only `/api` is
 blocked: the web app's static files are served by Caddy.
 
@@ -157,16 +170,18 @@ user comes back with `must_change_password: true`.
 `MAX_FAILED_LOGIN_ATTEMPTS` (default 5) wrong passwords in a row lock sign-in
 for `LOGIN_LOCKOUT_MINUTES` (default 15), and signing in resets the count. The
 attempt that trips the lock still answers `401`, like any wrong password; after
-it, every attempt answers `429` with `Retry-After` until the lock runs out,
-whether the password is right or not, and does not count. A temporary password
+it, every attempt answers the same `401` as an unknown identifier until the lock
+runs out, whether the password is right or not, and does not count. (A distinct
+answer for a locked account would tell anyone which usernames and emails have
+accounts.) A temporary password
 from [forgot password](#post-apiv1authforgot-password) still signs in, so the
 owner is never shut out by someone else guessing. The lock does not suspend the
 account or end its sessions. Someone allowed to reinstate the account can lift
 it early with [reactivate](#patch-apiv1usersuser_idreactivate).
 The lock guards one account; `RATE_LIMIT_LOGIN` guards against one client trying
 a few passwords on every account instead, counting all its attempts.
-`200` · `401` wrong credentials or unknown user · `403` suspended · `422` invalid
-· `429` locked after too many wrong passwords, or rate-limited
+`200` · `401` wrong credentials, unknown user or locked account · `403` suspended · `422` invalid
+· `429` rate-limited
 
 ### `POST /api/v1/auth/forgot-password`
 Body: `{"email": "jane@example.com"}`. Emails that account a temporary password
@@ -175,8 +190,11 @@ the same message, account or not, so it cannot be used to find out who has one;
 the email is sent after the response for the same reason. The current password
 keeps working until the temporary one is used, so asking for someone else
 cannot lock them out, and signing in with the current password cancels the
-temporary one. A second request within a minute is ignored. Suspended accounts
-are sent nothing.
+temporary one. A live temporary password is never replaced: asking again sends
+a reminder that it is still waiting (without the password, only its hash is
+kept), so a stranger cannot void the one just emailed; a request within a
+minute of the first is ignored, and a new password is issued only once the
+last has expired or been used. Suspended accounts are sent nothing.
 `202` · `422` invalid address · `429` rate-limited
 
 ### `POST /api/v1/auth/confirm-email`
@@ -242,7 +260,10 @@ signed out at once. Signing in with a temporary password does the same, since it
 replaces the old password. After signing in with a temporary password this is the only call
 allowed — `current_password` is the temporary one — and it clears
 `must_change_password`.
-`200` · `400` current password wrong, or new = current · `422` mismatch or too short
+A wrong `current_password` counts like a failed sign-in towards the account's
+lockout (`MAX_FAILED_LOGIN_ATTEMPTS`); while the account is locked the password
+is not checked at all.
+`200` · `400` current password wrong, or new = current · `422` mismatch or too short · `429` account locked
 
 ### `POST /api/v1/users/me/email`
 Body: `new_email`, `current_password`. Emails a confirmation link to the new
@@ -252,8 +273,10 @@ replaces the pending change, and the old link stops working. The link expires
 after `EMAIL_CHANGE_EXPIRE_HOURS` (default 24). Like invitations, it needs SMTP
 and `ALERT_DASHBOARD_URL`; the change is saved either way, and `email_sent`
 says whether the email went out.
+A wrong `current_password` is counted towards the lockout, as for
+`POST /users/me/password`.
 `202` · `400` current password wrong, or already your address · `409` another
-account uses it · `422` invalid address
+account uses it · `422` invalid address · `429` account locked
 
 ### `DELETE /api/v1/users/me/email`
 Cancel a pending email change; its link stops working. Nothing happens if there
@@ -271,9 +294,10 @@ Return a single user by id.
 
 ### `PATCH /api/v1/users/{user_id}/role`
 Assign a role. Body: `{"role": "Developer"}`. Admin may re-role anyone; DevOps
-may re-role ordinary users but not admins or other DevOps users; nobody may
-change their own role.
-`200` · `403` insufficient rank or self · `404` · `422` unknown role
+may re-role ordinary users but not admins or other DevOps users, and may not
+make anyone an admin (only an admin grants Admin); nobody may change their own
+role.
+`200` · `403` insufficient rank, may not grant that role, or self · `404` · `422` unknown role
 
 ### `PATCH /api/v1/users/{user_id}/suspend`
 Set `is_active = false`: the user can no longer log in, and any token they
@@ -846,7 +870,8 @@ Where the Watchly Docker agent pushes, with `Authorization: Bearer <agent
 token>` instead of a session; the body is the agent's schema-1 push, usually
 gzip'd. Answers the agent's settings, `{"config": {"interval_s", "ignore"}}`.
 `200` · `400` bad gzip · `401` missing or unknown token · `413` too large ·
-`422` not a schema-1 push · `429` over `RATE_LIMIT_DOCKER_INGEST`
+`422` not a schema-1 push · `429` over `RATE_LIMIT_DOCKER_INGEST` (per host) or
+`RATE_LIMIT_DOCKER_AUTH_FAILURES` (unknown tokens, per client address)
 
 ### `GET /api/v1/monitoring/docker/hosts`
 The Docker hosts the caller may see, each with its containers counted.

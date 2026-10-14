@@ -10,9 +10,22 @@
 	# Never leak the page URL (or anything in it) to other sites.
 	header Referrer-Policy "no-referrer"
 
+	# The API believes the country header (COUNTRY_HEADER) for COUNTRY_ALLOW /
+	# COUNTRY_DENY and the "new country" email, so only a proxy we trust may
+	# send it. Everyone else has it removed here. The name and the proxies'
+	# addresses come from the web container's environment (docker-compose.yml).
+	@untrusted_peer not remote_ip {$COUNTRY_TRUSTED_PROXIES:127.0.0.1/32}
+	request_header @untrusted_peer -{$COUNTRY_HEADER:x-client-country}
+
 	# Caddy resolves "api" through Docker's DNS on each new connection, so
 	# recreating the api container (which can change its IP) is picked up.
 	handle /api/* {
+		# Answers 413 beyond this. Keep equal to MAX_REQUEST_BODY_BYTES in
+		# app/core/body_limit.py, which covers direct access to the API.
+		request_body {
+			max_size 1MiB
+		}
+
 		reverse_proxy api:8000 {
 			transport http {
 				# "Check now" waits for the probe, and a site's timeout can be 120s.

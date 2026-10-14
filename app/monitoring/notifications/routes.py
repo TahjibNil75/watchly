@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_roles
 from app.core.permissions import PROJECT_CREATORS, ROLE_MANAGERS
+from app.core.rate_limit import RATE_LIMITED, user_rate_limit
 from app.db.models.user import User
 from app.db.session import get_db
 from app.monitoring.alerts.base import NotificationKind, logo_url
@@ -307,8 +308,10 @@ async def download_report(
     "/projects/{project_id}/report",
     response_model=ReportSendResponse,
     summary="Send a monthly uptime report now",
+    dependencies=[user_rate_limit("send_report")],
     responses={
         **PROJECT_ERRORS,
+        **RATE_LIMITED,
         409: {"description": "No checks in that month, or the month has not ended"},
     },
 )

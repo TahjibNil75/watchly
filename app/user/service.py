@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.service import AuthService, InactiveUserError, UserAlreadyExistsError
 from app.core.config import settings
 from app.core.password_policy import check_password
-from app.core.permissions import can_change_role, can_suspend_user
+from app.core.permissions import can_assign_role, can_change_role, can_suspend_user
 from app.core.security import (
     generate_hash_password,
     hash_token,
@@ -53,6 +53,17 @@ class IncorrectPasswordError(UserError):
         super().__init__("Your current password is incorrect.")
 
 
+class TooManyAttemptsError(UserError):
+    """Too many wrong passwords in a row: the account is locked, and the
+    password is not checked until the lock ends."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Too many wrong passwords. Try again later, or use forgot password "
+            "to get a temporary password."
+        )
+
+
 class SamePasswordError(UserError):
     def __init__(self) -> None:
         super().__init__("Choose a new password that is different from your current one.")
@@ -88,6 +99,17 @@ class InsufficientRankError(UserError):
         super().__init__(
             f"A {actor_role.value!r} user cannot {action} a user "
             f"with the {target_role.value!r} role."
+        )
+
+
+class RoleNotAssignableError(UserError):
+    """The actor's role may not hand out the requested role."""
+
+    def __init__(self, actor_role: UserRole, new_role: UserRole) -> None:
+        self.actor_role = actor_role
+        self.new_role = new_role
+        super().__init__(
+            f"A {actor_role.value!r} user cannot grant the {new_role.value!r} role."
         )
 
 
@@ -148,6 +170,8 @@ class UserService:
             UserNotFoundError: no such user.
             CannotChangeOwnRoleError: the actor is the target.
             InsufficientRankError: DevOps actor targeting an admin/DevOps user.
+            RoleNotAssignableError: the actor may not hand out `new_role`
+                (only an admin may make someone an admin).
         """
         target = await self.get_by_id(user_id)
 
@@ -159,6 +183,9 @@ class UserService:
 
         if not can_change_role(actor.role, target.role):
             raise InsufficientRankError(actor.role, target.role, "re-role")
+
+        if not can_assign_role(actor.role, new_role):
+            raise RoleNotAssignableError(actor.role, new_role)
 
         if target.role is new_role:
             return target
@@ -236,6 +263,31 @@ class UserService:
         await self.session.refresh(user)
         return user
 
+    async def _check_current_password(self, user: User, password: str) -> None:
+        """Require `password` to be `user`'s own, counting a wrong one like a
+        failed sign-in so the same lockout stops guessing here too.
+
+        These endpoints are open to a stolen access token or an unattended
+        browser, which must not be a way round the lockout: while it holds the
+        password is not even checked, and not counted, so the lock is no oracle.
+
+        Raises:
+            TooManyAttemptsError: the account is locked.
+            IncorrectPasswordError: `password` is wrong; the attempt is counted.
+        """
+        if user.locked_until is not None and user.locked_until > datetime.now(UTC):
+            logger.warning(
+                "Password check refused for user %s: locked until %s.",
+                user.id,
+                user.locked_until,
+            )
+            raise TooManyAttemptsError
+        if not verify_password(password, user.password_hash):
+            await AuthService(self.session).record_failed_login(user)
+            raise IncorrectPasswordError
+        if user.failed_login_attempts:
+            user.failed_login_attempts = 0
+
     async def change_password(
         self, user: User, current_password: str, new_password: str
     ) -> User:
@@ -246,14 +298,19 @@ class UserService:
         `must_change_password` and drops any pending temporary password.
 
         Raises:
-            IncorrectPasswordError: `current_password` is wrong.
+            IncorrectPasswordError: `current_password` is wrong; counted
+                towards the sign-in lockout.
+            TooManyAttemptsError: the account is locked after too many wrong
+                passwords.
             SamePasswordError: the new password is the current one.
             WeakPasswordError: the new password breaks a rule, or holds the
                 username, email or name.
         """
-        if not verify_password(current_password, user.password_hash):
+        try:
+            await self._check_current_password(user, current_password)
+        except IncorrectPasswordError:
             logger.info("Password change refused for user %s: wrong current password.", user.id)
-            raise IncorrectPasswordError
+            raise
         if verify_password(new_password, user.password_hash):
             raise SamePasswordError
         check_password(
@@ -282,12 +339,14 @@ class UserService:
         again replaces any earlier pending change, whose link stops working.
 
         Raises:
-            IncorrectPasswordError: `current_password` is wrong.
+            IncorrectPasswordError: `current_password` is wrong; counted
+                towards the sign-in lockout.
+            TooManyAttemptsError: the account is locked after too many wrong
+                passwords.
             EmailUnchangedError: `new_email` is the current address.
             UserAlreadyExistsError: another account has `new_email`.
         """
-        if not verify_password(current_password, user.password_hash):
-            raise IncorrectPasswordError
+        await self._check_current_password(user, current_password)
 
         new_email = new_email.lower()
         if new_email == user.email.lower():

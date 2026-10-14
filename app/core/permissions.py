@@ -27,10 +27,11 @@ SUSPENDABLE_BY: dict[UserRole, frozenset[UserRole]] = {
     ),
 }
 
-#: Which roles each actor may hand out when inviting someone. Absent actor =>
-#: may not invite at all. A table like SUSPENDABLE_BY, so adding a row is all it
-#: takes to let another role invite — including the invitation endpoints' guard,
-#: which is built from these keys.
+#: Which roles each actor may hand out, whether by inviting someone or by
+#: re-roling an existing user. Absent actor => may not invite at all. A table
+#: like SUSPENDABLE_BY, so adding a row is all it takes to let another role
+#: invite — including the invitation endpoints' guard, which is built from these
+#: keys. Only an admin may hand out Admin.
 INVITABLE_BY: dict[UserRole, frozenset[UserRole]] = {
     UserRole.ADMIN: frozenset(UserRole),
     UserRole.DEVOPS: frozenset(
@@ -103,6 +104,9 @@ def can_change_role(actor_role: UserRole, target_role: UserRole) -> bool:
     - DevOps may re-role ordinary users, but not an admin or another DevOps user.
     - Everyone else, project managers included, may re-role nobody.
 
+    This only looks at the target. Which role they may be given is
+    :func:`can_assign_role`; both must pass.
+
     The DevOps restriction is what makes suspension rules meaningful: if DevOps
     could demote an admin, every "cannot suspend an admin" rule below could be
     sidestepped by demoting the target first.
@@ -132,3 +136,13 @@ def can_invite_role(actor_role: UserRole, role: UserRole) -> bool:
     undo one they could not have sent.
     """
     return role in INVITABLE_BY.get(actor_role, frozenset())
+
+
+def can_assign_role(actor_role: UserRole, new_role: UserRole) -> bool:
+    """May a user with `actor_role` make an existing user `new_role`?
+
+    The same table as invitations (`INVITABLE_BY`), so promoting someone to
+    Admin takes an admin whether it is done by invitation or by re-roling:
+    DevOps may not make anyone an admin.
+    """
+    return new_role in INVITABLE_BY.get(actor_role, frozenset())

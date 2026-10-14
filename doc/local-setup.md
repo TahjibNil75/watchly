@@ -311,10 +311,11 @@ as that admin and change your role on the **Users** page. To start over
 instead, run `docker compose down -v` (this deletes all data) and sign up
 again.
 
-**"Too many failed sign-ins" when signing in as the admin**
+**"Incorrect username/email or password" when the password is right (admin)**
 
 `MAX_FAILED_LOGIN_ATTEMPTS` (default 5) wrong passwords in a row lock sign-in
-for `LOGIN_LOCKOUT_MINUTES` (default 15). Wait for it to run out, sign in with a
+for `LOGIN_LOCKOUT_MINUTES` (default 15), and the API answers them like any
+wrong password. Wait for it to run out, sign in with a
 temporary password from **Forgot password**, or lift it from the server. The
 same command reactivates a suspended admin when no other admin can:
 

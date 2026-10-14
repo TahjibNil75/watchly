@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from app import __version__
 from app.account_requests.routes import router as account_requests_router
 from app.auth.routes import router as auth_router
+from app.core.body_limit import BodyLimitMiddleware
 from app.core.config import settings
 from app.core.geo import block_countries
 from app.core.handlers import register_exception_handlers
@@ -68,6 +69,8 @@ app = FastAPI(
 )
 
 register_exception_handlers(app)
+# Innermost, so a refused body is still timed and logged by `log_requests`.
+app.add_middleware(BodyLimitMiddleware)
 app.middleware("http")(block_countries)
 # Added last so it is outermost: it also times and logs the requests the
 # country block turns away.

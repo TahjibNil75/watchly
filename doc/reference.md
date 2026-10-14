@@ -101,18 +101,22 @@ docker compose up -d --build
 | ------- | --- | ---------- |
 | `web` | http://localhost:8080 | React UI; Caddy also proxies `/api` to the API |
 | `api` | http://localhost:8000/docs | FastAPI + the monitoring scheduler |
-| `db`  | `localhost:5432` | PostgreSQL 16, data in the `watchly_pgdata` volume |
+| `db`  | `127.0.0.1:5432` | PostgreSQL 16 (loopback only), data in the `watchly_pgdata` volume |
 
 The API container runs `alembic upgrade head` every time it starts; it is
 idempotent. Then open http://localhost:8080 and sign up: on a fresh install
 the first account becomes the admin (see
 [The first account is the admin](#the-first-account-is-the-admin)).
 
-A `.env` file is optional. Without one, the defaults from `app/core/config.py`
-apply (and the API warns that `SECRET_KEY` is the default). With one, every
+Compose needs `POSTGRES_PASSWORD` (in `.env` or the shell); there is no
+default, and it refuses to start without one. Other settings are optional:
+without them the defaults from `app/core/config.py` apply (and the API warns
+that `SECRET_KEY` is the default). With a `.env`, every
 setting in it reaches the API, except `POSTGRES_HOST` and `POSTGRES_PORT`:
 compose points those at the `db` container. Set `WEB_PORT`, `API_PORT` or
-`POSTGRES_PORT` to move the published ports.
+`POSTGRES_PORT` to move the published ports. The API port is published on
+`127.0.0.1` only (for `/docs` and `curl` from the host); reach the app through
+the web port.
 
 After changing code, rebuild the affected service with
 `docker compose up -d --build api` (or `web`). `docker compose logs -f api`
@@ -232,16 +236,19 @@ on the user.
 | status | when                                                   |
 | ------ | ------------------------------------------------------ |
 | `200`  | authenticated                                          |
-| `401`  | no such user **or** wrong password (indistinguishable) |
+| `401`  | no such user, wrong password **or** locked account (indistinguishable) |
 | `403`  | credentials valid but the account is inactive          |
 | `422`  | a field is missing or invalid                          |
-| `429`  | the account is locked after `MAX_FAILED_LOGIN_ATTEMPTS` wrong passwords, or this client has used up `RATE_LIMIT_LOGIN` (default `10/minute`); see `Retry-After` |
+| `429`  | this client has used up `RATE_LIMIT_LOGIN` (default `10/minute`); see `Retry-After` |
 
 Two deliberate choices here, both to stop account enumeration:
 
 - An unknown identifier still runs a bcrypt verification against a dummy hash,
   so response timing does not reveal which accounts exist (measured: ~171ms vs
   ~175ms, a ratio of 1.02).
+- A locked account (`MAX_FAILED_LOGIN_ATTEMPTS` wrong passwords in a row)
+  answers the same `401` as an unknown identifier, with no `Retry-After`, so
+  the lock cannot be used to find out which accounts exist.
 - `is_active` is only checked *after* the password is proven, so a wrong
   password returns `401` whether or not the account exists or is disabled.
 

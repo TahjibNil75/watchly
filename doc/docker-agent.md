@@ -24,7 +24,8 @@ wire format is the agent's
 
 If it doesn't connect, the status code says why: `401` is a wrong or rotated
 token, `404` is a wrong `WATCHLY_URL` or `DOCKER_ENABLED=false`, and `429` is
-the per-token rate limit (`RATE_LIMIT_DOCKER_INGEST`). The agent keeps
+the per-host rate limit (`RATE_LIMIT_DOCKER_INGEST`), or, after too many
+unknown tokens from one address, `RATE_LIMIT_DOCKER_AUTH_FAILURES`. The agent keeps
 retrying and never exits.
 
 ## How monitoring happens

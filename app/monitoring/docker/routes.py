@@ -15,8 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.core.config import settings
-from app.core.rate_limit import RATE_LIMITED, _count
-from app.core.security import hash_token
+from app.core.rate_limit import RATE_LIMITED, _count, client_key
 from app.db.models.user import User
 from app.db.session import get_db
 from app.monitoring.docker.ingest import DockerIngestService
@@ -110,13 +109,18 @@ async def ingest(
     token = token.strip()
     if scheme.lower() != "bearer" or not token:
         raise _unauthorized("Send the host's agent token as `Authorization: Bearer <token>`.")
-    if settings.RATE_LIMIT_ENABLED:
-        # Counted per token, not per address: many hosts may share one NAT.
-        await _count("docker_ingest", f"token:{hash_token(token)[:32]}", settings.RATE_LIMIT_DOCKER_INGEST)
     service = DockerIngestService(session)
     host = await service.authenticate(token)
     if host is None:
+        # Only failures are counted per address, so a flood of made-up tokens
+        # costs one bucket for the sender, not a row for every token. A valid
+        # token is never refused for what its neighbours on a NAT did.
+        if settings.RATE_LIMIT_ENABLED:
+            await _count("docker_auth_failures", client_key(request), settings.RATE_LIMIT_DOCKER_AUTH_FAILURES)
         raise _unauthorized("Unknown agent token: it may have been rotated, or its host deleted.")
+    if settings.RATE_LIMIT_ENABLED:
+        # Counted per host, not per address: many hosts may share one NAT.
+        await _count("docker_ingest", f"host:{host.id}", settings.RATE_LIMIT_DOCKER_INGEST)
     body = await _read_body(request)
     try:
         push = Ingest.model_validate_json(body)

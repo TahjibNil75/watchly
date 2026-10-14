@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user, require_roles
 from app.core.config import settings
 from app.core.permissions import PROJECT_CREATORS, ROLE_MANAGERS
-from app.core.rate_limit import RATE_LIMITED, _count
+from app.core.rate_limit import RATE_LIMITED, _count, user_rate_limit
 from app.db.models.user import User
 from app.db.session import get_db
 from app.monitoring.exports import csv_response, infra_stats_csv
@@ -736,8 +736,10 @@ async def delete_resource(
     "/resources/{resource_id}/check",
     response_model=CheckNowResponse,
     summary="Run a resource's checks now",
+    dependencies=[user_rate_limit("check_now")],
     responses={
         **NOT_FOUND,
+        **RATE_LIMITED,
         409: {"description": "Paused, missing, or in maintenance"},
         503: {"description": "A ping, and this server may not send pings"},
     },

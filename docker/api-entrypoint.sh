@@ -6,33 +6,12 @@ set -e
 
 alembic upgrade head
 
-# Requests reach the API through the web container's Caddy, so without this
-# they would all seem to come from Caddy and share one rate limit. Trust the
-# X-Forwarded-For of the networks this container is on, where Caddy is, unless
-# FORWARDED_ALLOW_IPS already says whom to trust. A client connecting to the
-# published API port from outside keeps its own address, so cannot forge one.
-if [ -z "${FORWARDED_ALLOW_IPS:-}" ]; then
-  FORWARDED_ALLOW_IPS=$(python - <<'EOF'
-import ipaddress
-import struct
-
-trusted = ["127.0.0.1"]
-try:
-    with open("/proc/net/route") as routes:
-        next(routes)
-        for line in routes:
-            fields = line.split()
-            destination, gateway, mask = (int(fields[i], 16) for i in (1, 2, 7))
-            # Directly attached networks: no gateway, and not the default route.
-            if gateway == 0 and destination != 0:
-                address = ipaddress.IPv4Address(struct.pack("=L", destination))
-                trusted.append(str(ipaddress.IPv4Network((address, mask.bit_count()))))
-except OSError:
-    pass
-print(",".join(dict.fromkeys(trusted)))
-EOF
-)
-  export FORWARDED_ALLOW_IPS
-fi
+# Requests reach the API through the web container's Caddy, which puts the
+# client's address in X-Forwarded-For. uvicorn believes that header only from
+# the addresses in FORWARDED_ALLOW_IPS: docker-compose.yml sets it to the web
+# container's pinned address. Unset, it defaults to 127.0.0.1, so a client that
+# reaches the API directly cannot forge its address. Do not widen it to the
+# Docker network: that includes the bridge gateway, which is how a client of a
+# published port appears on Docker Desktop and through userland-proxy.
 
 exec "$@"

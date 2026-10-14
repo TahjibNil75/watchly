@@ -12,7 +12,7 @@ export function RolePill({ role }) {
 }
 
 // A role picker that looks like RolePill, for the rows the viewer may change.
-export function RoleSelect({ value, onChange, disabled, label }) {
+export function RoleSelect({ value, onChange, disabled, label, roles = ROLES }) {
   return (
     <Select
       className={`role-select ${roleClass(value)}`}
@@ -21,7 +21,7 @@ export function RoleSelect({ value, onChange, disabled, label }) {
       onChange={(e) => onChange(e.target.value)}
       aria-label={label}
     >
-      {ROLES.map((r) => (
+      {roles.map((r) => (
         <option key={r}>{r}</option>
       ))}
     </Select>

@@ -25,8 +25,10 @@ from sqlalchemy import case, delete
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.dependencies import get_current_user
 from app.core.config import RateLimit, settings
 from app.db.models.rate_limit import RateLimitBucket
+from app.db.models.user import User
 from app.db.session import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
@@ -65,6 +67,21 @@ def rate_limit(scope: str) -> Any:
     async def check(request: Request) -> None:
         if settings.RATE_LIMIT_ENABLED:
             await _count(scope, client_key(request), getattr(settings, setting))
+
+    return Depends(check)
+
+
+def user_rate_limit(scope: str) -> Any:
+    """Like `rate_limit`, but counted per signed-in user instead of per client:
+    for actions that cost something beyond the request, such as traffic to
+    a host or mail to a list. Routes given the same `scope` share one count."""
+    setting = f"RATE_LIMIT_{scope.upper()}"
+    if not isinstance(getattr(settings, setting, None), RateLimit):
+        raise ValueError(f"There is no {setting} setting.")
+
+    async def check(actor: User = Depends(get_current_user)) -> None:
+        if settings.RATE_LIMIT_ENABLED:
+            await _count(scope, f"user:{actor.id}", getattr(settings, setting))
 
     return Depends(check)
 

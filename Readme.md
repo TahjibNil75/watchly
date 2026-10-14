@@ -336,6 +336,8 @@ cp .env.example .env
 Open `.env` and set at least:
 
 - **`SECRET_KEY`**: signs login tokens. Generate one with `openssl rand -hex 32`.
+- **`POSTGRES_PASSWORD`**: the database password. Compose refuses to start without
+  it. Generate one with `openssl rand -hex 24`.
 - **`SMTP_*`**: your mail server, so Watchly can send alerts, invitations and
   password resets. See [Set up email alerts (SMTP)](#set-up-email-alerts-smtp).
 
@@ -350,8 +352,8 @@ Database migrations run automatically every time the API starts.
 | Service | URL | Description |
 | ------- | --- | ----------- |
 | Web app | http://localhost:8080 | The Watchly dashboard |
-| API     | http://localhost:8000/docs | Interactive API docs |
-| Database | `localhost:5432` | PostgreSQL |
+| API     | http://localhost:8000/docs | Interactive API docs (this machine only) |
+| Database | `127.0.0.1:5432` | PostgreSQL (this machine only) |
 
 ### 4. Create the admin account
 
@@ -445,7 +447,8 @@ option. The most important ones:
 | -------- | ------- | ----------- |
 | `SECRET_KEY` | `dev-secret-change-me` | JWT signing key. **Always change it.** |
 | `WEB_PORT` / `API_PORT` | `8080` / `8000` | Ports published by Docker Compose |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `postgres` / `postgres` / `watchly` | Database credentials |
+| `POSTGRES_USER` / `POSTGRES_DB` | `postgres` / `watchly` | Database credentials |
+| `POSTGRES_PASSWORD` | none, **required** | Database password; `docker compose` refuses to start without it |
 | `DEFAULT_CHECK_INTERVAL_SECONDS` | `300` | Default time between checks for a new site |
 | `ALERT_DEFAULT_EMAILS` | | Addresses that receive every alert |
 | `SLACK_WEBHOOK_URL` / `ALERT_WEBHOOK_URL` | | Optional Slack and webhook channels |

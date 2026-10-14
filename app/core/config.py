@@ -109,6 +109,11 @@ class Settings(BaseSettings):
     #: Accounts asked for with `POST /account-requests`, whichever addresses
     #: they name: each new one emails every admin and DevOps user.
     RATE_LIMIT_ACCOUNT_REQUESTS: Annotated[RateLimit, NoDecode] = RateLimit(5, 3600)
+    #: "Check now" on a website or an infrastructure resource, per user: each
+    #: call sends traffic to the monitored host.
+    RATE_LIMIT_CHECK_NOW: Annotated[RateLimit, NoDecode] = RateLimit(10, 60)
+    #: "Send report", per user: each call mails every recipient of the project.
+    RATE_LIMIT_SEND_REPORT: Annotated[RateLimit, NoDecode] = RateLimit(5, 3600)
 
     # --- Visitor country ------------------------------------------------
     #: Name of the request header in which whatever sits in front of Watchly
@@ -385,9 +390,12 @@ class Settings(BaseSettings):
     DOCKER_SAMPLE_RETENTION_HOURS: int = Field(default=48, ge=6)
     #: Days a removed container stays listed before it is forgotten.
     DOCKER_REMOVED_CONTAINER_DAYS: int = Field(default=7, ge=1)
-    #: Pushes per agent token. An agent sends one per interval plus one
-    #: shortly after Docker events. NoDecode: see ALERT_DEFAULT_EMAILS.
+    #: Pushes per host. An agent sends one per interval plus one shortly
+    #: after Docker events. NoDecode: see ALERT_DEFAULT_EMAILS.
     RATE_LIMIT_DOCKER_INGEST: Annotated[RateLimit, NoDecode] = RateLimit(60, 60)
+    #: Pushes with an unknown token, per client address. An agent whose token
+    #: was rotated retries slowly, so this is far above what one needs.
+    RATE_LIMIT_DOCKER_AUTH_FAILURES: Annotated[RateLimit, NoDecode] = RateLimit(30, 60)
 
     # --- Monthly uptime report --------------------------------------------
     MONTHLY_REPORTS_ENABLED: bool = True
@@ -470,8 +478,11 @@ class Settings(BaseSettings):
         "RATE_LIMIT_FORGOT_PASSWORD",
         "RATE_LIMIT_EMAIL_LINKS",
         "RATE_LIMIT_ACCOUNT_REQUESTS",
+        "RATE_LIMIT_CHECK_NOW",
+        "RATE_LIMIT_SEND_REPORT",
         "RATE_LIMIT_INFRA_DIAGNOSE",
         "RATE_LIMIT_DOCKER_INGEST",
+        "RATE_LIMIT_DOCKER_AUTH_FAILURES",
         mode="before",
     )
     @classmethod

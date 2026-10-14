@@ -124,7 +124,8 @@ container (new id, same name) keeps its history.
 | `DOCKER_PROBLEM_ALERT_COOLDOWN_SECONDS` | `3600` | Quiet time between alerts about the same problem |
 | `DOCKER_SAMPLE_RETENTION_HOURS` | `48` | Raw samples kept |
 | `DOCKER_REMOVED_CONTAINER_DAYS` | `7` | How long removed containers stay listed |
-| `RATE_LIMIT_DOCKER_INGEST` | `60/minute` | Pushes per agent token |
+| `RATE_LIMIT_DOCKER_INGEST` | `60/minute` | Pushes per host |
+| `RATE_LIMIT_DOCKER_AUTH_FAILURES` | `30/minute` | Pushes with an unknown token, per client address |
 
 ## Security
 

@@ -20,11 +20,9 @@ from app.monitoring.infra.aws.probes.base import (
     resolve_and_vet,
     split_host_port,
 )
-from app.monitoring.websites.checker import new_client, timed_request
+from app.monitoring.websites.checker import body_length, new_client, timed_request
 
 STEPS = ["resolve", "policy", "connect", "tls", "response"]
-#: Body searched for `must_contain`.
-MAX_SEARCHED_BYTES = 1_048_576
 #: Which step an HTTP failure belongs to.
 _FAILED_STEP = {
     "connect_timeout": "connect",
@@ -106,7 +104,7 @@ async def probe(target: ProbeTarget) -> ProbeResult:
         trace.ok("tls", ms=timings.tls_ms)
     group.update(
         status_code=response.status_code,
-        body_bytes=len(response.content),
+        body_bytes=body_length(response, outcome.body),
         final_url=str(response.url) if str(response.url) != url else None,
     )
     expected = target.settings.get("expected_status", 200)
@@ -114,7 +112,7 @@ async def probe(target: ProbeTarget) -> ProbeResult:
     if response.status_code != expected:
         problem = ("unexpected_status", f"Expected HTTP {expected}, got {response.status_code}.")
     elif needle := target.settings.get("must_contain"):
-        body = response.content[:MAX_SEARCHED_BYTES].decode(response.encoding or "utf-8", errors="replace")
+        body = outcome.body.data.decode(response.encoding or "utf-8", errors="replace")
         if needle not in body:
             problem = ("content_missing", f"Response did not contain “{needle[:80]}”.")
     if problem:

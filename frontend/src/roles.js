@@ -15,7 +15,8 @@ const SUSPENDABLE_BY = {
   'Project Manager': ['DevOps', 'Developer', 'Viewer'],
 }
 
-// Which roles each actor may hand out when inviting.
+// Which roles each actor may hand out, by invitation or by changing a role.
+// Only an admin may grant Admin.
 const INVITABLE_BY = {
   Admin: ROLES,
   DevOps: ['Viewer', 'Developer', 'Project Manager', 'DevOps'],
@@ -45,6 +46,9 @@ export function canChangeRole(actor, target) {
   if (actor.role === 'DevOps') return !ROLE_MANAGERS.includes(target.role)
   return false
 }
+
+// The roles `actor` may set on someone else, for the role picker.
+export const assignableRoles = (actor) => ROLES.filter((r) => (INVITABLE_BY[actor.role] ?? []).includes(r))
 
 export function canSuspend(actor, target) {
   if (actor.id === target.id) return false

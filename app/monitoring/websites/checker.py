@@ -19,6 +19,8 @@ import logging
 import socket
 import ssl
 import time
+import zlib
+from collections.abc import AsyncIterator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -668,17 +670,85 @@ async def check_website(
 MAX_SEARCHED_BYTES = 1_048_576
 
 
-def content_problem(website: Website, response: httpx.Response) -> tuple[str, str] | None:
+@dataclass(slots=True)
+class CappedBody:
+    """The start of a response body, as `read_capped` read it."""
+
+    data: bytes
+    #: Whether the body went on past `data`, so it is not the whole page.
+    truncated: bool
+
+
+async def _inflated(response: httpx.Response, encoding: str, limit: int) -> AsyncIterator[bytes]:
+    """The decoded body of a gzip or deflate response, in pieces of at most
+    `limit` + 1 bytes. httpx inflates a whole network chunk at once, and a
+    chunk of a few KB can expand to hundreds of MB before anything counts it."""
+    inflater = zlib.decompressobj(zlib.MAX_WBITS | 32)  # zlib or gzip header
+    fresh = True
+    async for raw in response.aiter_raw():
+        pending = raw
+        while pending:
+            try:
+                piece = inflater.decompress(pending, limit + 1)
+            except zlib.error as exc:
+                if fresh and encoding == "deflate":
+                    # Some servers send deflate without the zlib header.
+                    inflater = zlib.decompressobj(-zlib.MAX_WBITS)
+                    continue
+                raise httpx.DecodingError(str(exc)) from exc
+            fresh = False
+            pending = inflater.unconsumed_tail
+            if piece:
+                yield piece
+            if inflater.eof:
+                return
+
+
+async def read_capped(response: httpx.Response, limit: int = MAX_SEARCHED_BYTES) -> CappedBody:
+    """Read at most `limit` decoded bytes of a streamed response, then stop.
+
+    Counts what is left after gzip and deflate are undone, so a small
+    compressed body that inflates enormously is cut off like a long one. The
+    caller closes the response, which drops the rest unread."""
+    encoding = response.headers.get("content-encoding", "").strip().lower()
+    chunks = (
+        _inflated(response, "gzip" if encoding == "x-gzip" else encoding, limit)
+        if encoding in ("gzip", "x-gzip", "deflate")
+        else response.aiter_bytes()
+    )
+    data = bytearray()
+    try:
+        async for chunk in chunks:
+            data += chunk
+            if len(data) > limit:
+                return CappedBody(bytes(data[:limit]), truncated=True)
+    finally:
+        if hasattr(chunks, "aclose"):
+            await chunks.aclose()
+    return CappedBody(bytes(data), truncated=False)
+
+
+def body_length(response: httpx.Response, body: CappedBody) -> int:
+    """The size of the page: what was read, or, when the read stopped short
+    and the server said so, its `Content-Length`."""
+    if body.truncated:
+        declared = response.headers.get("content-length", "")
+        # Under a content encoding the header counts the compressed bytes,
+        # which would be smaller than what was already read.
+        if declared.isdigit() and "content-encoding" not in response.headers:
+            return max(int(declared), len(body.data))
+    return len(body.data)
+
+
+def content_problem(website: Website, body: CappedBody, encoding: str | None) -> tuple[str, str] | None:
     """`(error_type, explanation)` when the body breaks the site's content
     rules, else None. Case-sensitive, over the first MAX_SEARCHED_BYTES."""
     if not (website.must_contain or website.must_not_contain):
         return None
-    body = response.content[:MAX_SEARCHED_BYTES].decode(
-        response.encoding or "utf-8", errors="replace"
-    )
-    if website.must_contain and website.must_contain not in body:
+    text = body.data.decode(encoding or "utf-8", errors="replace")
+    if website.must_contain and website.must_contain not in text:
         return "content_missing", f"Response did not contain {_quoted(website.must_contain)}."
-    if website.must_not_contain and website.must_not_contain in body:
+    if website.must_not_contain and website.must_not_contain in text:
         return "content_forbidden", f"Response contained {_quoted(website.must_not_contain)}."
     return None
 
@@ -826,6 +896,8 @@ class TimedResponse:
     response: httpx.Response | None
     elapsed_ms: int
     timings: Timings
+    #: The start of the body; the response is closed, so read it from here.
+    body: CappedBody = field(default_factory=lambda: CappedBody(b"", truncated=False))
     #: The address the host answered on.
     address: str | None = None
     error_type: str | None = None
@@ -848,13 +920,16 @@ async def timed_request(
     token = _stopwatch.set(stopwatch)
     started = time.perf_counter()
     try:
-        response = await client.request(
+        async with client.stream(
             method,
             url,
             timeout=timeout,
             headers=request_headers,
             extensions={"trace": stopwatch.trace},
-        )
+        ) as response:
+            body = await read_capped(response)
+            # Read off the connection, so before the response closes it.
+            address = _response_address(response, stopwatch)
     except Exception as exc:  # noqa: BLE001 - every failure is a result
         error_type, message = _classify(exc)
         if error_type == "connect_error" and _caused_by(exc, ConnectionRefusedError):
@@ -878,7 +953,8 @@ async def timed_request(
         response=response,
         elapsed_ms=int((time.perf_counter() - started) * 1000),
         timings=stopwatch.timings(),
-        address=_response_address(response, stopwatch),
+        body=body,
+        address=address,
     )
 
 
@@ -898,14 +974,17 @@ async def _http_probe(
     started = time.perf_counter()
     checked_at = datetime.now(UTC)
     try:
-        response = await client.request(
+        async with client.stream(
             website.method.upper(),
             website.url,
             timeout=website.timeout_seconds,
             follow_redirects=True,
             headers=headers,
             extensions={"trace": stopwatch.trace},
-        )
+        ) as response:
+            body = await read_capped(response)
+            # Read off the connection, so before the response closes it.
+            ip = _response_address(response, stopwatch)
     except Exception as exc:  # noqa: BLE001 - every failure is a "down" signal
         error_type, message = _classify(exc)
         logger.info("Check failed for %s: %s", website.url, message)
@@ -923,10 +1002,9 @@ async def _http_probe(
         problem = (
             None
             if not status_ok
-            else content_problem(website, response)
+            else content_problem(website, body, response.encoding)
         )
         is_up = status_ok and problem is None
-        ip = _response_address(response, stopwatch)
         return CheckResult(
             is_up=is_up,
             checked_at=checked_at,
@@ -945,7 +1023,7 @@ async def _http_probe(
             ),
             final_url=str(response.url),
             redirected=str(response.url) != website.url,
-            content_length=len(response.content) if response.content else 0,
+            content_length=body_length(response, body),
             redirects=redirect_chain(response),
             headers={
                 name: response.headers[name]

@@ -1,5 +1,3 @@
-import math
-from datetime import UTC, datetime
 
 from fastapi import (
     APIRouter,
@@ -21,7 +19,11 @@ from app.auth.cookies import (
 )
 from app.auth.countries import record_sign_in, send_new_country_email
 from app.auth.dependencies import get_auth_service
-from app.auth.mail import send_temporary_password, temporary_password_email
+from app.auth.mail import (
+    send_temporary_password,
+    temporary_password_email,
+    temporary_password_reminder_email,
+)
 from app.auth.schemas import (
     ForgotPasswordRequest,
     ForgotPasswordResponse,
@@ -33,7 +35,6 @@ from app.auth.schemas import (
     TokenResponse,
 )
 from app.auth.service import (
-    AccountLockedError,
     AuthService,
     InactiveUserError,
     InvalidCredentialsError,
@@ -156,11 +157,14 @@ async def signup_status(
     status_code=status.HTTP_200_OK,
     summary="Log in with a username or email",
     responses={
-        401: {"description": "Incorrect username/email or password"},
+        401: {
+            "description": "Incorrect username/email or password, or sign-in is "
+            "locked after too many wrong passwords (the same answer either way)"
+        },
         403: {"description": "Account is inactive"},
         429: {
-            "description": "Too many wrong passwords, so sign-in is locked for now; "
-            "or too many attempts from this client. Retry after `Retry-After` seconds"
+            "description": "Too many attempts from this client. Retry after "
+            "`Retry-After` seconds"
         },
     },
     dependencies=[rate_limit("login")],
@@ -180,8 +184,9 @@ async def login(
     but `POST /users/me/password` until they have chosen a new one.
 
     `MAX_FAILED_LOGIN_ATTEMPTS` wrong passwords in a row lock sign-in for
-    `LOGIN_LOCKOUT_MINUTES` (`429`, with `Retry-After`), whatever password is
-    sent — except a temporary password, which still signs in.
+    `LOGIN_LOCKOUT_MINUTES`, whatever password is sent — except a temporary
+    password, which still signs in. A locked account answers `401` exactly as an
+    unknown identifier does, so the lock does not reveal which accounts exist.
 
     Separately, each client may try `RATE_LIMIT_LOGIN` times, right or wrong,
     whichever accounts (`429` past that), so it cannot try a few passwords on
@@ -198,13 +203,6 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
             headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
-    except AccountLockedError as exc:
-        seconds = (exc.until - datetime.now(UTC)).total_seconds()
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=str(exc),
-            headers={"Retry-After": str(max(1, math.ceil(seconds)))},
         ) from exc
     except InactiveUserError as exc:
         raise HTTPException(
@@ -346,16 +344,22 @@ async def forgot_password(
 
     The current password keeps working until the temporary one is used, so
     asking for someone else cannot lock them out. The temporary password lasts
-    `TEMP_PASSWORD_EXPIRE_MINUTES`; a second request within a minute is ignored.
+    `TEMP_PASSWORD_EXPIRE_MINUTES`. Asking again while it is live does not
+    replace it, so a stranger cannot void the one just emailed: the account
+    gets a reminder that it is waiting instead, and a request within a minute
+    of the first is ignored.
     Each client may ask `RATE_LIMIT_FORGOT_PASSWORD` times, whichever addresses
     (`429` past that), so the form cannot be used to mail a list of inboxes.
     """
     issued = await service.issue_temporary_password(payload.email)
     if issued is not None:
         user, password = issued
-        background.add_task(
-            send_temporary_password, temporary_password_email(user, password), user.id
+        email = (
+            temporary_password_email(user, password)
+            if password is not None
+            else temporary_password_reminder_email(user)
         )
+        background.add_task(send_temporary_password, email, user.id)
     minutes = settings.TEMP_PASSWORD_EXPIRE_MINUTES
     return ForgotPasswordResponse(
         detail=(

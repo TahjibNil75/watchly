@@ -12,6 +12,11 @@ major version.
 
 ### Added
 
+- `RATE_LIMIT_CHECK_NOW` (`10/minute`) and `RATE_LIMIT_SEND_REPORT`
+  (`5/hour`): "Check now" on websites and infrastructure resources, and "Send
+  report", are limited per signed-in user and answer `429` with `Retry-After`
+  past the limit, so a project manager cannot use them for nuisance traffic or
+  to re-mail every recipient in a loop.
 - A setup checklist on the Infrastructure page (`GET
   /monitoring/infra/aws/readiness`): for each resource, what is in place and
   what is left before Watchly can watch it. For Admin and DevOps, with
@@ -52,8 +57,47 @@ major version.
 
 ### Fixed
 
+- The visitor-country header can no longer be forged: Caddy now deletes it
+  from every request unless the connection comes from an address in the new
+  `COUNTRY_TRUSTED_PROXIES` (default: none), so `COUNTRY_ALLOW` /
+  `COUNTRY_DENY` and the "new country" email cannot be dodged by sending
+  `X-Client-Country` oneself. If a load balancer or CDN sets the header for
+  you, list its address there, or the country is never seen.
+- `POST /docker/ingest` authenticates the agent token before it counts the
+  push, and counts per host instead of per token. It used to add a
+  rate-limit row for every token it was sent, so unauthenticated requests
+  with random tokens grew `rate_limit_buckets` without limit. Unknown tokens
+  are now counted per client address in the new
+  `RATE_LIMIT_DOCKER_AUTH_FAILURES` (`30/minute`) and answer `429` past it.
+- Request bodies over 1 MiB are refused with `413` before they are read:
+  by Caddy for `/api/*`, and by an ASGI middleware (`app/core/body_limit.py`)
+  for direct access to the API. Unauthenticated endpoints such as
+  `/auth/login` used to read a body of any size into memory.
+- `POST /users/me/password` and `POST /users/me/email` now count a wrong
+  `current_password` towards the account's sign-in lockout, and answer `429`
+  without checking the password while the account is locked. A stolen access
+  token or an unattended browser could otherwise be used to guess the password
+  with no limit.
+- `POST /auth/forgot-password` no longer replaces a temporary password that is
+  still live. Asking again every minute voided the password just emailed to the
+  owner, so anyone who knew the address could keep a reset from working. The
+  account now gets a reminder that the earlier email is still valid; a new
+  password is issued only after the last has expired or been used.
+
 - A project's notification settings showed the deployment alerts under website
   projects instead of infrastructure ones.
+- Rate limits could be bypassed by sending a forged `X-Forwarded-For` to the
+  published API port, which Docker Desktop and userland-proxy make look like
+  the bridge gateway that the API trusted. Compose now trusts only the web
+  container, at a fixed address on its own network (`WEB_SUBNET`, `WEB_IP`;
+  default `172.29.88.0/24` and `172.29.88.10`), and publishes the API port on
+  `127.0.0.1` only. `docker compose up -d` recreates the network on upgrade.
+
+- A locked account answered `429 Too many failed sign-ins` while an unknown
+  username or email answered `401`, so five wrong passwords told anyone whether
+  an account existed. Sign-in now answers `401` for a locked account too, with
+  the same text as for any wrong login and no `Retry-After`; `429` stays for
+  `RATE_LIMIT_LOGIN`.
 
 ### Changed
 

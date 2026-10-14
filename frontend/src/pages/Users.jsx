@@ -13,7 +13,7 @@ import {
 } from '../components.jsx'
 import { dateTime, timeAgo } from '../format.js'
 import { InvitationList, InviteForm } from '../Invitations.jsx'
-import { ROLES, canChangeRole, canInvite, canManageUsers, canSuspend } from '../roles.js'
+import { ROLES, assignableRoles, canChangeRole, canInvite, canManageUsers, canSuspend } from '../roles.js'
 import { useApi } from '../useApi.js'
 import Select from '../Select.jsx'
 
@@ -178,6 +178,7 @@ export default function Users() {
                           value={u.role}
                           disabled={busy}
                           label={`Role for ${u.username}`}
+                          roles={assignableRoles(me)}
                           onChange={(r) => update(u, () => api.setRole(u.id, r))}
                         />
                       ) : (
