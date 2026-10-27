@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import { Mark } from '../AwsAccounts.jsx'
-import { Empty, ErrorBanner, Loading, PageHeader } from '../components.jsx'
+import { Breadcrumbs, CopyButton, Empty, ErrorBanner, Loading, PageHeader } from '../components.jsx'
 import { useInfraEnabled } from '../infra.js'
 import { canViewAllProjects } from '../roles.js'
 import { useApi } from '../useApi.js'
@@ -67,7 +67,16 @@ function WhereWatchlyRuns() {
           </div>
           <div>
             <dt>AWS identity</dt>
-            <dd className="record">{s.caller ? `${s.caller.arn}` : <span className="text-down">{s.caller_error}</span>}</dd>
+            <dd className="record">
+              {s.caller ? (
+                <>
+                  {s.caller.arn}
+                  <CopyButton text={s.caller.arn} label="ARN" />
+                </>
+              ) : (
+                <span className="text-down">{s.caller_error}</span>
+              )}
+            </dd>
           </div>
         </dl>
       </section>
@@ -230,9 +239,7 @@ export default function InfraSettings() {
   if (!canViewAllProjects(user)) return <Empty>Only admins and DevOps can manage AWS access.</Empty>
   return (
     <>
-      <p className="crumbs">
-        <Link to="/infra">Infrastructure</Link>
-      </p>
+      <Breadcrumbs items={[{ label: 'Infrastructure', to: '/infra' }, { label: 'AWS & access' }]} />
       <PageHeader title="AWS & access" subtitle="Where Watchly runs, what it may reach, and the VPCs infrastructure checks use." />
       {enabled === null ? (
         <Loading />

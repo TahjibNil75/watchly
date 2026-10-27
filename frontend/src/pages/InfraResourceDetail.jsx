@@ -3,7 +3,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import {
+  Breadcrumbs,
   ConfirmDialog,
+  CopyButton,
   EnvironmentBadge,
   ErrorBanner,
   Loading,
@@ -612,6 +614,9 @@ function EdgeSecurity({ resource: r }) {
   )
 }
 
+// Identifiers, addresses and names people paste into a console or a config.
+const COPYABLE = new Set(['AWS id', 'ARN', 'Endpoint', 'Private IP', 'Public IP', 'Public DNS'])
+
 function AwsDetails({ resource: r }) {
   const d = r.aws_detail ?? {}
   const rows = [
@@ -676,7 +681,10 @@ function AwsDetails({ resource: r }) {
         {rows.map(([label, value]) => (
           <div key={label}>
             <dt>{label}</dt>
-            <dd className={label === 'ARN' || label === 'AWS id' ? 'record' : undefined}>{value}</dd>
+            <dd className={label === 'ARN' || label === 'AWS id' ? 'record' : undefined}>
+              {value}
+              {COPYABLE.has(label) && value !== 'none' && <CopyButton text={value} label={label} />}
+            </dd>
           </div>
         ))}
         {tags.length > 0 && (
@@ -963,13 +971,14 @@ export default function InfraResourceDetail() {
 
   return (
     <>
-      <p className="crumbs">
-        <Link to="/infra">Infrastructure</Link>
-        {' / '}
-        <Link to={`/infra/vpcs/${r.vpc.id}`}>{r.vpc.name}</Link>
-        {' / '}
-        <Link to={`/projects/${r.project.id}`}>{r.project.name}</Link>
-      </p>
+      <Breadcrumbs
+        items={[
+          { label: 'Projects', to: '/projects' },
+          { label: r.project.name, to: `/projects/${r.project.id}` },
+          { label: r.vpc.name, to: `/infra/vpcs/${r.vpc.id}` },
+          { label: r.name },
+        ]}
+      />
       <Hero resource={r}>
         {canManage && (
           <>

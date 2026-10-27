@@ -88,6 +88,15 @@ export function memory(n) {
   return `${value >= 100 || unit < 2 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
 }
 
+// A container without a memory limit reports its host's total memory as the
+// limit, which isn't a ceiling anyone set. Returns the limit only when it is
+// one, so charts don't draw a line at the host's RAM.
+export function memoryLimit(limitBytes, hostMemBytes) {
+  if (!limitBytes) return null
+  if (hostMemBytes && limitBytes >= hostMemBytes * 0.99) return null
+  return limitBytes
+}
+
 // Bytes per second, as network graphs usually read.
 export function rate(bps) {
   if (bps == null) return '—'

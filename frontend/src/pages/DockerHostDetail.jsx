@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
-import { ConfirmDialog, ErrorBanner, Loading, PageHeader } from '../components.jsx'
+import { Breadcrumbs, ConfirmDialog, ErrorBanner, Loading, PageHeader } from '../components.jsx'
 import { ConnectAgent, ContainerTable, EventFeed, HostStatusBadge } from '../Docker.jsx'
 import { memory } from '../docker.js'
 import { dateTime, duration, since, timeAgo } from '../format.js'
@@ -127,9 +127,13 @@ export default function DockerHostDetail() {
 
   return (
     <>
-      <p className="crumbs">
-        <Link to="/docker">Docker</Link> / <Link to={`/projects/${h.project.id}`}>{h.project.name}</Link>
-      </p>
+      <Breadcrumbs
+        items={[
+          { label: 'Projects', to: '/projects' },
+          { label: h.project.name, to: `/projects/${h.project.id}` },
+          { label: h.name },
+        ]}
+      />
       <PageHeader
         title={
           <>

@@ -79,9 +79,11 @@ class InvalidCredentialsError(AuthError):
 
     def __init__(self) -> None:
         super().__init__(
-            "Incorrect username/email or password. After repeated failed "
-            "sign-ins, sign-in is paused for a while; use forgot password to "
-            "get a temporary password."
+            "Incorrect username/email or password. After "
+            f"{settings.MAX_FAILED_LOGIN_ATTEMPTS} wrong passwords in a row, "
+            f"sign-in is paused for {settings.LOGIN_LOCKOUT_MINUTES} minutes; "
+            "if that has happened, wait it out or use forgot password to get "
+            "a temporary password."
         )
 
 

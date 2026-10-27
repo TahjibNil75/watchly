@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Empty } from './components.jsx'
+import { Empty, useCopy } from './components.jsx'
 import {
   AGENT_REPO,
   CONDITIONS,
@@ -17,6 +17,20 @@ import { dateTime, since, timeAgo, timeFormat } from './format.js'
 export function ConditionBadge({ condition }) {
   const c = CONDITIONS[condition] ?? CONDITIONS.unknown
   return <span className={`badge badge-${c.badge}`}>{c.label}</span>
+}
+
+// How often Docker's restart policy has restarted the container since it was
+// created. Quiet grey, orange while the restart-loop problem is open.
+export function RestartBadge({ count, looping }) {
+  if (!count) return null
+  return (
+    <span
+      className={`badge ${looping ? 'badge-degraded' : 'badge-paused'}`}
+      title="Restarts by Docker's restart policy since the container was created. Recreating it starts the count again."
+    >
+      {count} {count === 1 ? 'restart' : 'restarts'}
+    </span>
+  )
 }
 
 export function HostStatusBadge({ status }) {
@@ -67,6 +81,38 @@ export function Usage({ container, cpus }) {
         {m.mem_pct != null && <span className="muted"> · {pct(m.mem_pct)}</span>}
       </span>
     </span>
+  )
+}
+
+const SPARK = { width: 160, height: 36, pad: 3 }
+
+// A small line of `values` (null leaves a gap) with an optional dashed `limit`.
+// The scale runs from 0 to the highest of the values, the limit and `floor`, so
+// a line near the dashed one is near its limit; `floor` keeps a quiet series
+// from filling the box with noise.
+export function Sparkline({ values, limit, floor = 0, label, className = 'series-1' }) {
+  const { width, height, pad } = SPARK
+  const n = values.length
+  const top = Math.max(floor, limit ?? 0, ...values.map((v) => v ?? 0)) || 1
+  const x = (i) => (n <= 1 ? width / 2 : (i * width) / (n - 1))
+  const y = (v) => pad + (height - 2 * pad) * (1 - v / top)
+  let d = ''
+  let drawing = false
+  values.forEach((v, i) => {
+    if (v == null) {
+      drawing = false
+      return
+    }
+    d += `${drawing ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`
+    drawing = true
+  })
+  const last = values.findLastIndex((v) => v != null)
+  return (
+    <svg className={`spark ${className}`} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label}>
+      {limit != null && <line className="spark-limit" x1={0} x2={width} y1={y(limit)} y2={y(limit)} />}
+      <path className="spark-line" d={d} />
+      {last >= 0 && <circle className="spark-dot" cx={x(last)} cy={y(values[last])} r={2.5} />}
+    </svg>
   )
 }
 
@@ -187,20 +233,11 @@ export function EventFeed({ events, showHost = false, emptyLabel = 'Nothing has 
 }
 
 function CopyBlock({ text, label }) {
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
-    } catch {
-      // No clipboard (plain http): the text is selectable anyway.
-    }
-  }
+  const [copied, copy] = useCopy()
   return (
     <div className="docker-snippet">
       <pre aria-label={label}>{text}</pre>
-      <button type="button" className="btn btn-sm" onClick={copy}>
+      <button type="button" className="btn btn-sm" onClick={() => copy(text)}>
         {copied ? 'Copied' : 'Copy'}
       </button>
     </div>
@@ -277,16 +314,18 @@ const FULL = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit
 // Up to two lines over time, e.g. average and peak. `series` is
 // [{ key, label, className }]; `format` turns a value into text; `max` caps
 // the top of the scale (100 for a percentage); `binary` steps the scale in
-// KiB/MiB/GiB so byte axes read 8, 16, 24 MiB rather than 9.5, 19.1.
-export function MetricChart({ points, series, format, max, label, daily, binary }) {
+// KiB/MiB/GiB so byte axes read 8, 16, 24 MiB rather than 9.5, 19.1. `limit`
+// ({ value, label }) draws a dashed ceiling and stretches the scale to reach it.
+export function MetricChart({ points, series, format, max, label, daily, binary, limit }) {
   const [ref, width] = useWidth()
   const [active, setActive] = useState(null)
   const n = points.length
   const plotWidth = Math.max(width - PAD.left - PAD.right, 0)
   const x = (i) => PAD.left + (n <= 1 ? plotWidth / 2 : (i * plotWidth) / (n - 1))
   const peak = Math.max(0, ...points.flatMap((p) => series.map((s) => p[s.key] ?? 0)))
-  const unit = binary ? 1024 ** Math.max(Math.floor(Math.log(Math.max(peak, 1)) / Math.log(1024)), 0) : 1
-  const nice = niceTop((max ? Math.min(Math.max(peak * 1.1, max / 10), max) : peak) / unit)
+  const reach = Math.max(peak, limit?.value ?? 0)
+  const unit = binary ? 1024 ** Math.max(Math.floor(Math.log(Math.max(reach, 1)) / Math.log(1024)), 0) : 1
+  const nice = niceTop((max ? Math.min(Math.max(reach * 1.1, max / 10), max) : reach) / unit)
   const top = nice.top * unit
   const step = nice.step * unit
   const y = (v) => PAD.top + PLOT * (1 - v / top)
@@ -337,6 +376,18 @@ export function MetricChart({ points, series, format, max, label, daily, binary 
               </text>
             </g>
           ))}
+          {limit && (
+            <g className="chart-limit">
+              <line x1={PAD.left} x2={width - PAD.right} y1={y(limit.value)} y2={y(limit.value)} />
+              <text
+                x={width - PAD.right - 4}
+                y={y(limit.value) + (y(limit.value) < PAD.top + 14 ? 13 : -5)}
+                textAnchor="end"
+              >
+                {limit.label}
+              </text>
+            </g>
+          )}
           {series.map((s) => (
             <g key={s.key} className={s.className}>
               <path className="chart-line" d={path(s.key)} />

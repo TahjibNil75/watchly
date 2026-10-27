@@ -5,6 +5,7 @@ import { useAuth } from '../auth.jsx'
 import { AwsAccountsCard } from '../AwsAccounts.jsx'
 import DeploymentsSection from '../Deployments.jsx'
 import {
+  Breadcrumbs,
   ConfirmDialog,
   ErrorBanner,
   Loading,
@@ -166,9 +167,7 @@ export default function ProjectDetail() {
 
   return (
     <>
-      <p className="crumbs">
-        <Link to="/projects">Projects</Link>
-      </p>
+      <Breadcrumbs items={[{ label: 'Projects', to: '/projects' }, { label: p.name }]} />
       <PageHeader
         title={
           <>

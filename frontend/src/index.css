@@ -1182,6 +1182,37 @@ a:hover {
   font-size: 0.85rem;
   color: var(--muted);
 }
+.crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.crumbs li {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.crumbs li + li::before {
+  content: '›';
+  margin: 0 7px;
+  color: var(--muted);
+  opacity: 0.7;
+}
+/* Long names shorten instead of pushing the trail onto extra lines. */
+.crumbs a,
+.crumbs span {
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crumbs span[aria-current] {
+  color: var(--text);
+}
 
 .card {
   background: var(--surface);
@@ -1281,6 +1312,23 @@ a:hover {
 }
 .password-toggle:hover {
   background: var(--surface-2);
+}
+.caps-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+}
+.caps-warning::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warn);
 }
 .auth-card p {
   margin: 0;
@@ -5456,6 +5504,45 @@ tbody tr:last-child td {
 tbody tr:hover td {
   background: color-mix(in srgb, var(--surface-2) 50%, transparent);
 }
+/* A site's favicon, or its first letter on a colour from its name. */
+.site-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+img.site-icon {
+  box-sizing: border-box;
+  padding: 2px;
+  border: 1px solid var(--border);
+  /* Light behind it, so a dark logo with a transparent background reads in dark mode. */
+  background: #fff;
+}
+.site-icon-fallback {
+  --tone: hsl(var(--hue) 60% 50%);
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 18%, transparent);
+}
+.site-icon-lg {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+.site-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.site-name-text {
+  min-width: 0;
+}
 .strong-link {
   font-weight: 600;
   color: var(--text);
@@ -9357,6 +9444,44 @@ tr.is-muted td {
 .docker-connect p {
   margin: 0;
 }
+/* Copy button: sits right after the value it copies. */
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.copy-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.copy-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.copy-btn:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 1px;
+}
+.copy-btn.copied {
+  color: var(--up);
+}
+
 .docker-snippet {
   position: relative;
 }
@@ -9426,4 +9551,64 @@ tr.is-muted td {
 }
 .docker-charts p {
   margin: 0 0 4px;
+}
+
+/* The two sparklines at the top of a container's page. */
+.docker-vitals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 28px;
+  margin-bottom: 18px;
+}
+@media (max-width: 640px) {
+  .docker-vitals {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.docker-vital {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.docker-vital > span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.docker-vital strong {
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+.spark {
+  display: block;
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  margin: 4px 0;
+  overflow: visible;
+}
+.spark-line {
+  fill: none;
+  stroke: var(--series);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.spark-dot {
+  fill: var(--series);
+}
+.spark-limit,
+.chart-limit line {
+  stroke: var(--down);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  shape-rendering: crispEdges;
+}
+.chart-limit text {
+  fill: var(--down);
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }

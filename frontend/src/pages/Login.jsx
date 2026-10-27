@@ -22,6 +22,7 @@ export default function Login() {
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [capsLock, setCapsLock] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const [alarm, setAlarm] = useState(false)
@@ -37,6 +38,12 @@ export default function Login() {
     return () => clearTimeout(timer)
   }, [alarm])
   useEffect(() => () => clearTimeout(blipTimer.current), [])
+
+  // Browsers only report Caps Lock on key events, so it is read from each key
+  // and cleared when the field loses focus.
+  function noteCapsLock(event) {
+    setCapsLock(event.getModifierState?.('CapsLock') ?? false)
+  }
 
   // Each key quickens the heartbeat for a moment.
   function onType() {
@@ -90,7 +97,11 @@ export default function Login() {
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={noteCapsLock}
+              onKeyUp={noteCapsLock}
+              onBlur={() => setCapsLock(false)}
               autoComplete="current-password"
+              aria-describedby={capsLock ? 'caps-lock-warning' : undefined}
               required
             />
             <button
@@ -103,6 +114,11 @@ export default function Login() {
               {showPassword ? 'Hide' : 'Show'}
             </button>
           </div>
+          {capsLock && (
+            <span id="caps-lock-warning" className="caps-warning" role="status">
+              Caps Lock is on
+            </span>
+          )}
         </label>
         <button className="btn btn-primary btn-block" disabled={busy}>
           <BusyRing busy={busy} failed={!!error} />

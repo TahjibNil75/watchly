@@ -98,8 +98,8 @@ function withLock(name, callback) {
 }
 
 // `text: true` returns a successful body as a string instead of parsing JSON,
-// for downloads; errors are JSON either way.
-async function request(path, { method = 'GET', body, query, text = false } = {}) {
+// for downloads, and `blob: true` as a Blob, for images; errors are JSON either way.
+async function request(path, { method = 'GET', body, query, text = false, blob = false } = {}) {
   const url = new URL(API_ORIGIN + path, window.location.origin)
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined && value !== null && value !== '') {
@@ -130,6 +130,7 @@ async function request(path, { method = 'GET', body, query, text = false } = {})
 
   if (res.status === 204) return null
   if (text && res.ok) return res.text()
+  if (blob && res.ok) return res.blob()
   const data = await res.json().catch(() => null)
   if (!res.ok) {
     // A 401 without a token means another tab signed out and took it from
@@ -225,6 +226,8 @@ export const api = {
   // after_id: only events newer than that one.
   websiteEvents: (query) => v1('/monitoring/websites/events', { query }),
   getWebsite: (id) => v1(`/monitoring/websites/${id}`),
+  // The icon as an image Blob, or null when the site has none.
+  websiteFavicon: (id) => v1(`/monitoring/websites/${id}/favicon`, { blob: true }),
   createWebsite: (payload) => v1('/monitoring/websites', { method: 'POST', body: payload }),
   updateWebsite: (id, payload) =>
     v1(`/monitoring/websites/${id}`, { method: 'PATCH', body: payload }),

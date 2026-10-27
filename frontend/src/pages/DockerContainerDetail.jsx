@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api.js'
-import { Empty, ErrorBanner, Loading, PageHeader } from '../components.jsx'
-import { ConditionBadge, EventFeed, MetricChart, Usage } from '../Docker.jsx'
-import { PROBLEM_LABELS, memory, rate } from '../docker.js'
+import { Breadcrumbs, Empty, ErrorBanner, Loading, PageHeader } from '../components.jsx'
+import { ConditionBadge, EventFeed, MetricChart, RestartBadge, Sparkline } from '../Docker.jsx'
+import { PROBLEM_LABELS, cpuShare, memory, memoryLimit, pct, rate } from '../docker.js'
 import { dateTime, since, timeAgo } from '../format.js'
 import { useApi } from '../useApi.js'
 
@@ -23,10 +23,71 @@ function Fact({ label, children }) {
   )
 }
 
-function Charts({ container }) {
+// The limit worth drawing, once the host has said how much memory it has: a
+// container without a limit reports the host's total, which isn't one.
+function useMemoryLimit(host, statsLimit) {
+  const ready = Boolean(host.data || host.error)
+  return ready ? memoryLimit(statsLimit, host.data?.mem_total_bytes) : null
+}
+
+// The last day at a glance: where CPU and memory are now, and the shape of the
+// day behind them. Memory is drawn against its limit.
+function Vitals({ container, host }) {
+  const stats = useApi(() => api.containerStats(container.id, '24h'), [container.id], { pollMs: 60000 })
+  const s = stats.data
+  const limit = useMemoryLimit(host, s?.mem_limit_bytes)
+  const cpus = s?.cpus || host.data?.cpus || 1
+  const points = s?.points ?? []
+  const cpuValues = points.map((p) => (p.cpu_avg == null ? null : p.cpu_avg / cpus))
+  const memValues = points.map((p) => p.mem_avg)
+  const m = container.metrics
+  const live = m && ['running', 'unhealthy'].includes(container.condition)
+  const cpuNow = live ? cpuShare(m.cpu_pct, cpus) : null
+  const memPeak = Math.max(0, ...points.map((p) => p.mem_max ?? 0))
+  const cpuPeak = Math.max(0, ...cpuValues.map((v) => v ?? 0))
+
+  const none = !points.length && (
+    <span className="muted small">{stats.loading ? 'Loading…' : 'No samples in the last day.'}</span>
+  )
+  return (
+    <div className="docker-vitals">
+      <div className="docker-vital">
+        <span>CPU, share of the host</span>
+        <strong>{cpuNow == null ? '—' : pct(cpuNow, cpuNow < 10 ? 1 : 0)}</strong>
+        {none || (
+          <Sparkline
+            values={cpuValues}
+            floor={5}
+            label={`CPU over the last 24 hours, average, peaking at ${pct(cpuPeak, cpuPeak < 10 ? 1 : 0)} of the host`}
+          />
+        )}
+        <span>Last 24 hours</span>
+      </div>
+      <div className="docker-vital">
+        <span>Memory{limit ? ` of ${memory(limit)}` : ''}</span>
+        <strong>
+          {live ? memory(m.mem_used_bytes) : '—'}
+          {live && limit && <span className="muted"> · {pct((m.mem_used_bytes / limit) * 100)}</span>}
+        </strong>
+        {none || (
+          <Sparkline
+            values={memValues}
+            limit={limit ?? undefined}
+            floor={1}
+            label={`Memory over the last 24 hours, average, peaking at ${memory(memPeak)}${limit ? ` against a ${memory(limit)} limit` : ''}`}
+          />
+        )}
+        <span>{limit ? 'Last 24 hours · dashed line is the limit' : 'Last 24 hours · no limit set'}</span>
+      </div>
+    </div>
+  )
+}
+
+function Charts({ container, host }) {
   const [range, setRange] = useState('24h')
   const stats = useApi(() => api.containerStats(container.id, range), [container.id, range], { pollMs: 60000 })
   const s = stats.data
+  const limit = useMemoryLimit(host, s?.mem_limit_bytes)
   // cpu is 100 per core; the chart shows the share of the whole host.
   const cpus = s?.cpus || 1
   const points = (s?.points ?? []).map((p) => ({
@@ -78,13 +139,14 @@ function Charts({ container }) {
           </div>
           <div>
             <h3>Memory</h3>
-            <p className="muted small">{s.mem_limit_bytes ? `Limit ${memory(s.mem_limit_bytes)}` : 'Without page cache'}</p>
+            <p className="muted small">{limit ? `Limit ${memory(limit)}` : 'Without page cache'}</p>
             <MetricChart
               points={points}
               daily={daily}
               label="Memory use over time"
               format={memory}
               binary
+              limit={limit ? { value: limit, label: `limit ${memory(limit)}` } : undefined}
               series={[
                 { key: 'mem_avg', label: 'average', className: 'series-1' },
                 { key: 'mem_max', label: 'peak', className: 'series-2' },
@@ -149,13 +211,23 @@ export default function DockerContainerDetail() {
 
   return (
     <>
-      <p className="crumbs">
-        <Link to="/docker">Docker</Link> / <Link to={`/docker/hosts/${c.host.id}`}>{c.host.name}</Link>
-      </p>
+      <Breadcrumbs
+        items={[
+          ...(host.data?.project
+            ? [
+                { label: 'Projects', to: '/projects' },
+                { label: host.data.project.name, to: `/projects/${host.data.project.id}` },
+              ]
+            : [{ label: 'Docker', to: '/docker' }]),
+          { label: c.host.name, to: `/docker/hosts/${c.host.id}` },
+          { label: c.name },
+        ]}
+      />
       <PageHeader
         title={
           <>
             {c.name} <ConditionBadge condition={c.condition} />
+            <RestartBadge count={c.restart_count} looping={Boolean(c.problems?.restart_loop)} />
             {c.muted && <span className="badge badge-paused">muted</span>}
           </>
         }
@@ -197,10 +269,8 @@ export default function DockerContainerDetail() {
       )}
 
       <section className="card">
+        {c.condition !== 'removed' && <Vitals container={c} host={host} />}
         <div className="kv kv-inline">
-          <Fact label="Uses">
-            <Usage container={c} cpus={host.data?.cpus} />
-          </Fact>
           <Fact label="Docker state">{c.status_text ?? c.state}</Fact>
           <Fact label="Health">{c.health === 'none' ? 'no healthcheck' : c.health}</Fact>
           <Fact label="Restarts">{c.restart_count}</Fact>
@@ -224,7 +294,7 @@ export default function DockerContainerDetail() {
         )}
       </section>
 
-      {c.condition === 'removed' ? null : <Charts container={c} />}
+      {c.condition === 'removed' ? null : <Charts container={c} host={host} />}
 
       <section className="section">
         <h2>Activity</h2>

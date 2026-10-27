@@ -12,8 +12,10 @@ import {
   rtt,
 } from '../checkTypes.js'
 import {
+  Breadcrumbs,
   CheckTypeBadge,
   ConfirmDialog,
+  CopyButton,
   Empty,
   EnvironmentBadge,
   ErrorBanner,
@@ -25,6 +27,7 @@ import { bytes, calendarDate, dateTime, duration, percent, since, timeAgo, until
 import Maintenance from '../Maintenance.jsx'
 import { canManageProject } from '../roles.js'
 import SiteHistory from '../SiteHistory.jsx'
+import SiteIcon from '../SiteIcon.jsx'
 import { useApi } from '../useApi.js'
 import WebsiteForm from '../WebsiteForm.jsx'
 import PeoplePicker from '../PeoplePicker.jsx'
@@ -181,6 +184,7 @@ function CheckDetails({ check: c }) {
               <dt>Server address</dt>
               <dd>
                 <code>{c.ip_address}</code>
+                <CopyButton text={c.ip_address} label="server address" />
               </dd>
             </div>
           )}
@@ -347,7 +351,8 @@ function MailDetails({ check: c }) {
           <div>
             <dt>Server address</dt>
             <dd>
-              <code>{c.ip_address}</code> · port {m.port}
+              <code>{c.ip_address}</code>
+              <CopyButton text={c.ip_address} label="server address" /> · port {m.port}
             </dd>
           </div>
         )}
@@ -1036,6 +1041,7 @@ function ServerCard({ site: s }) {
               <dt>Address</dt>
               <dd>
                 <code>{server.ip}</code>
+                <CopyButton text={server.ip} label="address" />
               </dd>
             </div>
             {server.ptr && (
@@ -1094,7 +1100,10 @@ function ServerCard({ site: s }) {
                 <dd>
                   <div className="ns-list">
                     {others.map((ip) => (
-                      <code key={ip}>{ip}</code>
+                      <span key={ip}>
+                        <code>{ip}</code>
+                        <CopyButton text={ip} label="address" />
+                      </span>
                     ))}
                   </div>
                 </dd>
@@ -1341,6 +1350,7 @@ function SiteHero({ site: s, checks, children }) {
         </span>
         <div className="site-hero-title">
           <h1>
+            <SiteIcon site={s} className="site-icon-lg" />
             {s.name}
             <EnvironmentBadge environment={s.environment} />
             <CheckTypeBadge site={s} />
@@ -1364,6 +1374,7 @@ function SiteHero({ site: s, checks, children }) {
                 </Icon>
               </a>
             )}
+            <CopyButton text={s.url} label={isPing(s) || isMail(s) || isDns(s) ? 'host' : 'URL'} />
           </p>
         </div>
         {children && <div className="actions">{children}</div>}
@@ -1637,15 +1648,17 @@ export default function WebsiteDetail() {
 
   return (
     <>
-      <p className="crumbs">
-        <Link to="/websites">Websites</Link>
-        {project.data && (
-          <>
-            {' / '}
-            <Link to={`/projects/${project.data.id}`}>{project.data.name}</Link>
-          </>
-        )}
-      </p>
+      <Breadcrumbs
+        items={
+          project.data
+            ? [
+                { label: 'Projects', to: '/projects' },
+                { label: project.data.name, to: `/projects/${project.data.id}` },
+                { label: s.name },
+              ]
+            : [{ label: 'Websites', to: '/websites' }, { label: s.name }]
+        }
+      />
       <SiteHero site={s} checks={checks.data ?? []}>
         {canManage && (
           <>

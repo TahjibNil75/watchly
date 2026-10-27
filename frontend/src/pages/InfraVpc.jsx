@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
-import { ConfirmDialog, Empty, ErrorBanner, Loading } from '../components.jsx'
+import { Breadcrumbs, ConfirmDialog, Empty, ErrorBanner, Loading } from '../components.jsx'
 import { dateTime, since, timeAgo } from '../format.js'
 import { ResourceTable } from '../Infra.jsx'
 import { STATES } from '../infra.js'
@@ -121,17 +121,13 @@ export default function InfraVpc() {
 
   return (
     <>
-      <p className="crumbs">
-        <Link to="/infra">Infrastructure</Link>
-        {' / '}
-        <Link to={`/projects/${v.project.id}`}>{v.project.name}</Link>
-        {canViewAllProjects(user) && (
-          <>
-            {' / '}
-            <Link to="/infra/settings">AWS &amp; access</Link>
-          </>
-        )}
-      </p>
+      <Breadcrumbs
+        items={[
+          { label: 'Projects', to: '/projects' },
+          { label: v.project.name, to: `/projects/${v.project.id}` },
+          { label: v.name },
+        ]}
+      />
       <header className="page-header">
         <div>
           <h1>
@@ -200,7 +196,7 @@ export default function InfraVpc() {
             <div>
               <dt>AWS account</dt>
               <dd>
-                {v.account.name}
+                {canViewAllProjects(user) ? <Link to="/infra/settings">{v.account.name}</Link> : v.account.name}
                 {v.account.aws_account_id && <span className="muted record"> · {v.account.aws_account_id}</span>}
               </dd>
             </div>

@@ -16,6 +16,7 @@ from app.monitoring.projects.service import (
 from app.monitoring.exports import csv_response, stats_csv
 from app.monitoring.infra.aws.models import AwsAccount
 from app.monitoring.service import MonitoringService
+from app.monitoring.websites.favicon import favicon_for
 from app.monitoring.websites.history import HistoryService
 from app.monitoring.websites.models import CheckType, WebsiteStatus
 from app.monitoring.websites.pinger import IcmpUnavailableError
@@ -345,6 +346,51 @@ async def read_website(
     except WebsiteNotFoundError as exc:
         raise _not_found(exc) from exc
     return WebsiteRead.model_validate(website)
+
+
+@router.get(
+    "/{website_id}/favicon",
+    summary="Get a website's favicon",
+    response_class=Response,
+    responses={
+        200: {"content": {"image/*": {}}, "description": "The icon, as an image"},
+        204: {"description": "The site has no icon to show"},
+        404: {"description": "No such monitored website"},
+    },
+)
+async def read_website_favicon(
+    website_id: int = Path(ge=1),
+    actor: User = Depends(get_current_user),
+    service: WebsiteService = Depends(get_website_service),
+) -> Response:
+    """The icon the site names in its page, or `/favicon.ico`, fetched by
+    Watchly (never by the caller's browser) and cached for a day. Only HTTP
+    checks have one."""
+    try:
+        website = await service.get_visible(website_id, actor)
+    except WebsiteNotFoundError as exc:
+        raise _not_found(exc) from exc
+    url, check_type = website.url, website.check_type
+    # The fetch can take seconds: give the connection back first.
+    await service.session.rollback()
+    icon = await favicon_for(url, check_type)
+    if icon is None:
+        # Not a 404: a site without an icon is ordinary, and a list of them
+        # should not fill the browser console with failed requests.
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT,
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+    return Response(
+        icon.data,
+        media_type=icon.content_type,
+        headers={
+            "Cache-Control": "private, max-age=86400",
+            # An SVG opened on its own page must not run anything.
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.patch(

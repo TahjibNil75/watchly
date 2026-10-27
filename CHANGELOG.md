@@ -12,6 +12,13 @@ major version.
 
 ### Added
 
+- Site favicons beside website names in the website tables, the Overview's
+  down list and a site's page, with a coloured first-letter tile for a site
+  that has none. `GET /monitoring/websites/{id}/favicon` fetches the icon
+  server-side through the check egress rules and caches it, so no monitored
+  hostname goes to a third-party favicon service and a site on a private
+  network (with `WEBSITE_PRIVATE_TARGETS=allow`) still gets its icon; `204`
+  when there is none.
 - `RATE_LIMIT_CHECK_NOW` (`10/minute`) and `RATE_LIMIT_SEND_REPORT`
   (`5/hour`): "Check now" on websites and infrastructure resources, and "Send
   report", are limited per signed-in user and answer `429` with `Retry-After`

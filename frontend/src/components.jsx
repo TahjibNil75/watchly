@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { checkType } from './checkTypes.js'
 import { environmentLabel } from './environments.js'
@@ -6,6 +6,7 @@ import { duration, initials, since, timeAgo } from './format.js'
 import { passwordRules } from './password.js'
 import { ROLES, roleClass } from './roles.js'
 import Select from './Select.jsx'
+import SiteIcon from './SiteIcon.jsx'
 
 export function RolePill({ role }) {
   return <span className={`role-pill ${roleClass(role)}`}>{role}</span>
@@ -170,6 +171,78 @@ export function ConfirmDialog({
   )
 }
 
+// Clipboard API needs https or localhost; on plain http fall back to a
+// throwaway textarea so the button still works.
+async function writeClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // Denied: try the fallback below.
+    }
+  }
+  const area = document.createElement('textarea')
+  area.value = text
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  area.select()
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    area.remove()
+  }
+}
+
+// `copy(text)` puts text on the clipboard; `copied` stays true for a moment after.
+export function useCopy() {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef(null)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const copy = async (text) => {
+    if (!(await writeClipboard(text))) return
+    setCopied(true)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setCopied(false), 1800)
+  }
+  return [copied, copy]
+}
+
+// A small button that copies `text` and says "Copied" for a moment.
+export function CopyButton({ text, label = 'value' }) {
+  const [copied, copy] = useCopy()
+  return (
+    <>
+      <button
+        type="button"
+        className={copied ? 'copy-btn copied' : 'copy-btn'}
+        onClick={() => copy(text)}
+        aria-label={`Copy ${label}`}
+        title={`Copy ${label}`}
+      >
+        {copied ? (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m5 12 5 5 9-10" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="9" y="9" width="11" height="11" rx="2" />
+            <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+          </svg>
+        )}
+        {copied && <span className="copy-done">Copied</span>}
+      </button>
+      <span className="visually-hidden" role="status">
+        {copied ? `Copied ${label}` : ''}
+      </span>
+    </>
+  )
+}
+
 export function Loading({ label = 'Loading…' }) {
   return <p className="muted loading">{label}</p>
 }
@@ -183,6 +256,30 @@ export function PageHeader({ title, subtitle, children }) {
       </div>
       {children && <div className="actions">{children}</div>}
     </header>
+  )
+}
+
+// Where this page sits: `items` run from the top down, each `{ label, to }`.
+// The last one is the page itself and has no `to`.
+export function Breadcrumbs({ items }) {
+  return (
+    <nav className="crumbs" aria-label="Breadcrumb">
+      <ol>
+        {items.map((item) => (
+          <li key={item.to ?? item.label}>
+            {item.to ? (
+              <Link to={item.to} title={item.label}>
+                {item.label}
+              </Link>
+            ) : (
+              <span aria-current="page" title={item.label}>
+                {item.label}
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </nav>
   )
 }
 
@@ -240,10 +337,15 @@ export function WebsiteTable({ sites, projectNames, emptyLabel }) {
                 />
               </td>
               <td>
-                <Link to={`/websites/${site.id}`} className="strong-link">
-                  {site.name}
-                </Link>
-                <div className="muted small truncate">{site.url}</div>
+                <div className="site-name">
+                  <SiteIcon site={site} />
+                  <div className="site-name-text">
+                    <Link to={`/websites/${site.id}`} className="strong-link">
+                      {site.name}
+                    </Link>
+                    <div className="muted small truncate">{site.url}</div>
+                  </div>
+                </div>
               </td>
               <td>
                 <CheckTypeBadge site={site} />

@@ -5,6 +5,7 @@ import { CONDITIONS, matchesFilter, useDockerEnabled } from '../docker.js'
 import { DockerIcon } from '../Docker.jsx'
 import { timeAgo } from '../format.js'
 import { stateLabel, useInfraEnabled } from '../infra.js'
+import SiteIcon from '../SiteIcon.jsx'
 import { useApi } from '../useApi.js'
 
 const POLL_MS = 30000
@@ -82,6 +83,7 @@ function useAttention({ infra, docker }) {
       key: `site-${site.id}`,
       to: `/websites/${site.id}`,
       source: 'websites',
+      site,
       name: site.name,
       detail: site.url,
       badge: 'down',
@@ -179,6 +181,7 @@ function Lane({ to, icon, label, counts, split, empty, rows, loading }) {
                 <li key={row.key}>
                   <Link to={row.to} className="overview-row">
                     <span className={`badge badge-${row.badge}`}>{row.label}</span>
+                    {row.site && <SiteIcon site={row.site} />}
                     <span className="overview-row-main">
                       <strong>{row.name}</strong>
                       {row.detail && <span className="muted small">{row.detail}</span>}

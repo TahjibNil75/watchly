@@ -834,6 +834,14 @@ belong to, and anything else reads as `404`.
 | `POST` | `/monitoring/projects/{project_id}/members` | `200 403 404 422` |
 | `DELETE` | `/monitoring/projects/{project_id}/members/{user_id}` | `200 403 404 422` |
 
+`.../favicon` is the site's icon as an image, fetched by Watchly itself through
+the same egress rules as a check (so it reaches only what a check may, and the
+browser and the monitored site never meet) and cached in memory per origin for a
+day, an hour for a miss. It reads the page's `<link rel="icon">`, then
+`/favicon.ico`, and keeps a PNG, ICO, GIF, JPEG, WebP or SVG of at most 128 KB,
+judged by its bytes rather than the `Content-Type` the site sends. `204` means
+the site has none, which includes every check type but HTTP.
+
 List filters: `limit` (1–100), `offset`, `is_active`, `owner_id`.
 
 ### Monitoring — websites
@@ -848,6 +856,7 @@ List filters: `limit` (1–100), `offset`, `is_active`, `owner_id`.
 | `DELETE` | `/monitoring/websites/{website_id}` | `204 403 404 422` |
 | `POST` | `/monitoring/websites/{website_id}/recipients` | `200 403 404 422` |
 | `DELETE` | `/monitoring/websites/{website_id}/recipients/{user_id}` | `200 403 404 422` |
+| `GET` | `/monitoring/websites/{website_id}/favicon` | `200 204 404 422` |
 | `GET` | `/monitoring/websites/{website_id}/checks` | `200 404 422` |
 | `GET` | `/monitoring/websites/{website_id}/stats` | `200 404 422` |
 | `POST` | `/monitoring/websites/{website_id}/check` | `200 403 404 422` |

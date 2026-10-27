@@ -3,7 +3,7 @@
 // adds, edits, tests and removes them. Mirrors /monitoring/infra/aws/accounts.
 import { useState } from 'react'
 import { api } from './api.js'
-import { BusyRing, ConfirmDialog, EnvironmentBadge, Empty, ErrorBanner, Loading } from './components.jsx'
+import { BusyRing, ConfirmDialog, CopyButton, EnvironmentBadge, Empty, ErrorBanner, Loading } from './components.jsx'
 import { ENVIRONMENTS } from './environments.js'
 import { timeAgo } from './format.js'
 import { RegionSelect } from './Infra.jsx'
@@ -412,7 +412,14 @@ export function AwsAccountsCard({ projectId }) {
               </button>
             </h3>
             <p className="small record">
-              {t.caller ? t.caller.arn : <span className="text-down">{t.caller_error}</span>}
+              {t.caller ? (
+                <>
+                  {t.caller.arn}
+                  <CopyButton text={t.caller.arn} label="ARN" />
+                </>
+              ) : (
+                <span className="text-down">{t.caller_error}</span>
+              )}
             </p>
             <ul className="perm-list">
               {t.permissions.map((p) => (
