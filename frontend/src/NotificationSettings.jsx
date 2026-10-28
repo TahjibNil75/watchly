@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 import ChannelLogo from './ChannelLogo.jsx'
 import { CHANNELS } from './channels.js'
-import { BusyRing, ErrorBanner, Loading } from './components.jsx'
+import { BusyRing, ErrorBanner, Loading, useConfirm } from './components.jsx'
 import { useApi } from './useApi.js'
 
 // Each kind's colour, icon (24x24 strokes, like the dashboard's) and group. A
@@ -640,6 +640,7 @@ function KindEditor({ setting, scope, canEdit, channels, titleTag: Title, onSave
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [confirm, confirmDialog] = useConfirm()
   const subjectRef = useRef(null)
   const bodyRef = useRef(null)
   const lastFocused = useRef('body')
@@ -669,10 +670,18 @@ function KindEditor({ setting, scope, canEdit, channels, titleTag: Title, onSave
   }
 
   const save = () => run(() => onSave(setting.kind, buildPayload(setting, draft)))
-  const reset = () => {
+  const reset = async () => {
     const to = scope === 'project' ? 'inherit the global wording again' : 'go back to the built-in wording'
-    if (!window.confirm(`Reset “${setting.label}”? It will ${to}.`)) return
-    run(() => onReset(setting.kind))
+    const ok = await confirm({
+      title: 'Reset this message?',
+      body: (
+        <>
+          <strong>{setting.label}</strong> will {to}. Your edits to it are lost.
+        </>
+      ),
+      confirmLabel: 'Reset',
+    })
+    if (ok) run(() => onReset(setting.kind))
   }
 
   function insertPlaceholder(name) {
@@ -844,6 +853,7 @@ function KindEditor({ setting, scope, canEdit, channels, titleTag: Title, onSave
           )}
         </div>
       )}
+      {confirmDialog}
     </div>
   )
 }

@@ -10,6 +10,7 @@ import {
   ErrorBanner,
   Loading,
   PersonList,
+  useConfirm,
 } from '../components.jsx'
 import { dateTime, percent, since, timeAgo } from '../format.js'
 import InfraCheckForm from '../InfraCheckForm.jsx'
@@ -173,6 +174,7 @@ function CheckRow({ resource, check, canManage, onChange, onError }) {
   const [editing, setEditing] = useState(false)
   const [diagnosis, setDiagnosis] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [confirm, confirmDialog] = useConfirm()
 
   async function run(action) {
     setBusy(true)
@@ -189,9 +191,17 @@ function CheckRow({ resource, check, canManage, onChange, onError }) {
   const diagnose = () =>
     run(async () => setDiagnosis(await api.infraDiagnose({ resource_id: resource.id, check_id: check.id })))
   const toggle = () => run(async () => onChange(await api.updateCheck(resource.id, check.id, { is_enabled: !check.is_enabled })))
-  const remove = () => {
-    if (!window.confirm(`Remove the check “${check.name}”? Its history goes with it.`)) return
-    run(async () => onChange(await api.deleteCheck(resource.id, check.id)))
+  const remove = async () => {
+    const ok = await confirm({
+      title: 'Remove this check?',
+      body: (
+        <>
+          <strong>{check.name}</strong> stops being watched, and its history goes with it.
+        </>
+      ),
+      confirmLabel: 'Remove',
+    })
+    if (ok) run(async () => onChange(await api.deleteCheck(resource.id, check.id)))
   }
 
   const snapshot = snapshotLine(check)
@@ -249,6 +259,7 @@ function CheckRow({ resource, check, canManage, onChange, onError }) {
           }}
         />
       )}
+      {confirmDialog}
     </li>
   )
 }

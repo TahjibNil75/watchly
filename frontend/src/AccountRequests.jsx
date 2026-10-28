@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api } from './api.js'
-import { Empty, ErrorBanner, Loading } from './components.jsx'
+import { Empty, ErrorBanner, Loading, useConfirm } from './components.jsx'
 import { timeAgo } from './format.js'
 import { useApi } from './useApi.js'
 
@@ -48,6 +48,7 @@ export function AccountRequestList({ onNotice, onApproved }) {
   const [status, setStatus] = useState('pending')
   const [pending, setPending] = useState(null)
   const [actionError, setActionError] = useState(null)
+  const [confirm, confirmDialog] = useConfirm()
   const requests = useApi(() => api.listAccountRequests({ status }), [status])
   const items = requests.data?.items ?? []
 
@@ -170,10 +171,18 @@ export function AccountRequestList({ onNotice, onApproved }) {
                             type="button"
                             className="btn btn-sm btn-danger"
                             disabled={busy}
-                            onClick={() => {
-                              if (window.confirm(`Reject the request from ${request.email}? They are told by email and cannot ask again unless you unblock them.`)) {
-                                decide(request, () => api.rejectAccountRequest(request.id))
-                              }
+                            onClick={async () => {
+                              const ok = await confirm({
+                                title: 'Reject this request?',
+                                body: (
+                                  <>
+                                    <strong>{request.email}</strong> is told by email and cannot ask again
+                                    unless you unblock them.
+                                  </>
+                                ),
+                                confirmLabel: 'Reject',
+                              })
+                              if (ok) decide(request, () => api.rejectAccountRequest(request.id))
                             }}
                           >
                             Reject
@@ -185,10 +194,18 @@ export function AccountRequestList({ onNotice, onApproved }) {
                           type="button"
                           className="btn btn-sm"
                           disabled={busy}
-                          onClick={() => {
-                            if (window.confirm(`Unblock ${request.email}? They may ask for an account again.`)) {
-                              unblock(request)
-                            }
+                          onClick={async () => {
+                            const ok = await confirm({
+                              title: 'Unblock this person?',
+                              body: (
+                                <>
+                                  <strong>{request.email}</strong> may ask for an account again.
+                                </>
+                              ),
+                              confirmLabel: 'Unblock',
+                              tone: 'primary',
+                            })
+                            if (ok) unblock(request)
                           }}
                         >
                           Unblock
@@ -207,6 +224,7 @@ export function AccountRequestList({ onNotice, onApproved }) {
           )}
         </div>
       )}
+      {confirmDialog}
     </section>
   )
 }

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { checkType } from './checkTypes.js'
 import { environmentLabel } from './environments.js'
@@ -102,16 +102,21 @@ export function ErrorBanner({ error }) {
   )
 }
 
-// A modal that guards a destructive action: the confirm button stays disabled
-// until the user types the word. `onConfirm` runs the action; the caller closes
-// the dialog through `onCancel` or by navigating away. `error` is the page's
-// action error: once the user has confirmed, it shows here, since the dialog
-// covers the page's own banner.
+// A modal that guards a risky action. By default the confirm button stays
+// disabled until the user types the word (deleting things). Pass `word={null}`
+// for the lighter form: just Cancel and the confirm button, for actions that
+// are easy to undo or only cost a click to redo. `tone` colours the icon and
+// the confirm button: 'danger' (red) or 'primary' (green). The simple form
+// starts with focus on Cancel when red, on the confirm button when green. `onConfirm` runs
+// the action; the caller closes the dialog through `onCancel` or by navigating
+// away. `error` is the page's action error: once the user has confirmed, it
+// shows here, since the dialog covers the page's own banner.
 export function ConfirmDialog({
   title,
   children,
   word = 'confirm',
   confirmLabel = 'Delete',
+  tone = 'danger',
   busy = false,
   error = null,
   onConfirm,
@@ -120,7 +125,8 @@ export function ConfirmDialog({
   const [typed, setTyped] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const inputId = useId()
-  const ready = typed.trim().toLowerCase() === word
+  const simple = word === null
+  const ready = simple || typed.trim().toLowerCase() === word
 
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && !busy && onCancel()
@@ -131,7 +137,7 @@ export function ConfirmDialog({
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !busy && onCancel()}>
       <form
-        className="modal card"
+        className={`modal card modal-${tone}`}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={`${inputId}-title`}
@@ -143,32 +149,84 @@ export function ConfirmDialog({
           }
         }}
       >
-        <h2 id={`${inputId}-title`}>{title}</h2>
-        <div className="modal-body muted small">{children}</div>
-        {confirmed && !busy && <ErrorBanner error={error} />}
-        <label className="field" htmlFor={inputId}>
-          <span>
-            Type <strong>{word}</strong> to continue
+        <div className="modal-head">
+          <span className="modal-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              {tone === 'danger' ? <path d="M12 3.5 2.5 20h19zM12 10v4M12 17v.01" /> : <path d="M12 8v.01M12 12v4M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" />}
+            </svg>
           </span>
-          <input
-            id={inputId}
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            autoComplete="off"
-            autoFocus
-          />
-        </label>
+          <h2 id={`${inputId}-title`}>{title}</h2>
+        </div>
+        <div className="modal-body">{children}</div>
+        {confirmed && !busy && <ErrorBanner error={error} />}
+        {!simple && (
+          <label className="field" htmlFor={inputId}>
+            <span>
+              Type <strong>{word}</strong> to continue
+            </span>
+            <input
+              id={inputId}
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              autoComplete="off"
+              autoFocus
+            />
+          </label>
+        )}
         <div className="modal-actions">
-          <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+          {/* A red confirmation starts on Cancel, so a stray Enter does no harm. */}
+          <button type="button" className="btn" onClick={onCancel} disabled={busy} autoFocus={simple && tone === 'danger'}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-danger-solid" disabled={!ready || busy}>
+          <button
+            type="submit"
+            className={`btn ${tone === 'danger' ? 'btn-danger-solid' : 'btn-primary'}`}
+            disabled={!ready || busy}
+            autoFocus={simple && tone !== 'danger'}
+          >
             {confirmLabel}
           </button>
         </div>
       </form>
     </div>
   )
+}
+
+// A stand-in for window.confirm that wears the app's theme:
+//
+//   const [confirm, confirmDialog] = useConfirm()
+//   if (!(await confirm({ title: 'Revoke invitation?', body: '…', confirmLabel: 'Revoke' }))) return
+//   …
+//   return <>…{confirmDialog}</>
+//
+// It resolves true when the user confirms, false when they cancel, press
+// Escape or click outside. It asks once the action is chosen, not typed, so it
+// uses the dialog's simple form.
+export function useConfirm() {
+  const [ask, setAsk] = useState(null)
+
+  const confirm = useCallback(
+    (options) => new Promise((resolve) => setAsk({ ...options, resolve })),
+    [],
+  )
+  const answer = (value) => {
+    ask.resolve(value)
+    setAsk(null)
+  }
+
+  const dialog = ask && (
+    <ConfirmDialog
+      word={null}
+      title={ask.title}
+      confirmLabel={ask.confirmLabel ?? 'Confirm'}
+      tone={ask.tone ?? 'danger'}
+      onConfirm={() => answer(true)}
+      onCancel={() => answer(false)}
+    >
+      {ask.body}
+    </ConfirmDialog>
+  )
+  return [confirm, dialog]
 }
 
 // Clipboard API needs https or localhost; on plain http fall back to a
@@ -309,11 +367,18 @@ export function PersonList({ people, onRemove, emptyLabel }) {
   )
 }
 
+// The colour of a row's left rail: what StatusBadge shows, as a class suffix.
+function siteRowState(site) {
+  if (!site.is_enabled) return 'paused'
+  if (site.maintenance) return 'maintenance'
+  return site.status
+}
+
 export function WebsiteTable({ sites, projectNames, emptyLabel }) {
   if (!sites.length) return <Empty>{emptyLabel}</Empty>
   return (
-    <div className="table-wrap">
-      <table>
+    <div className="table-wrap site-table-wrap">
+      <table className="site-table">
         <thead>
           <tr>
             <th>Status</th>
@@ -328,7 +393,7 @@ export function WebsiteTable({ sites, projectNames, emptyLabel }) {
         </thead>
         <tbody>
           {sites.map((site) => (
-            <tr key={site.id}>
+            <tr key={site.id} className={`site-table-row site-table-row-${siteRowState(site)}`}>
               <td>
                 <StatusBadge
                   status={site.status}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
-import { ErrorBanner } from './components.jsx'
+import { ErrorBanner, useConfirm } from './components.jsx'
 import { dateTime, dayKey, duration, timeOfDay, until, zonedInputToIso, zonedNowInput } from './format.js'
 import { activeZone } from './prefs.js'
 import Select from './Select.jsx'
@@ -53,6 +53,7 @@ export default function Maintenance({
   const [plan, setPlan] = useState({ starts_at: '', ends_at: '', reason: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [confirm, confirmDialog] = useConfirm()
 
   const active = site.maintenance
   const upcoming = site.upcoming_maintenance
@@ -104,9 +105,18 @@ export default function Maintenance({
     }
   }
 
-  const cancel = (w) => {
-    if (!window.confirm(`Cancel the maintenance planned for ${span(w)}?`)) return
-    run(() => actions.cancel(site.id, w.id))
+  const cancel = async (w) => {
+    const ok = await confirm({
+      title: 'Cancel this maintenance?',
+      body: (
+        <>
+          The window planned for <strong>{span(w)}</strong> is removed, and checks and alerts carry on as
+          usual.
+        </>
+      ),
+      confirmLabel: 'Remove window',
+    })
+    if (ok) run(() => actions.cancel(site.id, w.id))
   }
 
   const setPlanField = (key) => (e) => setPlan({ ...plan, [key]: e.target.value })
@@ -241,6 +251,7 @@ export default function Maintenance({
           </form>
         </details>
       )}
+      {confirmDialog}
     </section>
   )
 }

@@ -10,6 +10,7 @@ import {
   PageHeader,
   RolePill,
   RoleSelect,
+  useConfirm,
 } from '../components.jsx'
 import { dateTime, timeAgo } from '../format.js'
 import { InvitationList, InviteForm } from '../Invitations.jsx'
@@ -47,6 +48,7 @@ export default function Users() {
   const [pending, setPending] = useState(null)
   const [inviting, setInviting] = useState(false)
   const [notice, setNotice] = useState(null)
+  const [confirm, confirmDialog] = useConfirm()
   // Bumped after an invitation is sent, or an account request approved, so the
   // invitation list reloads.
   const [invitesVersion, setInvitesVersion] = useState(0)
@@ -213,10 +215,18 @@ export default function Users() {
                             type="button"
                             className="btn btn-sm btn-danger"
                             disabled={busy}
-                            onClick={() => {
-                              if (window.confirm(`Suspend ${u.username}? They'll be signed out immediately.`)) {
-                                update(u, () => api.suspendUser(u.id))
-                              }
+                            onClick={async () => {
+                              const ok = await confirm({
+                                title: 'Suspend this user?',
+                                body: (
+                                  <>
+                                    <strong>{u.username}</strong> is signed out immediately and cannot sign in
+                                    again until you reactivate them.
+                                  </>
+                                ),
+                                confirmLabel: 'Suspend',
+                              })
+                              if (ok) update(u, () => api.suspendUser(u.id))
                             }}
                           >
                             Suspend
@@ -255,6 +265,8 @@ export default function Users() {
       {canInvite(me) && (
         <InvitationList me={me} version={invitesVersion} onNotice={setNotice} />
       )}
+
+      {confirmDialog}
     </>
   )
 }

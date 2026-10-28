@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api } from './api.js'
-import { BusyRing, Empty, ErrorBanner, Loading, RolePill } from './components.jsx'
+import { BusyRing, Empty, ErrorBanner, Loading, RolePill, useConfirm } from './components.jsx'
 import { withoutSpaces } from './fields.js'
 import { duration, timeAgo } from './format.js'
 import { canManageInvitation, invitableRoles } from './roles.js'
@@ -113,6 +113,7 @@ export function InvitationList({ me, version, onNotice }) {
   const [status, setStatus] = useState('pending')
   const [pending, setPending] = useState(null)
   const [actionError, setActionError] = useState(null)
+  const [confirm, confirmDialog] = useConfirm()
   const invitations = useApi(() => api.listInvitations({ status }), [status, version])
   const items = invitations.data?.items ?? []
 
@@ -218,10 +219,18 @@ export function InvitationList({ me, version, onNotice }) {
                           type="button"
                           className="btn btn-sm btn-danger"
                           disabled={busy}
-                          onClick={() => {
-                            if (window.confirm(`Revoke the invitation for ${inv.email}? The link stops working.`)) {
-                              act(inv, () => api.revokeInvitation(inv.id))
-                            }
+                          onClick={async () => {
+                            const ok = await confirm({
+                              title: 'Revoke this invitation?',
+                              body: (
+                                <>
+                                  The invitation for <strong>{inv.email}</strong> stops working. You can send
+                                  a new one later.
+                                </>
+                              ),
+                              confirmLabel: 'Revoke',
+                            })
+                            if (ok) act(inv, () => api.revokeInvitation(inv.id))
                           }}
                         >
                           Revoke
@@ -240,6 +249,7 @@ export function InvitationList({ me, version, onNotice }) {
           )}
         </div>
       )}
+      {confirmDialog}
     </section>
   )
 }
